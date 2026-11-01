@@ -52,7 +52,8 @@
         <!-- The PostgreSQL version the build runs against. It is the single
              knob for choosing that version: the jOOQ codegen container and the
              integration tests both use the custom image built on top of it.
-             Override with -Dpostgres.version=16-alpine (or 18-alpine). -->
+             Override with -Dpostgres.version=16-alpine (or 18-alpine, or
+             19rc1-alpine while 19 is a release candidate). -->
         <postgres.version>17-alpine</postgres.version>
         <!-- The image jOOQ codegen and the integration tests run against. It
              must be the custom image built by scripts/build-postgres-image.sh

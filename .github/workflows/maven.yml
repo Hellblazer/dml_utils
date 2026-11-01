@@ -22,7 +22,9 @@ jobs:
     uses: eyupmiduck/workflow_library/.github/workflows/maven.yml@593fcd4bd1fe5a5cb9921360d7365747fc249b62
     with:
       java-version: "25"
-      postgres-versions: '["postgres:16-alpine","postgres:17-alpine","postgres:18-alpine"]'
+      # 19 is a release candidate until its scheduled GA on 2026-11-19; the
+      # tag is explicit so the leg tests that pre-release.
+      postgres-versions: '["postgres:16-alpine","postgres:17-alpine","postgres:18-alpine","postgres:19rc1-alpine"]'
       project: dml_utils
       # Retries once on the known jOOQ-codegen/PostgreSQL startup race; see
       # .github/scripts/maven-verify-retry.sh.
