@@ -2,6 +2,7 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.PublishedRelease;
 import io.github.eyupmiduck.changelogvalidator.testing.UpgradeContract;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.Collection;
 import java.util.List;
@@ -19,7 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * upgrade configuration shares every value with the regular test base except the
  * master changelog: the upgrade test must apply the plain dml_utils changelog,
  * not the install changelog that bundles ddl_utils.
+ *
+ * <p>Suspended while the pre-deployment baseline is edited in place: changing an
+ * existing changeset changes its Liquibase checksum, so upgrading the last
+ * published release is not meaningful until a release is cut from the cleaned
+ * changelog. Restore this test in dml-b87.13 once that baseline exists.
  */
+@Disabled("Pre-deployment baseline edit: changesets are being changed in place; restore in dml-b87.13")
 class LiquibaseUpgradeTest extends UpgradeContract {
 
     @Override
