@@ -289,7 +289,7 @@ class MigrationTablesTest extends PostgresTestBase {
         dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, null, null, null))
                 .execute();
         return runId;
     }
@@ -305,7 +305,7 @@ class MigrationTablesTest extends PostgresTestBase {
         dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(null, new String[]{"abc"}, null))
+                .values(runId, 0L, new MigrationKeyRecord(null, new String[]{"abc"}, null, null))
                 .execute();
 
         assertEquals("abc", dsl.select(MIGRATION_BOUNDARY.BOUNDARY_ID)
@@ -313,6 +313,32 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_BOUNDARY.BOUNDARY_ID)
                 .getTextValues()[0]);
+    }
+
+    /**
+     * A timestamptz boundary key is canonical, including in a mixed composite
+     * key where each position uses a different array.
+     */
+    @Test
+    void acceptsATimestamptzBoundaryKey() {
+        Long runId = insertRun();
+        OffsetDateTime timestamp = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+
+        dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 0L, new MigrationKeyRecord(
+                        new Long[]{null, 5L}, null, null,
+                        new OffsetDateTime[]{timestamp, null}))
+                .execute();
+
+        MigrationKeyRecord key = dsl.select(MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .from(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_BOUNDARY.BOUNDARY_ID);
+
+        assertEquals(timestamp.toInstant(), key.getTimestamptzValues()[0].toInstant());
+        assertEquals(5L, key.getBigintValues()[1]);
     }
 
     /**
@@ -326,12 +352,12 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(null, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(null, null, null, null))
                 .execute());
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{}, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{}, null, null, null))
                 .execute());
     }
 
@@ -347,13 +373,13 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L}, new String[]{"x"}, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L}, new String[]{"x"}, null, null))
                 .execute());
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
                 .values(runId, 0L,
-                        new MigrationKeyRecord(new Long[]{1L, null, 3L}, new String[]{null, "x"}, null))
+                        new MigrationKeyRecord(new Long[]{1L, null, 3L}, new String[]{null, "x"}, null, null))
                 .execute());
     }
 
@@ -368,7 +394,14 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, new String[]{"abc"}, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, new String[]{"abc"}, null, null))
+                .execute());
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 0L, new MigrationKeyRecord(
+                        new Long[]{1L}, null, null,
+                        new OffsetDateTime[]{OffsetDateTime.parse("2026-01-01T00:00:00Z")}))
                 .execute());
     }
 
@@ -384,12 +417,73 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L, 3L, 4L}, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L, 3L, 4L}, null, null, null))
                 .execute());
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, new String[]{null}, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, new String[]{null}, null, null))
+                .execute());
+    }
+
+    /**
+     * An ordered-key run records its index and key descriptor, and the
+     * strategy/descriptor combinations are enforced.
+     */
+    @Test
+    void enforcesTheOrderedKeyDescriptorCombination() {
+        dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-run", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key", new String[]{"created_at", "id"},
+                        new String[]{"timestamptz", "bigint"})
+                .execute();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME)
+                .values("ordered-key-missing-descriptor", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source")
+                .execute());
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("primary-key-with-descriptor", "SELECT 1", 1, ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key", new String[]{"id"}, new String[]{"bigint"})
+                .execute());
+
+        // A partly populated descriptor is rejected in both directions: a
+        // non-ordered run may not carry a stray index, and an ordered run must
+        // supply all three parts.
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX)
+                .values("primary-key-with-partial-descriptor", "SELECT 1", 1,
+                        ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source", "migration_tables_source_key")
+                .execute());
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_COLUMNS, MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-without-index", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        new String[]{"id"}, new String[]{"bigint"})
                 .execute());
     }
 
@@ -517,7 +611,7 @@ class MigrationTablesTest extends PostgresTestBase {
         long otherRunId = insertRun();
 
         assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
-                .set(MIGRATION_BOUNDARY.BOUNDARY_ID, new MigrationKeyRecord(new Long[]{999L}, null, null))
+                .set(MIGRATION_BOUNDARY.BOUNDARY_ID, new MigrationKeyRecord(new Long[]{999L}, null, null, null))
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute());
         assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)

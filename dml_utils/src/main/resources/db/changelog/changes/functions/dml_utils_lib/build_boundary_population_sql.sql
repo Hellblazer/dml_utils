@@ -17,9 +17,10 @@ DECLARE
     l_key_id_list     text;
     l_order_by        text;
     l_order_by_desc   text;
-    l_bigint_terms    text[];
-    l_text_terms      text[];
-    l_uuid_terms      text[];
+    l_bigint_terms      text[];
+    l_text_terms        text[];
+    l_uuid_terms        text[];
+    l_timestamptz_terms text[];
     l_pack_expression text;
     l_kind            text;
 BEGIN
@@ -54,6 +55,7 @@ BEGIN
     l_bigint_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_text_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_uuid_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
+    l_timestamptz_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_key_select_list := '';
     l_key_id_list := '';
     l_order_by := '';
@@ -65,7 +67,7 @@ BEGIN
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
             -- not true) and a NULL or empty column name would render a
             -- degenerate %I token; reject both before building the statement.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -103,13 +105,15 @@ BEGIN
                 l_bigint_terms[l_position] := pg_catalog.format('id%s::bigint', l_position);
             ELSIF l_kind = 'text' THEN
                 l_text_terms[l_position] := pg_catalog.format('id%s::text', l_position);
-            ELSE
+            ELSIF l_kind = 'uuid' THEN
                 l_uuid_terms[l_position] := pg_catalog.format('id%s::uuid', l_position);
+            ELSE
+                l_timestamptz_terms[l_position] := pg_catalog.format('id%s::timestamptz', l_position);
             END IF;
         END LOOP;
 
     l_pack_expression := pg_catalog.format(
-            'ROW(%s, %s, %s)::dml_utils_data.migration_key',
+            'ROW(%s, %s, %s, %s)::dml_utils_data.migration_key',
             CASE
                 WHEN 'bigint' = ANY (i_key_kinds)
                     THEN pg_catalog.format('ARRAY[%s]::bigint[]',
@@ -127,6 +131,12 @@ BEGIN
                     THEN pg_catalog.format('ARRAY[%s]::uuid[]',
                                            pg_catalog.array_to_string(l_uuid_terms, ', '))
                 ELSE 'NULL::uuid[]'
+                END,
+            CASE
+                WHEN 'timestamptz' = ANY (i_key_kinds)
+                    THEN pg_catalog.format('ARRAY[%s]::timestamptz[]',
+                                           pg_catalog.array_to_string(l_timestamptz_terms, ', '))
+                ELSE 'NULL::timestamptz[]'
                 END);
 
     -- Boundaries are picked by row position, so the computation never needs

@@ -203,7 +203,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
                 .values(runId, boundaryNo,
-                        new MigrationKeyRecord(new Long[]{id}, null, null))
+                        new MigrationKeyRecord(new Long[]{id}, null, null, null))
                 .execute();
     }
 

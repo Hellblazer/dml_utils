@@ -369,10 +369,27 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         String[] values = Routines.migrationKeyValues(
                 dsl.configuration(),
                 new MigrationKeyRecord(new Long[]{7L, null, null}, new String[]{null, "x", null},
-                        new UUID[]{null, null, uuid(1)}),
+                        new UUID[]{null, null, uuid(1)}, null),
                 new String[]{"bigint", "text", "uuid"});
 
         assertArrayEquals(new String[]{"7", "x", uuid(1).toString()}, values);
+    }
+
+    /**
+     * The key-values helper flattens a timestamptz key; the text form casts
+     * back to the original instant.
+     */
+    @Test
+    void migrationKeyValuesFlattensATimestamptzKey() {
+        OffsetDateTime timestamp = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+
+        String[] values = Routines.migrationKeyValues(
+                dsl.configuration(),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{timestamp}),
+                new String[]{"timestamptz"});
+
+        assertEquals(timestamp.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values[0])
+                .get(0, OffsetDateTime.class).toInstant());
     }
 
     /**
@@ -383,19 +400,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesFlattensSingleAndTwoColumnKeys() {
         assertArrayEquals(new String[]{"7"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{7L}, null, null),
+                        new MigrationKeyRecord(new Long[]{7L}, null, null, null),
                         new String[]{"bigint"}),
                 "a single-column bigint key flattens to one value");
 
         assertArrayEquals(new String[]{"x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, new String[]{"x"}, null),
+                        new MigrationKeyRecord(null, new String[]{"x"}, null, null),
                         new String[]{"text"}),
                 "a single-column text key reads the text array");
 
         assertArrayEquals(new String[]{"1", "x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null),
+                        new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null),
                         new String[]{"bigint", "text"}),
                 "a two-column mixed key keeps each value at its position");
     }
@@ -409,19 +426,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesDoesNotShiftAroundAnAbsentOrNullPosition() {
         assertArrayEquals(new String[]{null}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, null, null),
+                        new MigrationKeyRecord(null, null, null, null),
                         new String[]{"bigint"}),
                 "an absent array yields NULL at the position");
 
         assertArrayEquals(new String[]{null}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{null}, null, null),
+                        new MigrationKeyRecord(new Long[]{null}, null, null, null),
                         new String[]{"bigint"}),
                 "a NULL element yields NULL at the position");
 
         assertArrayEquals(new String[]{null, "x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, new String[]{null, "x"}, null),
+                        new MigrationKeyRecord(null, new String[]{null, "x"}, null, null),
                         new String[]{"text", "text"}),
                 "a NULL element does not compact away the later value");
     }
@@ -434,7 +451,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesRejectsUnsupportedKind() {
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
                 new String[]{"numeric"}));
     }
 
@@ -446,11 +463,11 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesRejectsEmptyKinds() {
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
                 new String[]{}));
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
                 null));
     }
 

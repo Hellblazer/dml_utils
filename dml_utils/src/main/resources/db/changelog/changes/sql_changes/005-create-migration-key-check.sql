@@ -18,7 +18,8 @@ $$
 WITH arity AS (SELECT coalesce(
                               greatest(pg_catalog.array_length((i_key).bigint_values, 1),
                                        pg_catalog.array_length((i_key).text_values, 1),
-                                       pg_catalog.array_length((i_key).uuid_values, 1)), 0) AS n)
+                                       pg_catalog.array_length((i_key).uuid_values, 1),
+                                       pg_catalog.array_length((i_key).timestamptz_values, 1)), 0) AS n)
 SELECT arity.n BETWEEN 1 AND 3
            -- Every present array is one-dimensional with a lower bound of 1.
            -- One-subscript indexing below (and in migration_key_values) assumes
@@ -33,28 +34,36 @@ SELECT arity.n BETWEEN 1 AND 3
            AND ((i_key).uuid_values IS NULL
         OR (pg_catalog.array_ndims((i_key).uuid_values) = 1
             AND pg_catalog.array_lower((i_key).uuid_values, 1) = 1))
+           AND ((i_key).timestamptz_values IS NULL
+        OR (pg_catalog.array_ndims((i_key).timestamptz_values) = 1
+            AND pg_catalog.array_lower((i_key).timestamptz_values, 1) = 1))
            -- Every present array shares the arity; absent kinds do not participate.
            AND least(pg_catalog.array_length((i_key).bigint_values, 1),
                      pg_catalog.array_length((i_key).text_values, 1),
-                     pg_catalog.array_length((i_key).uuid_values, 1))
+                     pg_catalog.array_length((i_key).uuid_values, 1),
+                     pg_catalog.array_length((i_key).timestamptz_values, 1))
            = greatest(pg_catalog.array_length((i_key).bigint_values, 1),
                       pg_catalog.array_length((i_key).text_values, 1),
-                      pg_catalog.array_length((i_key).uuid_values, 1))
+                      pg_catalog.array_length((i_key).uuid_values, 1),
+                      pg_catalog.array_length((i_key).timestamptz_values, 1))
            -- Exactly one array holds a value at each index, compared only up to the
            -- arity (indexing past an array's end yields NULL, and those positions would
            -- otherwise couple through the next guard).
            AND (arity.n < 1
         OR pg_catalog.num_nonnulls((i_key).bigint_values[1],
                                    (i_key).text_values[1],
-                                   (i_key).uuid_values[1]) = 1)
+                                   (i_key).uuid_values[1],
+                                   (i_key).timestamptz_values[1]) = 1)
            AND (arity.n < 2
         OR pg_catalog.num_nonnulls((i_key).bigint_values[2],
                                    (i_key).text_values[2],
-                                   (i_key).uuid_values[2]) = 1)
+                                   (i_key).uuid_values[2],
+                                   (i_key).timestamptz_values[2]) = 1)
            AND (arity.n < 3
         OR pg_catalog.num_nonnulls((i_key).bigint_values[3],
                                    (i_key).text_values[3],
-                                   (i_key).uuid_values[3]) = 1)
+                                   (i_key).uuid_values[3],
+                                   (i_key).timestamptz_values[3]) = 1)
            -- A present array must hold at least one real value: array_length counts an
            -- all-NULL array as populated and reports an empty array as NULL, so both
            -- would otherwise slip through, yet neither carries a key value.
@@ -67,6 +76,9 @@ SELECT arity.n BETWEEN 1 AND 3
            AND ((i_key).uuid_values IS NULL
         OR pg_catalog.cardinality(
                    pg_catalog.array_remove((i_key).uuid_values, NULL::uuid)) >= 1)
+           AND ((i_key).timestamptz_values IS NULL
+        OR pg_catalog.cardinality(
+                   pg_catalog.array_remove((i_key).timestamptz_values, NULL::timestamptz)) >= 1)
 FROM arity;
 $$;
 

@@ -129,7 +129,7 @@ class MigrationErrorTest extends PostgresTestBase {
         dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, boundaryNo, new MigrationKeyRecord(new Long[]{1L}, null, null))
+                .values(runId, boundaryNo, new MigrationKeyRecord(new Long[]{1L}, null, null, null))
                 .execute();
         return runId;
     }

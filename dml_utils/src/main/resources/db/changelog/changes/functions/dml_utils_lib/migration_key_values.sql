@@ -4,7 +4,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_values(
 )
     RETURNS text[]
     LANGUAGE plpgsql
-    IMMUTABLE
+    STABLE
     SECURITY INVOKER
 AS
 $$
@@ -14,13 +14,12 @@ DECLARE
     l_value  text;
 BEGIN
     -- Flatten a position-aligned migration_key back into one text value per
-    -- primary-key column, in key order, using i_key_kinds to select the array
+    -- boundary-key column, in key order, using i_key_kinds to select the array
     -- for each position. The values are the text form the chunk predicate
     -- re-casts. Reject a NULL, empty, over-long, non-1-dimensional or non-1-based
     -- kinds array: cardinality alone does not catch the last two, and indexing a
     -- non-1-based or multidimensional array would read a slice or an out-of-range
-    -- subscript. The migration_key type has one array per supported kind, so at
-    -- most three.
+    -- subscript. The migration_key type has one array per supported kind.
     IF i_key_kinds IS NULL
         OR pg_catalog.array_ndims(i_key_kinds) IS DISTINCT FROM 1
         OR pg_catalog.array_lower(i_key_kinds, 1) IS DISTINCT FROM 1
@@ -36,7 +35,7 @@ BEGIN
 
             -- A NULL kind would make every comparison below NULL (not true) and
             -- fall through to the ELSE branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -50,6 +49,7 @@ BEGIN
                            WHEN 'bigint' THEN (i_key).bigint_values[l_position]::text
                            WHEN 'text' THEN (i_key).text_values[l_position]
                            WHEN 'uuid' THEN (i_key).uuid_values[l_position]::text
+                           WHEN 'timestamptz' THEN (i_key).timestamptz_values[l_position]::text
                 END;
 
             l_values := l_values || l_value;

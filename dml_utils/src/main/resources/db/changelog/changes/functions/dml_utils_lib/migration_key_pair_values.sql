@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_pair_values(
 )
     RETURNS record
     LANGUAGE plpgsql
-    IMMUTABLE
+    STABLE
     SECURITY INVOKER
 AS
 $$
@@ -17,7 +17,7 @@ DECLARE
     l_end   text;
 BEGIN
     -- Flatten both boundary keys of a chunk in one pass: one text value per
-    -- primary-key column for the start and the end, in key order. Reject a NULL,
+    -- boundary-key column for the start and the end, in key order. Reject a NULL,
     -- empty, over-long, non-1-dimensional or non-1-based kinds array, as
     -- migration_key_values does, since indexing a non-1-based or multidimensional
     -- array would read a slice or an out-of-range subscript.
@@ -38,7 +38,7 @@ BEGIN
 
             -- A NULL kind would make every comparison below NULL (not true) and
             -- fall through to a NULL branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -54,6 +54,8 @@ BEGIN
                                  l_end := (i_end_key).text_values[l_position];
                 WHEN 'uuid' THEN l_start := (i_start_key).uuid_values[l_position]::text;
                                  l_end := (i_end_key).uuid_values[l_position]::text;
+                WHEN 'timestamptz' THEN l_start := (i_start_key).timestamptz_values[l_position]::text;
+                                        l_end := (i_end_key).timestamptz_values[l_position]::text;
                 END CASE;
 
             o_start_values := o_start_values || l_start;
@@ -64,6 +66,6 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.migration_key_pair_values IS
     'Flattens a chunk''s two position-aligned migration_key boundaries (start and '
-        'end) into one text value per primary-key column each, in key order, using '
+        'end) into one text value per boundary-key column each, in key order, using '
         'the key kinds from primary_key_kinds. One call serves both bounds where '
         'migration_key_values would be called twice.';

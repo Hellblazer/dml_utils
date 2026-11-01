@@ -46,13 +46,15 @@ BEGIN
         )
         SELECT %1$s,
                boundary_no,
-               ROW(ARRAY[start_block]::bigint[], NULL::text[], NULL::uuid[])::dml_utils_data.migration_key,
+               ROW(ARRAY[start_block]::bigint[], NULL::text[], NULL::uuid[],
+                   NULL::timestamptz[])::dml_utils_data.migration_key,
                NULL::timestamptz
         FROM starts
         UNION ALL
         SELECT %1$s,
                c.n_starts,
-               ROW(ARRAY[c.block_count]::bigint[], NULL::text[], NULL::uuid[])::dml_utils_data.migration_key,
+               ROW(ARRAY[c.block_count]::bigint[], NULL::text[], NULL::uuid[],
+                   NULL::timestamptz[])::dml_utils_data.migration_key,
                NULL::timestamptz
         FROM counts AS c
         WHERE c.block_count > 0

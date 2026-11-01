@@ -1,6 +1,6 @@
 # ADR 0001: Ordered-key chunking with unique indexes
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-01
 - **Beads:** `dml-b87` (epic), `dml-b87.1` (this design)
 

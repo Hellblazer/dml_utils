@@ -5,7 +5,10 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.MigrationKeyPairValues;
 import org.junit.jupiter.api.Test;
 
+import java.time.OffsetDateTime;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Verifies {@code dml_utils_lib.migration_key_pair_values}: it flattens a chunk's
@@ -21,8 +24,8 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void flattensBothBoundsForABigintKey() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null),
-                new MigrationKeyRecord(new Long[]{10L}, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
+                new MigrationKeyRecord(new Long[]{10L}, null, null, null),
                 new String[]{"bigint"});
 
         assertArrayEquals(new String[]{"1"}, values.getOStartValues());
@@ -37,12 +40,33 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void flattensBothBoundsForAMixedCompositeKey() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null),
-                new MigrationKeyRecord(new Long[]{2L, null}, new String[]{null, "y"}, null),
+                new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null),
+                new MigrationKeyRecord(new Long[]{2L, null}, new String[]{null, "y"}, null, null),
                 new String[]{"bigint", "text"});
 
         assertArrayEquals(new String[]{"1", "x"}, values.getOStartValues());
         assertArrayEquals(new String[]{"2", "y"}, values.getOEndValues());
+    }
+
+    /**
+     * A timestamptz key yields the start and end values as text that casts back
+     * to the original instants.
+     */
+    @Test
+    void flattensBothBoundsForATimestamptzKey() {
+        OffsetDateTime start = OffsetDateTime.parse("2026-01-01T00:00:00Z");
+        OffsetDateTime end = OffsetDateTime.parse("2026-01-02T00:00:00Z");
+
+        MigrationKeyPairValues values = Routines.migrationKeyPairValues(
+                dsl.configuration(),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{start}),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{end}),
+                new String[]{"timestamptz"});
+
+        assertEquals(start.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values.getOStartValues()[0])
+                .get(0, OffsetDateTime.class).toInstant());
+        assertEquals(end.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values.getOEndValues()[0])
+                .get(0, OffsetDateTime.class).toInstant());
     }
 
     /**
@@ -53,8 +77,8 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void keepsTheArityForAbsentOrNullPositions() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(null, null, null),
-                new MigrationKeyRecord(new Long[]{null}, null, null),
+                new MigrationKeyRecord(null, null, null, null),
+                new MigrationKeyRecord(new Long[]{null}, null, null, null),
                 new String[]{"bigint"});
 
         assertArrayEquals(new String[]{null}, values.getOStartValues());
@@ -67,7 +91,7 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
      */
     @Test
     void rejectsUnsupportedOrEmptyKinds() {
-        MigrationKeyRecord key = new MigrationKeyRecord(new Long[]{1L}, null, null);
+        MigrationKeyRecord key = new MigrationKeyRecord(new Long[]{1L}, null, null, null);
 
         assertSqlState("22023", () -> Routines.migrationKeyPairValues(
                 dsl.configuration(), key, key, new String[]{"numeric"}));

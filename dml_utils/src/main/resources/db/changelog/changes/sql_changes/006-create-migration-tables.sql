@@ -11,6 +11,12 @@ CREATE TABLE dml_utils_data.migration_run
     driving_table_name              dml_utils_data.non_null_text        NOT NULL,
     driving_table_alias             dml_utils_data.non_null_text        NOT NULL DEFAULT 't',
     driving_table_relation_filepath text,
+    -- The ordered key for chunk_by = 'ordered_key': the index and a snapshot of
+    -- its columns/kinds, so resume and explain use the exact key the boundaries
+    -- were built from. Unset for primary_key and blocks runs.
+    ordered_key_index               name,
+    ordered_key_columns             name[],
+    ordered_key_kinds               text[],
     created_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     updated_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     started_at                      timestamptz,
@@ -26,6 +32,21 @@ CREATE TABLE dml_utils_data.migration_run
     -- heap rewrite (see dml_utils_lib.relation_filepath).
     CONSTRAINT migration_run_chunk_by_filepath_check CHECK (
         (chunk_by = 'blocks') = (driving_table_relation_filepath IS NOT NULL)
+        ),
+    -- An ordered-key run records the index and the key descriptor; the other
+    -- strategies leave all three unset. All-or-nothing: a partly populated
+    -- descriptor is rejected too, so a non-ordered run cannot carry a stale key
+    -- that explain or resume might later pick up.
+    CONSTRAINT migration_run_ordered_key_check CHECK (
+        pg_catalog.num_nonnulls(ordered_key_index, ordered_key_columns, ordered_key_kinds)
+            = CASE WHEN chunk_by = 'ordered_key' THEN 3 ELSE 0 END
+        ),
+    CONSTRAINT migration_run_ordered_key_shape_check CHECK (
+        ordered_key_columns IS NULL
+            OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
+                AND pg_catalog.cardinality(ordered_key_kinds)
+                    = pg_catalog.cardinality(ordered_key_columns)
+                AND ordered_key_kinds <@ ARRAY['bigint', 'text', 'uuid', 'timestamptz']::text[])
         ),
     -- The run's milestones are ordered: the boundary calculation cannot finish
     -- before the run started, and the run cannot finish before it started. Each
@@ -66,10 +87,11 @@ COMMENT ON COLUMN dml_utils_data.migration_run.sql_text IS
     'The migration SQL recorded for the run; stored as given.';
 COMMENT ON COLUMN dml_utils_data.migration_run.chunk_size IS
     'Number of units per chunk used to compute the boundaries: source rows for '
-        'chunk_by = primary_key, heap blocks for chunk_by = blocks.';
+        'chunk_by = primary_key or ordered_key, heap blocks for chunk_by = blocks.';
 COMMENT ON COLUMN dml_utils_data.migration_run.chunk_by IS
     'Chunking strategy: primary_key (fixed rows in primary-key order, the '
-        'default) or blocks (physical heap block ranges). Immutable.';
+        'default), ordered_key (fixed rows in a caller-selected unique index '
+        'order) or blocks (physical heap block ranges). Immutable.';
 COMMENT ON COLUMN dml_utils_data.migration_run.threads IS
     'Number of pg_background workers used to process the run''s chunks; may be '
         'changed with dml_utils.set_migration_run_threads while the run is unfinished.';
@@ -87,7 +109,17 @@ COMMENT ON COLUMN dml_utils_data.migration_run.driving_table_alias IS
 COMMENT ON COLUMN dml_utils_data.migration_run.driving_table_relation_filepath IS
     'For chunk_by = blocks, the pg_relation_filepath of the driving table at '
         'boundary-calculation time, used to detect a heap rewrite before a '
-        'resume; NULL for primary_key runs. Immutable.';
+        'resume; NULL for primary_key and ordered_key runs. Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run.ordered_key_index IS
+    'For chunk_by = ordered_key, the name of the unique index whose order the '
+        'boundaries use; NULL for the other strategies. Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run.ordered_key_columns IS
+    'For chunk_by = ordered_key, the key columns in index order at boundary '
+        'time; NULL for the other strategies. Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run.ordered_key_kinds IS
+    'For chunk_by = ordered_key, the boundary kind of each key column in '
+        'ordered_key_columns order (bigint, text, uuid or timestamptz); NULL for '
+        'the other strategies. Immutable.';
 COMMENT ON COLUMN dml_utils_data.migration_run.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_run.updated_at IS

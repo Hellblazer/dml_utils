@@ -43,24 +43,28 @@ COMMENT ON DOMAIN dml_utils_data.non_null_text IS
 -- noqa:disable=LT01
 CREATE TYPE dml_utils_data.migration_key AS
 (
-    bigint_values bigint[],
-    text_values   text[],
-    uuid_values   uuid[]
+    bigint_values      bigint[],
+    text_values        text[],
+    uuid_values        uuid[],
+    timestamptz_values timestamptz[]
 );
 -- noqa:enable=LT01
 
 COMMENT ON TYPE dml_utils_data.migration_key IS
-    'Packed primary-key value for a chunk boundary: one position-aligned array '
-        'per supported kind, so exactly one array element is non-NULL per index '
-        'and an unused kind''s array is NULL. Index i holds the value of '
-        'primary-key column i when that column has the array''s kind.';
+    'Packed boundary-key value for a chunk boundary: one position-aligned array '
+        'per supported kind (bigint, text, uuid or timestamptz), so exactly one '
+        'array element is non-NULL per index and an unused kind''s array is NULL. '
+        'Index i holds the value of boundary-key column i when that column has '
+        'the array''s kind.';
 
 -- The chunking strategy a migration run uses. primary_key computes fixed-row
--- chunks from the primary-key order (the default); blocks computes chunks from
--- physical heap block ranges (ctid). See the block-chunking limitations in
+-- chunks from the primary-key order (the default); ordered_key computes
+-- fixed-row chunks from a caller-selected unique index; blocks computes chunks
+-- from physical heap block ranges (ctid). See the block-chunking limitations in
 -- changes/functions/README.md before using blocks.
-CREATE TYPE dml_utils_data.chunking_strategy AS ENUM ('primary_key', 'blocks');
+CREATE TYPE dml_utils_data.chunking_strategy AS ENUM ('primary_key', 'ordered_key', 'blocks');
 
 COMMENT ON TYPE dml_utils_data.chunking_strategy IS
     'Chunking strategy for a migration run: primary_key (fixed rows in '
-        'primary-key order) or blocks (physical heap block ranges).';
+        'primary-key order), ordered_key (fixed rows in a caller-selected '
+        'unique index order) or blocks (physical heap block ranges).';
