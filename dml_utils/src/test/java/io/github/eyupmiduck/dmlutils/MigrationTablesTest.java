@@ -271,14 +271,8 @@ class MigrationTablesTest extends PostgresTestBase {
      * Inserts a run with a unique label, returning its {@code run_id}.
      */
     private Long insertRun() {
-        return dsl.insertInto(MIGRATION_RUN)
-                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
-                        MIGRATION_RUN.THREADS,
-                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME)
-                .values("migration-tables-test-" + UUID.randomUUID(), "SELECT 1", 1, 1,
-                        PUBLIC_SCHEMA, "migration_tables_source")
-                .returningResult(MIGRATION_RUN.RUN_ID)
-                .fetchOne(MIGRATION_RUN.RUN_ID);
+        return insertRun("migration-tables-test-" + UUID.randomUUID(),
+                PUBLIC_SCHEMA, "migration_tables_source");
     }
 
     /**

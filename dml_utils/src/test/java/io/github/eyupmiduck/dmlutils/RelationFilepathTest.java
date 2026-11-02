@@ -3,7 +3,6 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.Test;
 
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -14,14 +13,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * a NULL expectation is a no-op and a missing table is rejected.
  */
 class RelationFilepathTest extends PostgresTestBase {
-
-    private static String schema() {
-        return TEST_BIGINT.getSchema().getName();
-    }
-
-    private static String name() {
-        return TEST_BIGINT.getName();
-    }
 
     /**
      * The filepath of a real table is non-empty.

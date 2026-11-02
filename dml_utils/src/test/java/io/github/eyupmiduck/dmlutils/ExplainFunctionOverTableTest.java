@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainFunctionOverTableChunkRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainFunctionOverTableRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,14 +23,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class ExplainFunctionOverTableTest extends PostgresTestBase {
 
     private static final String FN_SCHEMA = "public";
-
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
-    }
 
     /**
      * Clears the fixture table and the migration metadata so each test starts

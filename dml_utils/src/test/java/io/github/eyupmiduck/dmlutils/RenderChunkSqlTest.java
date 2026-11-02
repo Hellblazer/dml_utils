@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -170,18 +169,6 @@ class RenderChunkSqlTest extends PostgresTestBase {
 
         assertEquals(List.of(2L, 3L, 4L), updatedOrderedKeyIds(),
                 "the final chunk includes the end row without a gap");
-    }
-
-    private void seedOrderedKey() {
-        for (int i = 1; i <= 5; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
     }
 
     private List<Long> updatedOrderedKeyIds() {

@@ -3,7 +3,6 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.changelogvalidator.testing.PlpgsqlCheckContract;
 
 import java.util.Collection;
-import java.util.List;
 
 /**
  * Runs the {@code plpgsql_check} static analyser over every routine in the
@@ -33,6 +32,6 @@ class PlpgsqlCheckTest extends PlpgsqlCheckContract {
      */
     @Override
     protected Collection<String> routineSchemas() {
-        return List.of("dml_utils", "dml_utils_lib", "dml_utils_data");
+        return TestSchemas.APPLICATION;
     }
 }

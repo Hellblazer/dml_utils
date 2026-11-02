@@ -8,7 +8,6 @@ import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -556,26 +555,6 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
                         LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null));
     }
 
-    private void seedOrderedKey() {
-        for (int i = 1; i <= 5; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
-    }
-
-    private void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second, long id) {
-        assertEquals(timestamp(second).toInstant(),
-                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
-                "timestamptz position");
-        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
-                "bigint position");
-    }
-
     private long populateOrderedKey() {
         return populate(TEST_ORDERED_KEY, ChunkingStrategy.ordered_key,
                 "test_ordered_key_created_at_id_idx");
@@ -625,13 +604,6 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), table.getSchema().getName(), table.getName(), label, SQL_TEXT,
                 chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null);
-    }
-
-    private List<MigrationBoundaryRecord> boundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
     }
 
     private void assertBoundaries(long runId, long[][] expected) {

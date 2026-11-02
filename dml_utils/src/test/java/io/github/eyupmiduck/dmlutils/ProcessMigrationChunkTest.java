@@ -62,7 +62,7 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
 
         assertTrue(boundaryStarted(runId, 0), "the first chunk should set started_at");
         assertTrue(boundaryCompleted(runId, 0), "the first chunk should set completed_at");
-        assertEquals(4, payloadCount(), "rows 1..4 should be updated");
+        assertEquals(4, payloadCount(TEST_BIGINT, "done"), "rows 1..4 should be updated");
         assertEquals(6, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.isNull()),
                 "rows outside the chunk range must be untouched");
     }
@@ -92,7 +92,7 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
         processChunk(runId, 0, "UPDATE " + qualified(TEST_BIGINT)
                 + " SET payload = 'done' WHERE id >= 1 AND id < 3");
         assertTrue(boundaryCompleted(runId, 0), "the retry should claim the boundary");
-        assertEquals(2, payloadCount(), "the retry should update the chunk rows");
+        assertEquals(2, payloadCount(TEST_BIGINT, "done"), "the retry should update the chunk rows");
     }
 
     /**
@@ -120,7 +120,7 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
 
         assertSqlState("P0C01", () -> processChunk(runId, 0, "UPDATE " + qualified(TEST_BIGINT)
                 + " SET payload = 'again' WHERE id >= 1 AND id < 3"));
-        assertEquals(2, payloadCount(), "the second call must not run the SQL");
+        assertEquals(2, payloadCount(TEST_BIGINT, "done"), "the second call must not run the SQL");
     }
 
     /**
@@ -207,10 +207,4 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
         Routines.processMigrationChunk(dsl.configuration(), runId, boundaryNo, sql);
     }
 
-    private int payloadCount() {
-        return dsl.selectCount()
-                .from(TEST_BIGINT)
-                .where(TEST_BIGINT.PAYLOAD.eq("done"))
-                .fetchOne(0, Integer.class);
-    }
 }

@@ -43,14 +43,6 @@ class RunMigrationChunksTest extends PostgresTestBase {
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
 
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
-    }
-
     /**
      * Asserts a boundary key's position-aligned parts for the fixture's
      * {@code (b integer, a text, c uuid)} primary key.
@@ -1306,32 +1298,6 @@ class RunMigrationChunksTest extends PostgresTestBase {
                 "test_ordered_key_created_at_id_idx");
     }
 
-    private long runId(String label) {
-        return dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
-    }
-
-    private long totalChunks(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS);
-    }
-
-    private long totalChunksCompleted(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
-    }
-
-    private int completedBoundaries(long runId) {
-        return dsl.fetchCount(MIGRATION_BOUNDARY,
-                MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
-    }
-
     /**
      * Returns the run's boundary keys in boundary order.
      */
@@ -1361,10 +1327,4 @@ class RunMigrationChunksTest extends PostgresTestBase {
         return payloadCount(table, "done");
     }
 
-    private int payloadCount(Table<?> table, String value) {
-        return dsl.selectCount()
-                .from(table)
-                .where(field("payload", String.class).eq(value))
-                .fetchOne(0, Integer.class);
-    }
 }

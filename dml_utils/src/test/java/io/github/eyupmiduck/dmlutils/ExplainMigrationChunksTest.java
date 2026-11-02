@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainMigrationChunkRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainMigrationChunksRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,14 +37,6 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
 
     private static List<String> planKinds(List<ExplainMigrationChunksRecord> plans) {
         return plans.stream().map(ExplainMigrationChunksRecord::getOPlanKind).toList();
-    }
-
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
     }
 
     /**

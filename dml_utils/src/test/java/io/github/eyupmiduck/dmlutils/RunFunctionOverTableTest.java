@@ -32,14 +32,6 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 + " WHERE <chunking_clause>";
     }
 
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
-    }
-
     /**
      * Clears the fixture tables each test drives and the migration metadata, so a
      * run left by an earlier method cannot resume or create a run with a derived
@@ -494,10 +486,4 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 .fetchOne(MIGRATION_RUN.SQL_TEXT);
     }
 
-    private int payloadCount(Table<?> table, String value) {
-        return dsl.selectCount()
-                .from(table)
-                .where(field("payload", String.class).eq(value))
-                .fetchOne(0, Integer.class);
-    }
 }

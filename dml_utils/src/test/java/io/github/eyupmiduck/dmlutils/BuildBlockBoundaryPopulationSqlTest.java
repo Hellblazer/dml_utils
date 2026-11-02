@@ -23,14 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
 
-    private static String schema() {
-        return TEST_BIGINT.getSchema().getName();
-    }
-
-    private static String name() {
-        return TEST_BIGINT.getName();
-    }
-
     /**
      * Clears the fixture table and the run metadata between tests.
      */

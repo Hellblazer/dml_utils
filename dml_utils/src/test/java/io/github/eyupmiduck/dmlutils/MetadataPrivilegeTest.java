@@ -32,20 +32,6 @@ class MetadataPrivilegeTest extends PostgresTestBase {
     private static final String ROLE_TEMPLATE =
             "UPDATE <driving_table> SET payload = current_user WHERE <chunking_clause>";
 
-    private static void setRole(Connection connection, String role) throws Exception {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + role);
-        }
-    }
-
-    private static String schema(org.jooq.Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(org.jooq.Table<?> table) {
-        return table.getName();
-    }
-
     @BeforeEach
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
@@ -321,10 +307,4 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                 .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
     }
 
-    private long runId(String label) {
-        return dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
-    }
 }

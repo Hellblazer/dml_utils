@@ -6,14 +6,12 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.Migratio
 import org.jooq.DSLContext;
 import org.jooq.Record;
 import org.jooq.SQLDialect;
-import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
@@ -42,20 +40,6 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
 
     private static final String FAST_TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
-
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
-    }
-
-    private static void setRole(Connection connection, String role) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + role);
-        }
-    }
 
     /**
      * Clears the fixture table and the migration metadata so each test starts

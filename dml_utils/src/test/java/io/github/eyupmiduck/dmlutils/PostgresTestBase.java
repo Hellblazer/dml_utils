@@ -9,18 +9,24 @@ import liquibase.resource.ClassLoaderResourceAccessor;
 import org.jooq.Field;
 import org.jooq.JSON;
 import org.jooq.Record;
+import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * dml_utils' PostgreSQL test base: the shared
@@ -287,6 +293,77 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Returns the schema name of a fixture table.
+     *
+     * @param table the jOOQ table
+     * @return the table's schema name
+     */
+    protected static String schema(Table<?> table) {
+        return table.getSchema().getName();
+    }
+
+    /**
+     * Returns the name of a fixture table.
+     *
+     * @param table the jOOQ table
+     * @return the table's name
+     */
+    protected static String name(Table<?> table) {
+        return table.getName();
+    }
+
+    /**
+     * Returns the default bigint fixture's schema name.
+     *
+     * @return the schema name
+     */
+    protected static String schema() {
+        return schema(TEST_BIGINT);
+    }
+
+    /**
+     * Returns the default bigint fixture's table name.
+     *
+     * @return the table name
+     */
+    protected static String name() {
+        return name(TEST_BIGINT);
+    }
+
+    /**
+     * Seeds the five-row ordered-key fixture: timestamps repeat in pairs, so
+     * the bigint column is the tiebreaker.
+     */
+    protected void seedOrderedKey() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_ORDERED_KEY,
+                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
+                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
+                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
+                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
+                            BigDecimal.valueOf(i))
+                    .execute();
+        }
+    }
+
+    /**
+     * Asserts the two position-aligned parts of a {@code (timestamptz, bigint)}
+     * boundary key.
+     *
+     * @param boundary the boundary row
+     * @param second   the expected timestamp, in seconds after the fixture epoch
+     * @param id       the expected bigint tiebreaker
+     */
+    protected static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second,
+                                                  long id) {
+        assertEquals(timestamp(second).toInstant(),
+                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
+                "timestamptz position");
+        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
+                "bigint position");
+    }
+
+    /**
      * A per-invocation unique run label: {@code prefix-UUID}, so tests never
      * collide on the one-active-run-per-label rule regardless of order.
      *
@@ -295,6 +372,132 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected String uniqueLabel(String prefix) {
         return prefix + "-" + UUID.randomUUID();
+    }
+
+    /**
+     * Sets the current role on a test connection.
+     *
+     * @param connection the connection
+     * @param role       the role to assume
+     * @throws SQLException if the role cannot be set
+     */
+    protected static void setRole(Connection connection, String role) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET ROLE " + role);
+        }
+    }
+
+    /**
+     * Returns the id of the run for a label.
+     *
+     * @param label the run label
+     * @return the run id
+     */
+    protected long runId(String label) {
+        return dsl.select(MIGRATION_RUN.RUN_ID)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.LABEL.eq(label))
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+    }
+
+    /**
+     * Returns the run's total chunk count.
+     *
+     * @param runId the run id
+     * @return the total chunk count
+     */
+    protected long totalChunks(long runId) {
+        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS);
+    }
+
+    /**
+     * Returns the run's completed chunk count.
+     *
+     * @param runId the run id
+     * @return the completed chunk count
+     */
+    protected long totalChunksCompleted(long runId) {
+        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+    }
+
+    /**
+     * Counts the run's completed boundaries.
+     *
+     * @param runId the run id
+     * @return the number of boundaries with {@code completed_at} set
+     */
+    protected int completedBoundaries(long runId) {
+        return dsl.fetchCount(MIGRATION_BOUNDARY,
+                MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
+    }
+
+    /**
+     * Returns the run's boundaries in boundary order.
+     *
+     * @param runId the run id
+     * @return the boundary rows
+     */
+    protected List<MigrationBoundaryRecord> boundaries(long runId) {
+        return dsl.selectFrom(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
+                .fetch();
+    }
+
+    /**
+     * Inserts a run for a table with a generated label and returns its id.
+     *
+     * @param table the driving table
+     * @return the run id
+     */
+    protected long insertRun(Table<?> table) {
+        return insertRun("test-run", table);
+    }
+
+    /**
+     * Inserts a run for a table with a generated label prefix.
+     *
+     * @param labelPrefix the label prefix
+     * @param table       the driving table
+     * @return the run id
+     */
+    protected long insertRun(String labelPrefix, Table<?> table) {
+        return insertRun(labelPrefix + "-" + UUID.randomUUID(), schema(table), name(table));
+    }
+
+    /**
+     * Inserts a run with an exact label and driving-table coordinates.
+     *
+     * @param label      the run label
+     * @param schemaName the driving table's schema
+     * @param tableName  the driving table's name
+     * @return the run id
+     */
+    protected long insertRun(String label, String schemaName, String tableName) {
+        return dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME)
+                .values(label, "SELECT 1", 1, 1, schemaName, tableName)
+                .returningResult(MIGRATION_RUN.RUN_ID)
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+    }
+
+    /**
+     * Counts the rows of a fixture table whose {@code payload} equals a value.
+     *
+     * @param table the fixture table
+     * @param value the expected payload
+     * @return the matching row count
+     */
+    protected int payloadCount(Table<?> table, String value) {
+        return dsl.fetchCount(table, field("payload", String.class).eq(value));
     }
 
     /**

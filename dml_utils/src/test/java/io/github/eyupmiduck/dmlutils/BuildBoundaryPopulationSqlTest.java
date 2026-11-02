@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -28,26 +27,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
 
-    private static String schema() {
-        return TEST_BIGINT.getSchema().getName();
-    }
-
-    private static String name() {
-        return TEST_BIGINT.getName();
-    }
-
     private static void assertMixed(MigrationBoundaryRecord boundary, long a, String b) {
         assertEquals(a, boundary.getBoundaryId().getBigintValues()[0].longValue(),
                 "bigint position");
         assertEquals(b, boundary.getBoundaryId().getTextValues()[1], "text position");
-    }
-
-    private static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second, long id) {
-        assertEquals(timestamp(second).toInstant(),
-                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
-                "timestamptz position");
-        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
-                "bigint position");
     }
 
     /**
@@ -69,7 +52,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     @Test
     void insertsAStartBoundaryPerChunkPlusTheTerminal() {
         seedBigint(1, 2, 3, 4, 5);
-        long runId = insertRun();
+        long runId = insertRun(TEST_BIGINT);
 
         dsl.execute(Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, runId, 2L));
@@ -95,7 +78,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void insertsNothingForAnEmptyTable() {
-        long runId = insertRun();
+        long runId = insertRun(TEST_BIGINT);
 
         dsl.execute(Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, runId, 2L));
@@ -271,25 +254,4 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
                 schema(), name()));
     }
 
-    private List<MigrationBoundaryRecord> boundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
-
-    private long insertRun() {
-        return insertRun(TEST_BIGINT);
-    }
-
-    private long insertRun(Table<?> table) {
-        return dsl.insertInto(MIGRATION_RUN)
-                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
-                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
-                        MIGRATION_RUN.DRIVING_TABLE_NAME)
-                .values("build-boundary-test-" + UUID.randomUUID(), "SELECT 1", 1, 1,
-                        table.getSchema().getName(), table.getName())
-                .returningResult(MIGRATION_RUN.RUN_ID)
-                .fetchOne(MIGRATION_RUN.RUN_ID);
-    }
 }

@@ -205,7 +205,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         long runId = populateTable(TEST_COMPOSITE_PK, 2);
 
         assertTrue(runId > 0, "a composite primary key should be accepted");
-        assertEquals(3, boundaries(runId).intValue(),
+        assertEquals(3, boundaryCount(runId).intValue(),
                 "three rows at chunk size two give two chunk starts plus a terminal boundary");
     }
 
@@ -224,7 +224,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         long runId = populateTable(TEST_COMPOSITE_THREE, 2);
 
         assertTrue(runId > 0, "a three-column mixed-kind primary key should be accepted");
-        assertEquals(3, boundaries(runId).intValue(),
+        assertEquals(3, boundaryCount(runId).intValue(),
                 "three rows at chunk size two give two chunk starts plus a terminal boundary");
     }
 
@@ -504,7 +504,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
 
         assertEquals(runsAfterFirst, dsl.fetchCount(MIGRATION_RUN),
                 "the rejected run should not be written");
-        assertEquals(2, boundaries(firstRun).intValue(), "the first run is untouched");
+        assertEquals(2, boundaryCount(firstRun).intValue(), "the first run is untouched");
     }
 
     /**
@@ -577,7 +577,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         return dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label));
     }
 
-    private Integer boundaries(long runId) {
+    private Integer boundaryCount(long runId) {
         return dsl.fetchCount(MIGRATION_BOUNDARY, MIGRATION_BOUNDARY.RUN_ID.eq(runId));
     }
 }

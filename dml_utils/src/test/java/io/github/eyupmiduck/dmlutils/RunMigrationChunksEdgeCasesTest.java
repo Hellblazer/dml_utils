@@ -35,14 +35,6 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
     private static final String SLOW_TEMPLATE =
             "SELECT pg_sleep(0.5) FROM <driving_table> WHERE <chunking_clause>";
 
-    private static String schema() {
-        return TEST_BIGINT.getSchema().getName();
-    }
-
-    private static String name() {
-        return TEST_BIGINT.getName();
-    }
-
     @BeforeEach
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
@@ -205,11 +197,6 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
                 .values(runId, boundaryNo,
                         new MigrationKeyRecord(new Long[]{id}, null, null, null))
                 .execute();
-    }
-
-    private int completedBoundaries(long runId) {
-        return dsl.fetchCount(MIGRATION_BOUNDARY,
-                MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
     }
 
     private void installFailingErrorTrigger() throws Exception {

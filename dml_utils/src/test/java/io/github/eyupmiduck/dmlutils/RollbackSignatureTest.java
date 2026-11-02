@@ -34,7 +34,7 @@ class RollbackSignatureTest extends RollbackSignatureContract {
      */
     @Override
     protected Collection<String> routineSchemas() {
-        return List.of("dml_utils", "dml_utils_lib", "dml_utils_data");
+        return TestSchemas.APPLICATION;
     }
 
     /**

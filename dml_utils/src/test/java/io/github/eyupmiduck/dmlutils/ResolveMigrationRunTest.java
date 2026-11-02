@@ -6,7 +6,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigratio
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
@@ -26,14 +25,6 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
-
-    private static String schema() {
-        return TEST_BIGINT.getSchema().getName();
-    }
-
-    private static String name() {
-        return TEST_BIGINT.getName();
-    }
 
     /**
      * Resets the run metadata and the fixture table between tests.
@@ -398,18 +389,6 @@ class ResolveMigrationRunTest extends PostgresTestBase {
      * Seeds the ordered-key fixture with five rows whose timestamps repeat, so
      * the boundary order falls through to the id tiebreaker.
      */
-    private void seedOrderedKey() {
-        for (int i = 1; i <= 5; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
-    }
-
     private ResolveMigrationRun resolveOrderedKey(String label, String index) {
         return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),

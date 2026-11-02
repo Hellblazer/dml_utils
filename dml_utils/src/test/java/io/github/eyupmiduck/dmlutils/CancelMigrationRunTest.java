@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationRunSummaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
-import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -24,14 +23,6 @@ class CancelMigrationRunTest extends PostgresTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = payload WHERE <chunking_clause>";
-
-    private static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    private static String name(Table<?> table) {
-        return table.getName();
-    }
 
     /**
      * Clears the fixture table and the migration metadata so each test starts

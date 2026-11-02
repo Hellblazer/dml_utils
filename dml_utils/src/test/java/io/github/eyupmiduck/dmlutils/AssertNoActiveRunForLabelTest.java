@@ -28,7 +28,7 @@ class AssertNoActiveRunForLabelTest extends PostgresTestBase {
     @Test
     void rejectsALabelWithAnActiveRun() {
         String label = uniqueLabel("active");
-        insertRun(label);
+        insertRun(label, schema(), name());
 
         assertSqlState("23505", () -> Routines.assertNoActiveRunForLabel(dsl.configuration(), label));
     }
@@ -40,7 +40,7 @@ class AssertNoActiveRunForLabelTest extends PostgresTestBase {
     @Test
     void acceptsALabelWhoseOnlyRunIsArchived() {
         String label = uniqueLabel("archived");
-        long runId = insertRun(label);
+        long runId = insertRun(label, schema(), name());
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
@@ -49,13 +49,4 @@ class AssertNoActiveRunForLabelTest extends PostgresTestBase {
         Routines.assertNoActiveRunForLabel(dsl.configuration(), label);
     }
 
-    private long insertRun(String label) {
-        return dsl.insertInto(MIGRATION_RUN)
-                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
-                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
-                        MIGRATION_RUN.DRIVING_TABLE_NAME)
-                .values(label, "SELECT 1", 1, 1, "dml_utils_fixtures", "test_bigint")
-                .returningResult(MIGRATION_RUN.RUN_ID)
-                .fetchOne(MIGRATION_RUN.RUN_ID);
-    }
 }
