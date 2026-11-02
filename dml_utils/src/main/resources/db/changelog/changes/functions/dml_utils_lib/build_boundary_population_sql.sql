@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_boundary_population_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
-    i_primary_key_columns name[],
+    i_key_columns name[],
     i_key_kinds text[],
     i_run_id bigint,
     i_chunk_size bigint
@@ -24,18 +24,18 @@ DECLARE
     l_pack_expression text;
     l_kind            text;
 BEGIN
-    -- The primary-key columns and kinds must be one-dimensional, 1-based and
+    -- The boundary-key columns and kinds must be one-dimensional, 1-based and
     -- the same non-empty length of one to three. A different lower bound, a
     -- multidimensional array, an empty array or a length mismatch would index
     -- the wrong element or render a degenerate statement.
-    IF pg_catalog.array_ndims(i_primary_key_columns) IS DISTINCT FROM 1
-        OR pg_catalog.array_lower(i_primary_key_columns, 1) IS DISTINCT FROM 1
+    IF pg_catalog.array_ndims(i_key_columns) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_key_columns, 1) IS DISTINCT FROM 1
         OR pg_catalog.array_ndims(i_key_kinds) IS DISTINCT FROM 1
         OR pg_catalog.array_lower(i_key_kinds, 1) IS DISTINCT FROM 1
         OR pg_catalog.cardinality(i_key_kinds) NOT BETWEEN 1 AND 3
-        OR pg_catalog.cardinality(i_primary_key_columns) IS DISTINCT FROM pg_catalog.cardinality(i_key_kinds)
+        OR pg_catalog.cardinality(i_key_columns) IS DISTINCT FROM pg_catalog.cardinality(i_key_kinds)
     THEN
-        RAISE EXCEPTION 'primary-key columns and kinds must be one-dimensional, 1-based and of the same non-empty length of one to three'
+        RAISE EXCEPTION 'boundary-key columns and kinds must be one-dimensional, 1-based and of the same non-empty length of one to three'
             USING ERRCODE = '22023';
     END IF;
 
@@ -50,8 +50,8 @@ BEGIN
     -- Build, position by position: the SELECT list that aliases each key column
     -- as id1, id2, ..., the matching id list, the ORDER BY, and the pack
     -- expression. All identifiers are catalog names quoted with %I/quote_ident;
-    -- every kind comes from the whitelist (primary_key_kinds), so interpolating
-    -- the result is safe.
+    -- every kind comes from the resolver whitelist (primary_key_kinds or
+    -- ordered_key_kinds), so interpolating the result is safe.
     l_bigint_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_text_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_uuid_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
@@ -72,24 +72,24 @@ BEGIN
                     USING ERRCODE = '22023';
             END IF;
 
-            IF i_primary_key_columns[l_position] IS NULL
-                OR i_primary_key_columns[l_position] = ''
+            IF i_key_columns[l_position] IS NULL
+                OR i_key_columns[l_position] = ''
             THEN
-                RAISE EXCEPTION 'primary-key column name must not be NULL or empty at position %',
+                RAISE EXCEPTION 'boundary-key column name must not be NULL or empty at position %',
                     l_position
                     USING ERRCODE = '22023';
             END IF;
 
             l_key_select_list := l_key_select_list || pg_catalog.format('%s%s AS id%s',
                                                                         CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
-                                                                        pg_catalog.quote_ident(i_primary_key_columns[l_position]),
+                                                                        pg_catalog.quote_ident(i_key_columns[l_position]),
                                                                         l_position);
             l_key_id_list := l_key_id_list || pg_catalog.format('%sid%s',
                                                                 CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
                                                                 l_position);
             l_order_by := l_order_by || pg_catalog.format('%s%s',
                                                           CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
-                                                          pg_catalog.quote_ident(i_primary_key_columns[l_position]));
+                                                          pg_catalog.quote_ident(i_key_columns[l_position]));
             -- DESC applies per ORDER BY term, so the backward scan needs it on
             -- every column (a trailing DESC would leave the earlier columns ASC).
             -- Order by the SELECT's idN aliases, not the raw column names: this
@@ -145,7 +145,7 @@ BEGIN
     --
     -- The shape matters on production-sized tables:
     --   * numbered is referenced once, so it is inlined and the row_number()
-    --     WindowAgg streams over the primary-key index instead of sorting or
+    --     WindowAgg streams over the boundary-key index instead of sorting or
     --     materialising all rows.
     --   * count(*) OVER () is deliberately not used: a full-partition window
     --     aggregate buffers every row (spilling to disk for large tables) just
@@ -205,9 +205,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.build_boundary_population_sql IS
-    'Returns the statement that scans the driving table''s primary key in row '
-        'order and inserts the run''s chunk boundaries (one start per chunk plus '
-        'the terminal high-water boundary) as the contiguous sequence 0..N. The '
-        'primary-key columns and kinds are passed in (from primary_key_columns / '
-        'primary_key_kinds); the run id and chunk size are inlined so the runner '
-        'executes and the explain path explains the identical statement.';
+    'Returns the statement that scans the driving table in boundary-key order and '
+        'inserts the run''s chunk boundaries (one start per chunk plus the terminal '
+        'high-water boundary) as the contiguous sequence 0..N. The caller supplies '
+        'the key columns and kinds (primary_key_columns/primary_key_kinds for a '
+        'primary-key run, or ordered_key_columns/ordered_key_kinds once the '
+        'ordered-key path is wired); the run id and chunk size are inlined so the '
+        'runner executes and the explain path explains the identical statement.';

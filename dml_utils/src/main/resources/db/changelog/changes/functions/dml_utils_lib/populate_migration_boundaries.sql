@@ -18,7 +18,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_migration_boundaries(
 AS
 $$
 DECLARE
-    l_primary_key_columns name[];
+    l_key_columns         name[];
     l_key_kinds           text[];
     l_relation_filepath   text;
     l_run_id              bigint;
@@ -53,10 +53,12 @@ BEGIN
 
     PERFORM dml_utils_lib.assert_no_active_run_for_label(i_label => i_label);
 
-    -- A primary-key run reads the key columns and kinds; a block run instead
-    -- records the driving table's physical filepath so a resume can detect a
-    -- heap rewrite. The blocks<->filepath check on migration_run then requires
-    -- exactly one of the two to be set.
+    -- A primary-key run reads the primary-key columns and kinds. A block run
+    -- instead records the driving table's physical filepath so a resume can
+    -- detect a heap rewrite, and the blocks<->filepath check on migration_run
+    -- requires exactly one of the two to be set. (The ordered_key strategy is
+    -- wired in a later change; until then this branch still resolves the
+    -- primary key.)
     IF i_chunk_by = 'blocks' THEN
         PERFORM dml_utils_lib.assert_plain_heap(
                 i_schema_name => i_schema_name,
@@ -65,7 +67,7 @@ BEGIN
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
     ELSE
-        l_primary_key_columns := dml_utils_lib.primary_key_columns(
+        l_key_columns := dml_utils_lib.primary_key_columns(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
         l_key_kinds := dml_utils_lib.primary_key_kinds(
@@ -93,7 +95,7 @@ BEGIN
     -- The boundary statement is built by a dml_utils_lib helper shared with the
     -- explain path, so both execute and explain the identical SQL. It is safe
     -- because every identifier comes from the catalog and every kind from the
-    -- primary_key_kinds whitelist; the run id and chunk size are inlined as
+    -- key-kind resolver whitelist; the run id and chunk size are inlined as
     -- bigints. Boundaries are written as the contiguous sequence 0..N in one
     -- statement, so a run has exactly the chunk starts plus one terminal
     -- boundary the runner assumes; this is the only supported write path.
@@ -107,7 +109,7 @@ BEGIN
         EXECUTE dml_utils_lib.build_boundary_population_sql(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name,
-                i_primary_key_columns => l_primary_key_columns,
+                i_key_columns => l_key_columns,
                 i_key_kinds => l_key_kinds,
                 i_run_id => l_run_id,
                 i_chunk_size => i_chunk_size::bigint);

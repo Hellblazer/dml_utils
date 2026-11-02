@@ -75,7 +75,7 @@ BEGIN
     o_sql_text := dml_utils_lib.build_boundary_population_sql(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,
-            i_primary_key_columns => i_primary_key_columns,
+            i_key_columns => i_primary_key_columns,
             i_key_kinds => i_key_kinds,
             i_run_id => 0,
             i_chunk_size => i_chunk_size);

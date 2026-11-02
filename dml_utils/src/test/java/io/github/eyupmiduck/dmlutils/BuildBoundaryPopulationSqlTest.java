@@ -6,6 +6,8 @@ import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,15 +16,16 @@ import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.Migration
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositePk.TEST_COMPOSITE_PK;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Verifies {@code dml_utils_lib.build_boundary_population_sql}: executing the
- * returned statement inserts contiguous primary-key chunk boundaries (one start
- * per chunk plus the terminal high-water boundary), inserts nothing for an empty
- * table, and rejects bad inputs.
+ * returned statement inserts contiguous chunk boundaries (one start per chunk
+ * plus the terminal high-water boundary) for a primary or ordered key, inserts
+ * nothing for an empty table, and rejects bad inputs.
  */
 class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
 
@@ -44,6 +47,18 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
     }
 
+    private static OffsetDateTime timestamp(int second) {
+        return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
+    }
+
+    private static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second, long id) {
+        assertEquals(timestamp(second).toInstant(),
+                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
+                "timestamptz position");
+        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
+                "bigint position");
+    }
+
     /**
      * Clears the fixture table and the run metadata between tests.
      */
@@ -51,7 +66,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     void reset() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         for (Table<?> table : List.of(TEST_BIGINT, TEST_TEXT, TEST_UUID, TEST_COMPOSITE_PK,
-                TEST_COMPOSITE_MIXED)) {
+                TEST_COMPOSITE_MIXED, TEST_ORDERED_KEY)) {
             dsl.truncate(table).execute();
         }
     }
@@ -221,6 +236,35 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         assertMixed(boundaries.get(0), 1L, "x");
         assertMixed(boundaries.get(1), 2L, "x");
         assertMixed(boundaries.get(2), 3L, "z");
+    }
+
+    /**
+     * A timestamptz/bigint composite ordered key packs each position into its
+     * own array and chunks in lexicographic order: the duplicated timestamps are
+     * ordered by the bigint tiebreaker, including at the terminal boundary.
+     */
+    @Test
+    void insertsTimestamptzCompositeKeyBoundaries() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_ORDERED_KEY,
+                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
+                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
+                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
+                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
+                            BigDecimal.valueOf(i))
+                    .execute();
+        }
+        long runId = insertRun(TEST_ORDERED_KEY);
+
+        executeBuild(TEST_ORDERED_KEY, new String[]{"created_at", "id"},
+                new String[]{"timestamptz", "bigint"}, runId, 2L);
+
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertEquals(4, boundaries.size(), "three chunk starts plus the terminal");
+        assertTimestamptzBigint(boundaries.get(0), 1, 1L);
+        assertTimestamptzBigint(boundaries.get(1), 2, 3L);
+        assertTimestamptzBigint(boundaries.get(2), 3, 5L);
+        assertTimestamptzBigint(boundaries.get(3), 3, 5L);
     }
 
     private void executeBuild(Table<?> table, String[] columns, String[] kinds, long runId,

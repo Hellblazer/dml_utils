@@ -886,25 +886,26 @@ must also be able to read that table.
 
 ###
 
-`dml_utils_lib.build_boundary_population_sql(i_schema_name, i_table_name, i_primary_key_columns, i_key_kinds, i_run_id, i_chunk_size)`
+`dml_utils_lib.build_boundary_population_sql(i_schema_name, i_table_name, i_key_columns, i_key_kinds, i_run_id, i_chunk_size)`
 
 ```sql
-i_schema_name          dml_utils_data.non_null_text
-i_table_name           dml_utils_data.non_null_text
-i_primary_key_columns  name[]
-i_key_kinds            text[]
-i_run_id               bigint
-i_chunk_size           bigint
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_key_columns name[]
+i_key_kinds   text[]
+i_run_id      bigint
+i_chunk_size  bigint
 RETURNS text
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the statement that scans the driving
-table's primary key in row order and inserts the run's chunk boundaries as the
+table in boundary-key order and inserts the run's chunk boundaries as the
 contiguous sequence `0..N` (one start per chunk plus the terminal high-water
-boundary). `populate_migration_boundaries` executes it and the explain path
-explains it, so both use the identical SQL; the run id and chunk size are inlined (both bigint). Identifiers are quoted
-with `%I` and every kind is checked against
-the `bigint`/`text`/`uuid` whitelist (`22023` otherwise).
+boundary). The key may be the primary key or a caller-selected ordered key.
+`populate_migration_boundaries` executes it and the explain path explains it, so
+both use the identical SQL; the run id and chunk size are inlined (both bigint).
+Identifiers are quoted with `%I` and every kind is checked against the
+`bigint`/`text`/`uuid`/`timestamptz` whitelist (`22023` otherwise).
 
 ### `dml_utils_lib.synthetic_chunk_boundary_values(i_key_kinds, i_chunk_size)`
 
