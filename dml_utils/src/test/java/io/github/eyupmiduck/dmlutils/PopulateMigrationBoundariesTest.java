@@ -23,6 +23,8 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestKey.TEST_KEY
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitioned.TEST_PARTITIONED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzCompositePk.TEST_TIMESTAMPTZ_COMPOSITE_PK;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzPk.TEST_TIMESTAMPTZ_PK;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,7 +50,8 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     @BeforeEach
     void resetFixtures() {
         for (Table<?> table : List.of(TEST_BIGINT, TEST_TEXT, TEST_UUID, TEST_INTEGER, TEST_KEY,
-                TEST_COMPOSITE_PK, TEST_COMPOSITE_ID1, TEST_COMPOSITE_THREE, TEST_ORDERED_KEY)) {
+                TEST_COMPOSITE_PK, TEST_COMPOSITE_ID1, TEST_COMPOSITE_THREE, TEST_ORDERED_KEY,
+                TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_COMPOSITE_PK)) {
             dsl.truncate(table).execute();
         }
     }
@@ -142,6 +145,41 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN), "no run is written");
         assertEquals(boundariesBefore, dsl.fetchCount(MIGRATION_BOUNDARY),
                 "no boundary is written");
+    }
+
+    /**
+     * A single-column timestamptz primary key populates boundaries by instant.
+     */
+    @Test
+    void populatesTimestamptzPrimaryKeyBoundaries() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_PK.CREATED_AT)
+                    .values(timestamp(i))
+                    .execute();
+        }
+
+        long runId = populate(TEST_TIMESTAMPTZ_PK, 2);
+
+        assertTimestamptzBoundaries(runId, new int[]{1, 3, 5, 5});
+    }
+
+    /**
+     * A composite (timestamptz, bigint) primary key keeps the key order and uses
+     * the bigint column as the tiebreaker.
+     */
+    @Test
+    void populatesCompositeTimestamptzPrimaryKeyBoundaries() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_TIMESTAMPTZ_COMPOSITE_PK,
+                            TEST_TIMESTAMPTZ_COMPOSITE_PK.CREATED_AT, TEST_TIMESTAMPTZ_COMPOSITE_PK.ID)
+                    .values(timestamp((i + 1) / 2), (long) i)
+                    .execute();
+        }
+
+        long runId = populate(TEST_TIMESTAMPTZ_COMPOSITE_PK, 2);
+
+        assertCompositeTimestamptzBoundaries(runId,
+                new int[][]{{1, 1}, {2, 3}, {3, 5}, {3, 5}});
     }
 
     /**
@@ -604,6 +642,26 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
                     "boundary_no " + i);
             assertEquals(expected[i][1], actual.get(i).getBoundaryId().getBigintValues()[0].longValue(),
                     "boundary_id " + i);
+        }
+    }
+
+    private void assertTimestamptzBoundaries(long runId, int[] seconds) {
+        List<MigrationBoundaryRecord> actual = boundaries(runId);
+        assertEquals(seconds.length, actual.size(), "boundary count");
+        for (int i = 0; i < seconds.length; i++) {
+            assertEquals(i, actual.get(i).getBoundaryNo().intValue(), "boundary_no " + i);
+            assertEquals(timestamp(seconds[i]).toInstant(),
+                    actual.get(i).getBoundaryId().getTimestamptzValues()[0].toInstant(),
+                    "boundary_id " + i);
+        }
+    }
+
+    private void assertCompositeTimestamptzBoundaries(long runId, int[][] expected) {
+        List<MigrationBoundaryRecord> actual = boundaries(runId);
+        assertEquals(expected.length, actual.size(), "boundary count");
+        for (int i = 0; i < expected.length; i++) {
+            assertEquals(i, actual.get(i).getBoundaryNo().intValue(), "boundary_no " + i);
+            assertTimestamptzBigint(actual.get(i), expected[i][0], expected[i][1]);
         }
     }
 

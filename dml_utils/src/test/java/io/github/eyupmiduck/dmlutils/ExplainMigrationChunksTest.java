@@ -18,6 +18,7 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeThr
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestNumeric.TEST_NUMERIC;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzPk.TEST_TIMESTAMPTZ_PK;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,6 +56,22 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         dsl.truncate(TEST_BIGINT).execute();
+    }
+
+    /**
+     * A timestamptz primary key yields the three plan kinds with timestamp
+     * literals in the synthetic chunk.
+     */
+    @Test
+    void plansATimestamptzPrimaryKey() {
+        List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_TIMESTAMPTZ_PK),
+                name(TEST_TIMESTAMPTZ_PK), 10, "t", ChunkingStrategy.primary_key, null);
+
+        assertEquals(THREE_KINDS, planKinds(plans));
+        assertTrue(plans.get(1).getOSqlText().contains("'2026-01-01T00:00:00Z'::timestamptz"),
+                "the non-final chunk uses the synthetic timestamptz range");
+        plans.forEach(plan -> assertEquals("ModifyTable", planNodeType(plan.getOPlan())));
     }
 
     /**

@@ -540,9 +540,9 @@ RETURNS TABLE
 key: `primary_key_columns` and `primary_key_kinds` delegate to it, so the key
 order and the one-to-three-column validation live in one place. Each row is one
 key column in key order, with its ordinal position, name, type oid, type and
-collapsed boundary kind (`bigint`/`text`/`uuid`, or NULL for an unsupported
-type). Raises `invalid_parameter_value` (`22023`) when the table has no primary
-key or more than 3 key columns.
+collapsed boundary kind (`bigint`/`text`/`uuid`/`timestamptz`, or NULL for an
+unsupported type). Raises `invalid_parameter_value` (`22023`) when the table has
+no primary key or more than 3 key columns.
 
 ### `dml_utils_lib.primary_key_columns(i_schema_name, i_table_name)`
 
@@ -567,8 +567,8 @@ RETURNS text[]
 
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key kind of each primary-key
 column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
-`text` key, and `uuid` for a `uuid` key. Raises `invalid_parameter_value`
-(`22023`) for any other type.
+`text` key, `uuid` for a `uuid` key and `timestamptz` for a `timestamptz` key.
+Raises `invalid_parameter_value` (`22023`) for any other type.
 
 ### `dml_utils_lib.ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
 

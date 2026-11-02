@@ -12,9 +12,9 @@ and a re-run resumes where it stopped (see
 processed in parallel by more than one worker.
 
 It works on a table with a **primary key of up to three columns**, each of type
-`smallint`, `integer`, `bigint`, `text` or `uuid` (the column names need not be
-`id`); the chunks are primary-key ranges, so the planner can use the primary-key
-index.
+`smallint`, `integer`, `bigint`, `text`, `uuid` or `timestamptz` (the column names
+need not be `id`); the chunks are primary-key ranges, so the planner can use the
+primary-key index.
 
 It is packaged as Liquibase-managed SQL, so installing it means applying the
 bundled changelog with the Liquibase CLI — there is nothing to build and no
@@ -100,8 +100,9 @@ exactly once:
   except the last, which uses `<=` so the captured maximum row is included.
 
 For the default `primary_key` strategy, the driving table must have a **primary
-key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`
-or `uuid`; the column names are read from the catalog, so they need not be `id`.
+key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`,
+`uuid` or `timestamptz`; the column names are read from the catalog, so they need
+not be `id`.
 The predicate compares the key tuple to explicitly cast literals
 (`(t.id) >= ('1'::bigint)`, or `(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
 composite key) so the planner can use the primary-key index. Chunks are cut by

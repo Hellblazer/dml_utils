@@ -27,6 +27,8 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.T
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOther.TEST_OTHER;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestSmallint.TEST_SMALLINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzCompositePk.TEST_TIMESTAMPTZ_COMPOSITE_PK;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzPk.TEST_TIMESTAMPTZ_PK;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,7 +78,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
     void resetFixtures() {
         for (Table<?> table : List.of(TEST_BIGINT, TEST_OTHER, TEST_INTEGER, TEST_SMALLINT,
                 TEST_TEXT, TEST_UUID, TEST_KEY, TEST_COMPOSITE_MIXED, TEST_COMPOSITE_THREE,
-                TEST_ORDERED_KEY)) {
+                TEST_ORDERED_KEY, TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_COMPOSITE_PK)) {
             dsl.truncate(table).execute();
         }
     }
@@ -116,6 +118,57 @@ class RunMigrationChunksTest extends PostgresTestBase {
                         .where(MIGRATION_RUN.RUN_ID.eq(runId))
                         .fetchOne(MIGRATION_RUN.ORDERED_KEY_INDEX),
                 "the run stores the index");
+    }
+
+    /**
+     * A timestamptz primary key is chunked by instant with the primary_key
+     * strategy.
+     */
+    @Test
+    void processesATimestamptzPrimaryKey() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_PK.CREATED_AT)
+                    .values(timestamp(i))
+                    .execute();
+        }
+        String label = label("timestamptz-pk");
+
+        run(label, 2, TEST_TIMESTAMPTZ_PK);
+
+        long runId = runId(label);
+        assertEquals(3L, totalChunks(runId));
+        assertEquals(3L, totalChunksCompleted(runId));
+        assertTrue(runCompleted(runId), "the timestamptz primary-key run completes");
+        assertEquals(5, dsl.fetchCount(TEST_TIMESTAMPTZ_PK,
+                TEST_TIMESTAMPTZ_PK.PAYLOAD.eq("done")), "every row is processed");
+    }
+
+    /**
+     * A timestamptz primary-key run resumes after a failed chunk.
+     */
+    @Test
+    void resumesATimestamptzPrimaryKeyRun() {
+        for (int i = 1; i <= 6; i++) {
+            dsl.insertInto(TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_PK.CREATED_AT)
+                    .values(timestamp(i))
+                    .execute();
+        }
+        String label = label("timestamptz-resume");
+        String failing = "UPDATE <driving_table> SET payload = CASE"
+                + " WHEN created_at = '2026-01-01T00:00:03Z'"
+                + " THEN (ascii(created_at::text) / 0)::text"
+                + " ELSE 'done' END WHERE <chunking_clause>";
+
+        assertSqlState("22012", () -> runWith(label, failing, 2, 1, TEST_TIMESTAMPTZ_PK));
+        Routines.setMigrationRunSqlText(dsl.configuration(), label, TEMPLATE);
+        run(label, 2, TEST_TIMESTAMPTZ_PK);
+
+        long runId = runId(label);
+        assertEquals(3L, totalChunks(runId));
+        assertEquals(3L, totalChunksCompleted(runId));
+        assertTrue(runCompleted(runId), "the resumed run completes");
+        assertEquals(6, dsl.fetchCount(TEST_TIMESTAMPTZ_PK,
+                TEST_TIMESTAMPTZ_PK.PAYLOAD.eq("done")), "every row is processed");
     }
 
     /**

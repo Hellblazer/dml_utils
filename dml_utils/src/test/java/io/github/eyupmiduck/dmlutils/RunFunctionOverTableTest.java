@@ -14,6 +14,7 @@ import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.Migration
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOther.TEST_OTHER;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestTimestamptzPk.TEST_TIMESTAMPTZ_PK;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -47,7 +48,8 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     @BeforeEach
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
-        for (Table<?> table : List.of(TEST_BIGINT, TEST_COMPOSITE_MIXED, TEST_OTHER)) {
+        for (Table<?> table : List.of(TEST_BIGINT, TEST_COMPOSITE_MIXED, TEST_OTHER,
+                TEST_TIMESTAMPTZ_PK)) {
             dsl.truncate(table).execute();
         }
     }
@@ -61,9 +63,42 @@ class RunFunctionOverTableTest extends PostgresTestBase {
         dsl.execute("DROP FUNCTION IF EXISTS public.copy_mixed(bigint, text)");
         dsl.execute("DROP FUNCTION IF EXISTS public.mark_mixed_2(bigint, text)");
         dsl.execute("DROP FUNCTION IF EXISTS public.mark_bigint(bigint)");
+        dsl.execute("DROP FUNCTION IF EXISTS public.mark_timestamptz(timestamptz)");
         dsl.execute("DROP FUNCTION IF EXISTS public.wrong_order(text, bigint)");
         dsl.execute("DROP FUNCTION IF EXISTS public.bad_return(bigint, text)");
         dsl.execute("DROP PROCEDURE IF EXISTS public.mark_mixed_proc(bigint, text)");
+    }
+
+    /**
+     * A function taking the key's timestamptz type runs over a timestamptz
+     * primary key, because the resolver exposes the column's real type.
+     */
+    @Test
+    void appliesAFunctionOverATimestamptzPrimaryKey() {
+        dsl.execute("CREATE OR REPLACE FUNCTION public.mark_timestamptz(ts timestamptz)"
+                + " RETURNS void LANGUAGE sql AS $$"
+                + " UPDATE dml_utils_fixtures.test_timestamptz_pk"
+                + " SET payload = coalesce(payload, '') || 'done'"
+                + " WHERE created_at = ts $$");
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_TIMESTAMPTZ_PK, TEST_TIMESTAMPTZ_PK.CREATED_AT)
+                    .values(timestamp(i))
+                    .execute();
+        }
+        String label = uniqueLabel("fn-timestamptz");
+
+        Routines.runFunctionOverTable(dsl.configuration(),
+                schema(TEST_TIMESTAMPTZ_PK), name(TEST_TIMESTAMPTZ_PK),
+                FN_SCHEMA, "mark_timestamptz", 2, 1,
+                label, null, ChunkingStrategy.primary_key, 1, 0);
+
+        assertTrue(runCompleted(label), "the run should be marked complete");
+        assertEquals(5, dsl.fetchCount(TEST_TIMESTAMPTZ_PK,
+                TEST_TIMESTAMPTZ_PK.PAYLOAD.eq("done")), "every row is processed exactly once");
+        assertEquals(0, dsl.fetchCount(TEST_TIMESTAMPTZ_PK,
+                        TEST_TIMESTAMPTZ_PK.PAYLOAD.ne("done")
+                                .or(TEST_TIMESTAMPTZ_PK.PAYLOAD.isNull())),
+                "a double-processed row would hold the value twice");
     }
 
     /**

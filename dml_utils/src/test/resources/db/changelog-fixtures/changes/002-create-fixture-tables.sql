@@ -456,3 +456,35 @@ CREATE UNIQUE INDEX test_ordered_key_timestamptz_created_at_idx
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_timestamptz_created_at_idx IS
     'Fixture: the valid single-column timestamptz ordered key.';
+
+-- A single-column timestamptz primary key.
+CREATE TABLE dml_utils_fixtures.test_timestamptz_pk
+(
+    created_at timestamptz PRIMARY KEY,
+    payload    text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_timestamptz_pk IS
+    'Fixture: a table with a single timestamptz primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_pk.created_at IS
+    'Fixture timestamptz primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_pk.payload IS
+    'Fixture payload column.';
+
+-- A composite (timestamptz, bigint) primary key.
+CREATE TABLE dml_utils_fixtures.test_timestamptz_composite_pk
+(
+    created_at timestamptz NOT NULL,
+    id         bigint      NOT NULL,
+    payload    text,
+    PRIMARY KEY (created_at, id)
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_timestamptz_composite_pk IS
+    'Fixture: a table with a two-column (timestamptz, bigint) primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.created_at IS
+    'Fixture first primary-key column (timestamptz).';
+COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.id IS
+    'Fixture second primary-key column (bigint).';
+COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.payload IS
+    'Fixture payload column.';

@@ -67,6 +67,32 @@ class PrimaryKeyAttributesTest extends PostgresTestBase {
     }
 
     /**
+     * A timestamptz primary key maps to the {@code timestamptz} boundary kind.
+     */
+    @Test
+    void mapsATimestamptzPrimaryKey() {
+        List<PrimaryKeyAttributesRecord> rows = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_timestamptz_pk");
+
+        assertEquals(1, rows.size());
+        assertAttribute(rows.get(0), 1, "created_at", "timestamptz");
+    }
+
+    /**
+     * A composite (timestamptz, bigint) key keeps the key order and each
+     * column's collapsed kind.
+     */
+    @Test
+    void returnsACompositeTimestamptzKeyInKeyOrder() {
+        List<PrimaryKeyAttributesRecord> rows = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_timestamptz_composite_pk");
+
+        assertEquals(2, rows.size());
+        assertAttribute(rows.get(0), 1, "created_at", "timestamptz");
+        assertAttribute(rows.get(1), 2, "id", "bigint");
+    }
+
+    /**
      * A table without a primary key raises {@code 22023}.
      */
     @Test
