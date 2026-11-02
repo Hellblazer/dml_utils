@@ -62,7 +62,7 @@ class AssertPlainHeapTest extends PostgresTestBase {
 
         assertSqlState("42809", () -> Routines.runMigrationChunks(dsl.configuration(),
                 TEMPLATE, SCHEMA, "test_partitioned", uniqueLabel("block-partitioned"),
-                1, 1, "t", ChunkingStrategy.blocks, 1, 0));
+                1, 1, "t", ChunkingStrategy.blocks, 1, 0, null));
 
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN),
                 "a rejected block run must not create a run");

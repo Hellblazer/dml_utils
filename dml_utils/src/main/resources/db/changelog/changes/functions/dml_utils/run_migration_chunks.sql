@@ -17,7 +17,11 @@ CREATE OR REPLACE FUNCTION dml_utils.run_migration_chunks(
     -- Milliseconds to wait after each successfully completed chunk before
     -- launching another. This seeds a new run; a resumed run uses its stored
     -- value. 0 disables the delay.
-    i_sleep_ms dml_utils_data.non_negative_integer DEFAULT 0
+    i_sleep_ms dml_utils_data.non_negative_integer DEFAULT 0,
+    -- The unique index whose order an ordered_key run uses. Required for
+    -- ordered_key; rejected for a new run of the other strategies and ignored
+    -- with a notice when resuming an existing run.
+    i_boundary_key_index name DEFAULT NULL
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -25,7 +29,7 @@ CREATE OR REPLACE FUNCTION dml_utils.run_migration_chunks(
 AS
 $$
 DECLARE
-    l_primary_key_columns   name[];
+    l_key_columns           name[];
     l_key_kinds             text[];
     l_chunk_by              dml_utils_data.chunking_strategy;
     l_run_id                bigint;
@@ -82,11 +86,11 @@ BEGIN
            r.o_effective_threads,
            r.o_effective_sleep_ms,
            r.o_chunk_by,
-           r.o_primary_key_columns,
+           r.o_key_columns,
            r.o_key_kinds
     INTO l_run_id, l_already_completed, l_effective_sql_text,
         l_effective_schema_name, l_effective_table_name, l_effective_alias,
-        l_effective_threads, l_effective_sleep_ms, l_chunk_by, l_primary_key_columns, l_key_kinds
+        l_effective_threads, l_effective_sleep_ms, l_chunk_by, l_key_columns, l_key_kinds
     FROM dml_utils_lib.resolve_migration_run(
                  i_sql_text => i_sql_text,
                  i_driving_table_schema_name => i_driving_table_schema_name,
@@ -96,7 +100,8 @@ BEGIN
                  i_threads => i_threads,
                  i_driving_table_alias => i_driving_table_alias,
                  i_chunk_by => i_chunk_by,
-                 i_sleep_ms => i_sleep_ms) AS r;
+                 i_sleep_ms => i_sleep_ms,
+                 i_boundary_key_index => i_boundary_key_index) AS r;
 
     IF l_already_completed THEN
         RETURN;
@@ -145,7 +150,7 @@ BEGIN
                 i_schema_name => l_effective_schema_name,
                 i_table_name => l_effective_table_name,
                 i_table_alias => l_effective_alias,
-                i_key_columns => l_primary_key_columns,
+                i_key_columns => l_key_columns,
                 i_key_kinds => l_key_kinds);
     END IF;
 
@@ -177,7 +182,7 @@ BEGIN
                     -- Extract the per-position key values of the start and end
                     -- boundaries in one call. Each kind populates a different
                     -- position-aligned array of migration_key; the helper flattens
-                    -- both back into a value list each, in primary-key order.
+                    -- both back into a value list each, in key order.
                         SELECT b.boundary_no,
                                pair.o_start_values,
                                pair.o_end_values,
@@ -459,17 +464,21 @@ $$;
 
 COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
     'Runs the chunk SQL for every chunk of the driving table (primary_key: fixed '
-        'rows in primary-key order; blocks: half-open physical ctid ranges), up to '
-        'i_threads pg_background workers at a time, resuming an active run for '
-        'the label and recording its completion. A resumed run uses the stored '
-        'sql_text, chunk size, strategy, threads, sleep_ms, driving table and alias. '
-        'After each successfully completed chunk it waits the run''s sleep_ms before '
-        'launching another (except after the final chunk); the sleep is '
-        'cancellation-aware. On a failed chunk it stops launching, lets the '
-        'in-flight chunks commit, drains and detaches them, and re-raises the '
-        'error; the failure is recorded (best effort) in '
-        'dml_utils_data.migration_error first. A boundary already claimed by '
-        'another coordinator (P0C01) is treated as benign. A run cancelled with '
+        'rows in primary-key order; ordered_key: fixed rows in the order of '
+        'i_boundary_key_index, a unique index on the driving table; blocks: '
+        'half-open physical ctid ranges), up to i_threads pg_background workers at '
+        'a time, resuming an active run for the label and recording its completion. '
+        'A resumed run uses the stored sql_text, chunk size, strategy, key, threads, '
+        'sleep_ms, driving table and alias. i_boundary_key_index is required for '
+        'ordered_key and rejected for a new run of the other strategies; a resumed '
+        'run keeps its stored key and ignores a differing index with a notice. '
+        'After each successfully '
+        'completed chunk it waits the run''s sleep_ms before launching another '
+        '(except after the final chunk); the sleep is cancellation-aware. On a '
+        'failed chunk it stops launching, lets the in-flight chunks commit, drains '
+        'and detaches them, and re-raises the error; the failure is recorded (best '
+        'effort) in dml_utils_data.migration_error first. A boundary already claimed '
+        'by another coordinator (P0C01) is treated as benign. A run cancelled with '
         'dml_utils.cancel_migration_run stops launching, cancels the in-flight '
         'workers, marks the run and its remaining boundaries cancelled and '
         'returns; a cancelled run is terminal.';

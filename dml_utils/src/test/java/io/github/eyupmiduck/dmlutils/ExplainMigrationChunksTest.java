@@ -16,6 +16,7 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeThree.TEST_COMPOSITE_THREE;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestNumeric.TEST_NUMERIC;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
@@ -62,9 +63,72 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void returnsTheThreePlansInOrder() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key);
+                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(THREE_KINDS, planKinds(plans));
+    }
+
+    /**
+     * An ordered_key run resolves the index and plans a timestamptz chunk.
+     */
+    @Test
+    void returnsTheThreePlansForAnOrderedKey() {
+        List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_ORDERED_KEY), name(TEST_ORDERED_KEY),
+                10, "t", ChunkingStrategy.ordered_key,
+                "test_ordered_key_created_at_id_idx");
+
+        assertEquals(THREE_KINDS, planKinds(plans));
+        assertTrue(plans.get(0).getOSqlText().contains("ORDER BY"),
+                "the boundary plan scans in key order");
+        assertTrue(plans.get(1).getOSqlText().contains("'2026-01-01T00:00:00Z'::timestamptz"),
+                "the non-final chunk uses the synthetic timestamptz range");
+    }
+
+    /**
+     * The ordered_key strategy requires an index, and the other strategies reject
+     * one; both are invalid-parameter errors.
+     */
+    @Test
+    void rejectsAnInvalidOrderedKeyOrIndexCombination() {
+        assertSqlState("22023", () -> Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_ORDERED_KEY), name(TEST_ORDERED_KEY),
+                10, "t", ChunkingStrategy.ordered_key, null));
+        assertSqlState("22023", () -> Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT),
+                10, "t", ChunkingStrategy.primary_key, "test_bigint_pkey"));
+    }
+
+    /**
+     * The explicit form explains an ordered-key chunk whose values are
+     * timestamptz and bigint.
+     */
+    @Test
+    void explainsAnExplicitOrderedKeyChunk() {
+        List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
+                dsl.configuration(), TEMPLATE, schema(TEST_ORDERED_KEY), name(TEST_ORDERED_KEY),
+                new String[]{"2026-01-01T00:00:01+00", "1"},
+                new String[]{"2026-01-01T00:00:03+00", "5"},
+                false, "t", ChunkingStrategy.ordered_key,
+                "test_ordered_key_created_at_id_idx");
+
+        assertEquals(1, plans.size(), "one row for the explicit chunk");
+        assertEquals("chunk_non_final", plans.get(0).getOPlanKind());
+        assertTrue(plans.get(0).getOSqlText().contains("::timestamptz"),
+                "the predicate casts the timestamp values");
+        assertNotNull(plans.get(0).getOPlan(), "the row carries the JSON plan");
+    }
+
+    /**
+     * The explicit form rejects block chunks; use explain_migration_chunks for
+     * those synthetic plans.
+     */
+    @Test
+    void rejectsBlockChunksOnTheExplicitForm() {
+        assertSqlState("0A000", () -> Routines.explainMigrationChunk(
+                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT),
+                new String[]{"0"}, new String[]{"10"}, false, "t",
+                ChunkingStrategy.blocks, null));
     }
 
     /**
@@ -75,7 +139,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void plansTheBlockStrategy() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t",
-                ChunkingStrategy.blocks);
+                ChunkingStrategy.blocks, null);
 
         assertEquals(THREE_KINDS, planKinds(plans));
         assertTrue(plans.get(0).getOSqlText().contains("INSERT INTO dml_utils_data.migration_boundary"),
@@ -95,7 +159,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void plansATextKeyWithTextLiterals() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_TEXT), name(TEST_TEXT), 10, "t", ChunkingStrategy.primary_key);
+                dsl.configuration(), TEMPLATE, schema(TEST_TEXT), name(TEST_TEXT), 10, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(THREE_KINDS, planKinds(plans));
         assertTrue(plans.get(1).getOSqlText().contains("'a'::text"),
@@ -112,7 +176,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void plansAUuidKeyWithUuidLiterals() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_UUID), name(TEST_UUID), 10, "t", ChunkingStrategy.primary_key);
+                dsl.configuration(), TEMPLATE, schema(TEST_UUID), name(TEST_UUID), 10, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(THREE_KINDS, planKinds(plans));
         assertTrue(plans.get(1).getOSqlText()
@@ -132,7 +196,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void plansACompositeKeyWithEachKindsLiteral() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED),
-                name(TEST_COMPOSITE_MIXED), 10, "t", ChunkingStrategy.primary_key);
+                name(TEST_COMPOSITE_MIXED), 10, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(THREE_KINDS, planKinds(plans));
         String nonFinal = plans.get(1).getOSqlText();
@@ -152,7 +216,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void plansTheBoundaryInsertAndBothChunkForms() {
         List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key);
+                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key, null);
 
         ExplainMigrationChunksRecord boundary = plans.get(0);
         assertTrue(boundary.getOSqlText().contains("INSERT INTO dml_utils_data.migration_boundary"),
@@ -181,7 +245,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
                 .execute();
 
         Routines.explainMigrationChunks(dsl.configuration(), TEMPLATE,
-                schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key);
+                schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN), "no run is created");
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY), "no boundary is written");
@@ -200,7 +264,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void rejectsABadTemplate() {
         assertSqlState("22023", () -> Routines.explainMigrationChunks(dsl.configuration(),
-                "UPDATE nothing", schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key));
+                "UPDATE nothing", schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -210,7 +274,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void rejectsAnUnsupportedKeyType() {
         assertSqlState("22023", () -> Routines.explainMigrationChunks(dsl.configuration(),
-                TEMPLATE, schema(TEST_NUMERIC), name(TEST_NUMERIC), 10, "t", ChunkingStrategy.primary_key));
+                TEMPLATE, schema(TEST_NUMERIC), name(TEST_NUMERIC), 10, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -219,7 +283,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void rejectsAMissingTable() {
         assertSqlState("42P01", () -> Routines.explainMigrationChunks(dsl.configuration(),
-                TEMPLATE, "dml_utils_fixtures", "no_such_table", 10, "t", ChunkingStrategy.primary_key));
+                TEMPLATE, "dml_utils_fixtures", "no_such_table", 10, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -228,7 +292,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     @Test
     void rejectsAPartitionedTableForBlocks() {
         assertSqlState("42809", () -> Routines.explainMigrationChunks(dsl.configuration(),
-                TEMPLATE, "dml_utils_fixtures", "test_partitioned", 10, "t", ChunkingStrategy.blocks));
+                TEMPLATE, "dml_utils_fixtures", "test_partitioned", 10, "t", ChunkingStrategy.blocks, null));
     }
 
     /**
@@ -239,7 +303,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void explainsAChunkWhoseFirstKeyColumnDiffers() {
         List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"7", "a"}, new String[]{"9", "b"}, false, "t");
+                new String[]{"7", "a"}, new String[]{"9", "b"}, false, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(1, plans.size(), "one row for the explained chunk");
         assertEquals("chunk_non_final", plans.get(0).getOPlanKind());
@@ -262,7 +326,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void explainsAChunkWhoseLeadingKeyColumnIsEqual() {
         List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"7", "a"}, new String[]{"7", "b"}, false, "t");
+                new String[]{"7", "a"}, new String[]{"7", "b"}, false, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(1, plans.size());
         assertEquals("chunk_non_final", plans.get(0).getOPlanKind());
@@ -281,7 +345,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void explainsAnExplicitFinalChunkInclusively() {
         List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"7", "a"}, new String[]{"7", "b"}, true, "t");
+                new String[]{"7", "a"}, new String[]{"7", "b"}, true, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals("chunk_final", plans.get(0).getOPlanKind());
         assertTrue(plans.get(0).getOSqlText().contains("t.b <= 'b'::text"),
@@ -297,7 +361,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
         List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_THREE), name(TEST_COMPOSITE_THREE),
                 new String[]{"1", "a", "00000000-0000-0000-0000-000000000000"},
-                new String[]{"1", "b", "00000000-0000-0000-0000-000000000001"}, false, "t");
+                new String[]{"1", "b", "00000000-0000-0000-0000-000000000001"}, false, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(1, plans.size());
         String sql = plans.get(0).getOSqlText();
@@ -320,7 +384,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
         List<ExplainMigrationChunkRecord> plans = Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_THREE), name(TEST_COMPOSITE_THREE),
                 new String[]{"1", "a", "00000000-0000-0000-0000-000000000000"},
-                new String[]{"1", "a", "00000000-0000-0000-0000-000000000001"}, false, "t");
+                new String[]{"1", "a", "00000000-0000-0000-0000-000000000001"}, false, "t", ChunkingStrategy.primary_key, null);
 
         String sql = plans.get(0).getOSqlText();
         assertTrue(sql.contains("t.b = '1'::bigint AND t.a = 'a'::text"));
@@ -337,7 +401,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void rejectsAReversedExplicitRange() {
         assertSqlState("22023", () -> Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"9", "b"}, new String[]{"7", "a"}, false, "t"));
+                new String[]{"9", "b"}, new String[]{"7", "a"}, false, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -348,7 +412,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void rejectsAnEmptyExplicitRange() {
         assertSqlState("22023", () -> Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"7", "a"}, new String[]{"7", "a"}, false, "t"));
+                new String[]{"7", "a"}, new String[]{"7", "a"}, false, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -358,7 +422,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     void rejectsAWrongNumberOfBoundaryValues() {
         assertSqlState("22023", () -> Routines.explainMigrationChunk(
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                new String[]{"7"}, new String[]{"7", "b"}, false, "t"));
+                new String[]{"7"}, new String[]{"7", "b"}, false, "t", ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -373,7 +437,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
 
         Routines.explainMigrationChunk(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT),
-                new String[]{"0"}, new String[]{"10"}, false, "t");
+                new String[]{"0"}, new String[]{"10"}, false, "t", ChunkingStrategy.primary_key, null);
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN), "no run is created");
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY), "no boundary is written");

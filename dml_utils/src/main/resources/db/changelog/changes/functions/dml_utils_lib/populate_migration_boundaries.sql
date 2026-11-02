@@ -9,7 +9,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_migration_boundaries(
     i_driving_table_alias dml_utils_data.non_null_text DEFAULT 't',
     -- Delay in milliseconds after each completed chunk. 0 disables it.
     -- Negative values are rejected before any run is created.
-    i_sleep_ms dml_utils_data.non_negative_integer DEFAULT 0
+    i_sleep_ms dml_utils_data.non_negative_integer DEFAULT 0,
+    -- The unique index whose order an ordered_key run uses. Required for
+    -- ordered_key and rejected for the other strategies.
+    i_boundary_key_index name DEFAULT NULL
 )
     RETURNS bigint
     LANGUAGE plpgsql
@@ -24,10 +27,11 @@ DECLARE
     l_run_id              bigint;
     l_caller              name;
 BEGIN
-    IF i_chunk_by IS NULL THEN
-        RAISE EXCEPTION 'i_chunk_by must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
+    -- The index selects the ordered key, so it is required for that strategy and
+    -- rejected for the others; the shared helper owns that rule.
+    PERFORM dml_utils_lib.assert_boundary_key_index(
+            i_chunk_by => i_chunk_by,
+            i_boundary_key_index => i_boundary_key_index);
 
     PERFORM dml_utils_lib.assert_schema_exists(i_schema_name => i_schema_name);
     PERFORM dml_utils_lib.assert_table_exists(
@@ -53,12 +57,10 @@ BEGIN
 
     PERFORM dml_utils_lib.assert_no_active_run_for_label(i_label => i_label);
 
-    -- A primary-key run reads the primary-key columns and kinds. A block run
-    -- instead records the driving table's physical filepath so a resume can
-    -- detect a heap rewrite, and the blocks<->filepath check on migration_run
-    -- requires exactly one of the two to be set. (The ordered_key strategy is
-    -- wired in a later change; until then this branch still resolves the
-    -- primary key.)
+    -- A range run reads its key columns and kinds from the primary key or the
+    -- named ordered-key index. A block run instead records the driving table's
+    -- physical filepath so a resume can detect a heap rewrite, and the
+    -- blocks<->filepath check on migration_run requires exactly one of the two.
     IF i_chunk_by = 'blocks' THEN
         PERFORM dml_utils_lib.assert_plain_heap(
                 i_schema_name => i_schema_name,
@@ -66,6 +68,19 @@ BEGIN
         l_relation_filepath := dml_utils_lib.relation_filepath(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
+    ELSIF i_chunk_by = 'ordered_key' THEN
+        PERFORM dml_utils_lib.assert_usable_ordered_key(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name,
+                i_index_name => i_boundary_key_index);
+        l_key_columns := dml_utils_lib.ordered_key_columns(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name,
+                i_index_name => i_boundary_key_index);
+        l_key_kinds := dml_utils_lib.ordered_key_kinds(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name,
+                i_index_name => i_boundary_key_index);
     ELSE
         l_key_columns := dml_utils_lib.primary_key_columns(
                 i_schema_name => i_schema_name,
@@ -84,11 +99,18 @@ BEGIN
                                               sleep_ms,
                                               driving_table_schema_name, driving_table_name,
                                               driving_table_alias,
-                                              driving_table_relation_filepath, started_at)
+                                              driving_table_relation_filepath,
+                                              ordered_key_index, ordered_key_columns,
+                                              ordered_key_kinds,
+                                              started_at)
     VALUES (i_label, i_sql_text, i_chunk_size, i_chunk_by, i_threads, i_sleep_ms,
             i_schema_name, i_table_name,
             i_driving_table_alias,
-            l_relation_filepath, pg_catalog.clock_timestamp())
+            l_relation_filepath,
+            CASE WHEN i_chunk_by = 'ordered_key' THEN i_boundary_key_index END,
+            CASE WHEN i_chunk_by = 'ordered_key' THEN l_key_columns END,
+            CASE WHEN i_chunk_by = 'ordered_key' THEN l_key_kinds END,
+            pg_catalog.clock_timestamp())
     RETURNING run_id
         INTO l_run_id;
 
@@ -133,11 +155,12 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.populate_migration_boundaries IS
     'Creates a migration run for the label and populates its chunk boundaries for '
-        'the given table and chunking strategy (primary_key or blocks), returning '
-        'the new run_id. Stores the driving table alias and sleep_ms with the run at '
-        'creation. Records the run''s started_at when the calculation begins '
-        'and boundaries_calculated_at and total_chunks when it finishes, all in the '
-        'worker''s transaction so they commit with the run; a block run also records '
-        'the driving table''s physical filepath. Boundaries are written as the '
-        'contiguous sequence 0..N in one statement; this is the only supported '
-        'write path for boundaries.';
+        'the given table and chunking strategy (primary_key, ordered_key or blocks), '
+        'returning the new run_id. Stores the driving table alias and sleep_ms with '
+        'the run at creation. Records the run''s started_at when the calculation '
+        'begins and boundaries_calculated_at and total_chunks when it finishes, all '
+        'in the worker''s transaction so they commit with the run; a block run also '
+        'records the driving table''s physical filepath, and an ordered_key run '
+        'records i_boundary_key_index and its resolved columns and kinds. '
+        'Boundaries are written as the contiguous sequence 0..N in one statement; '
+        'this is the only supported write path for boundaries.';

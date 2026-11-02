@@ -81,7 +81,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
                 Routines.runMigrationChunks(ownerDsl.configuration(), SLOW_TEMPLATE,
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 5, 2, "t",
-                        ChunkingStrategy.primary_key, 1, 0);
+                        ChunkingStrategy.primary_key, 1, 0, null);
             } catch (SQLException error) {
                 throw new CompletionException(error);
             }
@@ -124,7 +124,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
                 DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
                 Routines.runMigrationChunks(caller.configuration(), SLOW_TEMPLATE,
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
-                        ChunkingStrategy.primary_key, 1, 0);
+                        ChunkingStrategy.primary_key, 1, 0, null);
             } catch (Exception error) {
                 throw new CompletionException(error);
             }
@@ -163,7 +163,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
                 Routines.runMigrationChunks(ownerDsl.configuration(), FAST_TEMPLATE,
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
-                        ChunkingStrategy.primary_key, 1, 5_000);
+                        ChunkingStrategy.primary_key, 1, 5_000, null);
             } catch (SQLException error) {
                 throw new CompletionException(error);
             }

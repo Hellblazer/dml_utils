@@ -6,10 +6,14 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigratio
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.Statement;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -38,6 +42,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     void reset() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         dsl.truncate(TEST_BIGINT).execute();
+        dsl.truncate(TEST_ORDERED_KEY).execute();
     }
 
     /**
@@ -60,7 +65,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertEquals(1, resolved.getOEffectiveThreads());
         assertEquals(0, resolved.getOEffectiveSleepMs());
         assertEquals(ChunkingStrategy.primary_key, resolved.getOChunkBy());
-        assertArrayEquals(new String[]{"id"}, resolved.getOPrimaryKeyColumns());
+        assertArrayEquals(new String[]{"id"}, resolved.getOKeyColumns());
         assertArrayEquals(new String[]{"bigint"}, resolved.getOKeyKinds());
         assertTrue(runStarted(resolved.getORunId()), "the new run should record started_at");
     }
@@ -123,7 +128,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertEquals(first.getORunId(), second.getORunId(), "the active run should be reused");
         assertEquals(ChunkingStrategy.primary_key, second.getOChunkBy(),
                 "the stored strategy wins over a differing input");
-        assertArrayEquals(new String[]{"id"}, second.getOPrimaryKeyColumns(),
+        assertArrayEquals(new String[]{"id"}, second.getOKeyColumns(),
                 "the stored strategy keeps the primary-key columns");
         assertArrayEquals(new String[]{"bigint"}, second.getOKeyKinds());
     }
@@ -137,7 +142,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
-                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0));
+                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0, null));
     }
 
     /**
@@ -157,7 +162,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertDomainViolation(() -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
                 uniqueLabel("resolve-sleep-null"), 2, 1, "t",
-                ChunkingStrategy.primary_key, null));
+                ChunkingStrategy.primary_key, null, null));
     }
 
     /**
@@ -188,7 +193,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("42P01", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), "does_not_exist",
-                label, 2, 1, "t", ChunkingStrategy.primary_key, 0));
+                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null));
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
                 "a failed worker transaction must not leave a run row");
@@ -206,6 +211,121 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertSqlState("22023", () -> resolve(uniqueLabel("resolve-threads"), TEMPLATE, "t", 2, tooMany));
     }
 
+    /**
+     * An ordered_key run resolves the named index and returns the descriptor
+     * stored on the run.
+     */
+    @Test
+    void resolvesAnOrderedKeyRunAndStoresTheDescriptor() {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered");
+
+        ResolveMigrationRun resolved = resolveOrderedKey(label,
+                "test_ordered_key_created_at_id_idx");
+
+        assertEquals(ChunkingStrategy.ordered_key, resolved.getOChunkBy());
+        assertArrayEquals(new String[]{"created_at", "id"}, resolved.getOKeyColumns());
+        assertArrayEquals(new String[]{"timestamptz", "bigint"}, resolved.getOKeyKinds());
+        assertEquals("test_ordered_key_created_at_id_idx", storedOrderedKeyIndex(resolved));
+    }
+
+    /**
+     * A resumed ordered_key run keeps the stored index and descriptor even when
+     * the call names a different index.
+     */
+    @Test
+    void resumeUsesTheStoredOrderedKeyDescriptor() {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-resume");
+
+        ResolveMigrationRun first = resolveOrderedKey(label,
+                "test_ordered_key_created_at_id_idx");
+        ResolveMigrationRun second = resolveOrderedKey(label,
+                "test_ordered_key_external_id_idx");
+
+        assertEquals(first.getORunId(), second.getORunId(), "the active run should be reused");
+        assertEquals(ChunkingStrategy.ordered_key, second.getOChunkBy());
+        assertArrayEquals(new String[]{"created_at", "id"}, second.getOKeyColumns(),
+                "the stored descriptor wins");
+        assertArrayEquals(new String[]{"timestamptz", "bigint"}, second.getOKeyKinds());
+        assertEquals("test_ordered_key_created_at_id_idx", storedOrderedKeyIndex(second));
+    }
+
+    /**
+     * A resumed ordered_key run fails closed with {@code 55000} when the live
+     * index no longer resolves to the descriptor stored with the run.
+     */
+    @Test
+    void resumeFailsWhenTheStoredDescriptorNoLongerMatchesTheIndex() throws Exception {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-changed");
+        ResolveMigrationRun first = resolveOrderedKey(label,
+                "test_ordered_key_created_at_id_idx");
+
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("UPDATE dml_utils_data.migration_run"
+                    + " SET ordered_key_columns = ARRAY['id']::name[],"
+                    + " ordered_key_kinds = ARRAY['bigint']::text[]"
+                    + " WHERE run_id = " + first.getORunId());
+        }
+
+        assertSqlState("55000", () -> resolveOrderedKey(label,
+                "test_ordered_key_created_at_id_idx"));
+    }
+
+    /**
+     * ordered_key without an index is rejected before a run is created.
+     */
+    @Test
+    void rejectsOrderedKeyWithoutAnIndex() {
+        assertSqlState("22023", () -> Routines.resolveMigrationRun(
+                dsl.configuration(), TEMPLATE,
+                TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
+                uniqueLabel("resolve-ordered-null"), 2, 1, "t",
+                ChunkingStrategy.ordered_key, 0, null));
+    }
+
+    /**
+     * A non-ordered strategy with an index is rejected before a run is created.
+     */
+    @Test
+    void rejectsAnIndexForANonOrderedStrategy() {
+        assertSqlState("22023", () -> Routines.resolveMigrationRun(
+                dsl.configuration(), TEMPLATE, schema(), name(),
+                uniqueLabel("resolve-primary-index"), 2, 1, "t",
+                ChunkingStrategy.primary_key, 0, "test_bigint_pkey"));
+    }
+
+    /**
+     * Seeds the ordered-key fixture with five rows whose timestamps repeat, so
+     * the boundary order falls through to the id tiebreaker.
+     */
+    private void seedOrderedKey() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_ORDERED_KEY,
+                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
+                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
+                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
+                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
+                            BigDecimal.valueOf(i))
+                    .execute();
+        }
+    }
+
+    private ResolveMigrationRun resolveOrderedKey(String label, String index) {
+        return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE,
+                TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
+                label, 2, 1, "t", ChunkingStrategy.ordered_key, 0, index);
+    }
+
+    private String storedOrderedKeyIndex(ResolveMigrationRun resolved) {
+        return dsl.select(MIGRATION_RUN.ORDERED_KEY_INDEX)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(resolved.getORunId()))
+                .fetchOne(MIGRATION_RUN.ORDERED_KEY_INDEX);
+    }
+
     private ResolveMigrationRun resolve(String label, String sqlText, String alias, int chunkSize, int threads) {
         return resolve(label, sqlText, alias, chunkSize, threads, 0);
     }
@@ -220,6 +340,6 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                                                    int chunkSize, int threads, ChunkingStrategy chunkBy,
                                                    int sleepMs) {
         return Routines.resolveMigrationRun(dsl.configuration(), sqlText, schema(), name(),
-                label, chunkSize, threads, alias, chunkBy, sleepMs);
+                label, chunkSize, threads, alias, chunkBy, sleepMs, null);
     }
 }

@@ -240,7 +240,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         }
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                label, "SELECT 1", chunkSize, 1, ChunkingStrategy.primary_key, "t", 0);
+                label, "SELECT 1", chunkSize, 1, ChunkingStrategy.primary_key, "t", 0, null);
     }
 
     private void recordError(long runId, long boundaryNo, String sqlstate, String message) {

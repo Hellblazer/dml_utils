@@ -8,6 +8,7 @@ import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +20,7 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositePk.
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeThree.TEST_COMPOSITE_THREE;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestInteger.TEST_INTEGER;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestKey.TEST_KEY;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
@@ -45,7 +47,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     @BeforeEach
     void resetFixtures() {
         for (Table<?> table : List.of(TEST_BIGINT, TEST_TEXT, TEST_UUID, TEST_INTEGER, TEST_KEY,
-                TEST_COMPOSITE_PK, TEST_COMPOSITE_ID1, TEST_COMPOSITE_THREE)) {
+                TEST_COMPOSITE_PK, TEST_COMPOSITE_ID1, TEST_COMPOSITE_THREE, TEST_ORDERED_KEY)) {
             dsl.truncate(table).execute();
         }
     }
@@ -60,6 +62,60 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertTrue(runId > 0, "a run id should be returned");
         assertEquals(1, runCount(runId), "the run row should exist");
         assertTrue(boundaries(runId).isEmpty(), "an empty source has no boundaries");
+    }
+
+    /**
+     * An ordered_key run resolves the named index, stores the descriptor with the
+     * run and chunks in index order.
+     */
+    @Test
+    void populatesOrderedKeyBoundariesAndStoresTheDescriptor() {
+        seedOrderedKey();
+
+        long runId = populateOrderedKey();
+
+        MigrationRunRecord run = run(runId);
+        assertEquals(ChunkingStrategy.ordered_key, run.getChunkBy());
+        assertEquals("test_ordered_key_created_at_id_idx", run.getOrderedKeyIndex());
+        assertArrayEquals(new String[]{"created_at", "id"}, run.getOrderedKeyColumns());
+        assertArrayEquals(new String[]{"timestamptz", "bigint"}, run.getOrderedKeyKinds());
+
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertEquals(4, boundaries.size(), "three chunk starts plus the terminal");
+        assertTimestamptzBigint(boundaries.get(0), 1, 1L);
+        assertTimestamptzBigint(boundaries.get(1), 2, 3L);
+        assertTimestamptzBigint(boundaries.get(2), 3, 5L);
+        assertTimestamptzBigint(boundaries.get(3), 3, 5L);
+        assertEquals(3L, run(runId).getTotalChunks().longValue(), "three chunks");
+    }
+
+    /**
+     * An ordered_key run without an index, or a non-ordered run with one, is
+     * rejected with {@code 22023} before a run is created.
+     */
+    @Test
+    void rejectsAnInvalidStrategyIndexCombination() {
+        int before = dsl.fetchCount(MIGRATION_RUN);
+
+        assertSqlState("22023", () -> populate(TEST_ORDERED_KEY, ChunkingStrategy.ordered_key, null));
+        assertSqlState("22023", () -> populate(TEST_BIGINT, ChunkingStrategy.primary_key,
+                "test_bigint_pkey"));
+
+        assertEquals(before, dsl.fetchCount(MIGRATION_RUN), "no run is created");
+    }
+
+    /**
+     * An unusable ordered key is rejected with its resolver SQLSTATE before a
+     * run is created.
+     */
+    @Test
+    void rejectsAnUnusableOrderedKey() {
+        int before = dsl.fetchCount(MIGRATION_RUN);
+
+        assertSqlState("0A000", () -> populate(TEST_ORDERED_KEY, ChunkingStrategy.ordered_key,
+                "test_ordered_key_nonunique_idx"));
+
+        assertEquals(before, dsl.fetchCount(MIGRATION_RUN), "no run is created");
     }
 
     /**
@@ -433,7 +489,45 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertSqlState("22023", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .populateMigrationBoundaries(dsl.configuration(),
                         TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0));
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null));
+    }
+
+    private void seedOrderedKey() {
+        for (int i = 1; i <= 5; i++) {
+            dsl.insertInto(TEST_ORDERED_KEY,
+                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
+                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
+                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
+                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
+                            BigDecimal.valueOf(i))
+                    .execute();
+        }
+    }
+
+    private void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second, long id) {
+        assertEquals(timestamp(second).toInstant(),
+                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
+                "timestamptz position");
+        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
+                "bigint position");
+    }
+
+    private long populateOrderedKey() {
+        return populate(TEST_ORDERED_KEY, ChunkingStrategy.ordered_key,
+                "test_ordered_key_created_at_id_idx");
+    }
+
+    private long populate(Table<?> table, ChunkingStrategy chunkBy, String index) {
+        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
+                .populateMigrationBoundaries(
+                        dsl.configuration(), table.getSchema().getName(), table.getName(),
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index);
+    }
+
+    private MigrationRunRecord run(long runId) {
+        return dsl.selectFrom(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne();
     }
 
     private void createSource(long... ids) {
@@ -466,7 +560,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     private long populate(Table<?> table, String label, int chunkSize, int threads) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), table.getSchema().getName(), table.getName(), label, SQL_TEXT,
-                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0);
+                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null);
     }
 
     private List<MigrationBoundaryRecord> boundaries(long runId) {

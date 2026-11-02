@@ -130,6 +130,14 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_usable_ordered_key(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_boundary_key_index(
+    dml_utils_data.chunking_strategy,
+    name
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_boundary_key_index(
+    dml_utils_data.chunking_strategy,
+    name
+    ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.migration_key_values(
     dml_utils_data.migration_key,
     text[]
@@ -183,7 +191,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.resolve_migration_run(
     dml_utils_data.positive_integer,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.resolve_migration_run(
     dml_utils_data.non_null_text,
@@ -194,7 +203,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.resolve_migration_run(
     dml_utils_data.positive_integer,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     dml_utils_data.non_null_text,
@@ -267,7 +277,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_migration_boundaries(
     dml_utils_data.positive_integer,
     dml_utils_data.chunking_strategy,
     dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_migration_boundaries(
     dml_utils_data.non_null_text,
@@ -278,7 +289,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_migration_boundaries(
     dml_utils_data.positive_integer,
     dml_utils_data.chunking_strategy,
     dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.process_migration_chunk(
     bigint,
@@ -430,7 +442,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils.run_migration_chunks(
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
     dml_utils_data.positive_integer,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils.run_migration_chunks(
     dml_utils_data.non_null_text,
@@ -442,7 +455,8 @@ GRANT EXECUTE ON FUNCTION dml_utils.run_migration_chunks(
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
     dml_utils_data.positive_integer,
-    dml_utils_data.non_negative_integer
+    dml_utils_data.non_negative_integer,
+    name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils.run_function_over_table(
     dml_utils_data.non_null_text,
@@ -476,7 +490,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils.explain_migration_chunks(
     dml_utils_data.non_null_text,
     dml_utils_data.positive_integer,
     dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy
+    dml_utils_data.chunking_strategy,
+    name
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils.explain_migration_chunks(
     dml_utils_data.non_null_text,
@@ -484,7 +499,8 @@ GRANT EXECUTE ON FUNCTION dml_utils.explain_migration_chunks(
     dml_utils_data.non_null_text,
     dml_utils_data.positive_integer,
     dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy
+    dml_utils_data.chunking_strategy,
+    name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils.explain_migration_chunk(
     dml_utils_data.non_null_text,
@@ -493,7 +509,9 @@ REVOKE EXECUTE ON FUNCTION dml_utils.explain_migration_chunk(
     text[],
     text[],
     boolean,
-    dml_utils_data.non_null_text
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils.explain_migration_chunk(
     dml_utils_data.non_null_text,
@@ -502,7 +520,9 @@ GRANT EXECUTE ON FUNCTION dml_utils.explain_migration_chunk(
     text[],
     text[],
     boolean,
-    dml_utils_data.non_null_text
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils.explain_function_over_table(
     dml_utils_data.non_null_text,

@@ -105,7 +105,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
             assertSqlState("22012", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(
                     dsl.configuration(), FAILING_TEMPLATE, schema(), name(),
                     uniqueLabel("error-record-failure"), 2, 1, "t",
-                    ChunkingStrategy.primary_key, 1, 0));
+                    ChunkingStrategy.primary_key, 1, 0, null));
 
             assertEquals(0, dsl.fetchCount(MIGRATION_ERROR),
                     "the failed recording attempt must not leave a partial error row");
@@ -131,7 +131,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(
                 dsl.configuration(), SLOW_TEMPLATE, schema(), name(), label, 4, 2, "t",
-                ChunkingStrategy.primary_key, 1, 0));
+                ChunkingStrategy.primary_key, 1, 0, null));
 
         assertTrue(boundaryCompleted(runId, 0),
                 "the in-flight worker should finish and commit before the original error is re-raised");
@@ -143,7 +143,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
             try (Connection connection = openTestConnection()) {
                 DSLContext context = DSL.using(connection, SQLDialect.POSTGRES);
                 io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(context.configuration(), TEMPLATE, schema(), name(),
-                        label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0);
+                        label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null);
                 return null;
             }
         };
@@ -151,7 +151,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
 
     private long populate(String label) {
         return Routines.populateMigrationBoundaries(dsl.configuration(), schema(), name(), label,
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0);
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null);
     }
 
     private void completeBoundary(Connection blocker, DSLContext blockerDsl, long runId) throws Exception {

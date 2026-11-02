@@ -25,6 +25,13 @@ DECLARE
     l_primary_key_columns     name[];
     l_key_kinds               text[];
 BEGIN
+    -- The generated function template binds the primary-key column types, so an
+    -- ordered key would change the function contract; it is out of scope for v1.
+    IF i_chunk_by = 'ordered_key' THEN
+        RAISE EXCEPTION 'explain_function_over_table does not support ordered_key chunking'
+            USING ERRCODE = '0A000';
+    END IF;
+
     -- Validate the function against the driving table's primary key and build
     -- the per-row template first, exactly as the runner does; a bad table or
     -- function fails before any plan is produced.

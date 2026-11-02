@@ -43,7 +43,7 @@ class BlockChunkingKeyTypesTest extends PostgresTestBase {
         for (String table : List.of("test_text", "test_uuid", "test_composite_mixed")) {
             String label = uniqueLabel("block-key");
             Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, "dml_utils_fixtures",
-                    table, label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0);
+                    table, label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null);
 
             assertTrue(runCompleted(label), table + " should complete with the block strategy");
         }

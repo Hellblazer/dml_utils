@@ -144,6 +144,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_boundary_key_index" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_boundary_key_index.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_boundary_key_index-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.migration_key_values" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/migration_key_values.sql"
