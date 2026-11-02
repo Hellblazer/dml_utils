@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.render_chunk_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_primary_key_columns name[],
+    i_key_columns name[],
     i_key_kinds text[],
     i_start_values text[],
     i_end_values text[],
@@ -27,7 +27,7 @@ BEGIN
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,
             i_table_alias => i_table_alias,
-            i_primary_key_columns => i_primary_key_columns,
+            i_key_columns => i_key_columns,
             i_key_kinds => i_key_kinds);
 
     RETURN dml_utils_lib.render_prepared_chunk_sql(
@@ -43,11 +43,11 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.render_chunk_sql IS
     'Returns the SQL template with <driving_table> and <chunking_clause> '
-        'substituted for the given table, alias, primary-key columns and chunk '
-        'range; each key kind (bigint, text or uuid) selects the explicit cast. '
+        'substituted for the given table, alias, key columns and chunk range; each '
+        'key kind (bigint, text, uuid or timestamptz) selects the explicit cast. '
         'The chunking clause is a disjunction of axis-aligned boxes that exactly '
         'tiles the lexicographic range, so the planner estimates it column by '
-        'column and uses the primary-key index. The final chunk uses an inclusive '
-        'upper bound, and a NULL boundary value is rejected. A text key is ordered '
-        'under its column''s collation, matching the predicate. This is the one-shot '
-        'pair of prepare_chunk_sql_render and render_prepared_chunk_sql.';
+        'column and uses the key index. The final chunk uses an inclusive upper '
+        'bound, and a NULL boundary value is rejected. A text key is ordered under '
+        'its column''s collation, matching the predicate. This is the one-shot pair '
+        'of prepare_chunk_sql_render and render_prepared_chunk_sql.';

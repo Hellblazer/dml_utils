@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -260,6 +261,29 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         for (long id : ids) {
             dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID).values(id).execute();
         }
+    }
+
+    /**
+     * A synthetic uuid for the uuid-key fixtures, with the given value in its
+     * final twelve digits. Shared so every test builds the same values.
+     *
+     * @param n the trailing value
+     * @return the synthetic uuid
+     */
+    protected static UUID uuid(int n) {
+        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
+    }
+
+    /**
+     * A synthetic timestamptz one second after 2026-01-01T00:00:00Z, for the
+     * ordered-key fixtures. The value is formatted zero-padded so any second
+     * count yields a valid instant.
+     *
+     * @param second the second within the first minute
+     * @return the synthetic instant
+     */
+    protected static OffsetDateTime timestamp(int second) {
+        return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
     }
 
     /**

@@ -145,7 +145,7 @@ BEGIN
                 i_schema_name => l_effective_schema_name,
                 i_table_name => l_effective_table_name,
                 i_table_alias => l_effective_alias,
-                i_primary_key_columns => l_primary_key_columns,
+                i_key_columns => l_primary_key_columns,
                 i_key_kinds => l_key_kinds);
     END IF;
 

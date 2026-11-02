@@ -61,7 +61,7 @@ BEGIN
                      i_schema_name => i_driving_table_schema_name,
                      i_table_name => i_driving_table_name,
                      i_table_alias => 't',
-                     i_primary_key_columns => l_primary_key_columns,
+                     i_key_columns => l_primary_key_columns,
                      i_key_kinds => l_key_kinds,
                      i_chunk_size => i_chunk_size::bigint,
                      i_chunk_by => i_chunk_by) AS p;

@@ -39,13 +39,6 @@ class RunMigrationChunksTest extends PostgresTestBase {
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
 
-    /**
-     * Builds the ordered uuid used for source key {@code n}.
-     */
-    private static UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
-    }
-
     private static String schema(Table<?> table) {
         return table.getSchema().getName();
     }

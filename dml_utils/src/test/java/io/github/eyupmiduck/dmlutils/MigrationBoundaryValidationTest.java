@@ -36,13 +36,6 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     private static final String NO_SUCH_TABLE = "no_such_table";
     private static final String SQL_TEXT = "SELECT 1";
 
-    /**
-     * Builds the ordered uuid used for key part {@code n}.
-     */
-    private static UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
-    }
-
     @BeforeEach
     void resetFixtures() {
         // The class shares one database across methods, so clear both the fixture

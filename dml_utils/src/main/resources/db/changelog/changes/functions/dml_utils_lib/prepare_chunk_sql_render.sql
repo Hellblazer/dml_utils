@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_primary_key_columns name[],
+    i_key_columns name[],
     i_key_kinds text[],
     OUT o_template text,
     OUT o_column_names text[],
@@ -33,18 +33,18 @@ BEGIN
     -- non-empty length. The per-chunk boundary arrays are checked against this
     -- length in render_prepared_chunk_sql. A NULL or empty columns array makes
     -- array_length NULL, which the length comparison below rejects.
-    IF pg_catalog.array_ndims(i_primary_key_columns) IS DISTINCT FROM 1
-        OR pg_catalog.array_lower(i_primary_key_columns, 1) IS DISTINCT FROM 1
+    IF pg_catalog.array_ndims(i_key_columns) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_key_columns, 1) IS DISTINCT FROM 1
         OR pg_catalog.array_ndims(i_key_kinds) IS DISTINCT FROM 1
         OR pg_catalog.array_lower(i_key_kinds, 1) IS DISTINCT FROM 1
-        OR pg_catalog.array_length(i_primary_key_columns, 1) IS NULL
-        OR pg_catalog.array_length(i_primary_key_columns, 1) IS DISTINCT FROM pg_catalog.array_length(i_key_kinds, 1)
+        OR pg_catalog.array_length(i_key_columns, 1) IS NULL
+        OR pg_catalog.array_length(i_key_columns, 1) IS DISTINCT FROM pg_catalog.array_length(i_key_kinds, 1)
     THEN
-        RAISE EXCEPTION 'primary key columns and kinds must be one-dimensional, 1-based, same-length and non-empty'
+        RAISE EXCEPTION 'key columns and kinds must be one-dimensional, 1-based, same-length and non-empty'
             USING ERRCODE = '22023';
     END IF;
 
-    l_column_count := pg_catalog.array_length(i_primary_key_columns, 1);
+    l_column_count := pg_catalog.array_length(i_key_columns, 1);
     o_column_names := ARRAY []::text[];
     o_key_collations := ARRAY []::text[];
     FOR l_position IN 1..l_column_count
@@ -53,30 +53,31 @@ BEGIN
 
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
             -- not true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
 
             -- A NULL or empty column name would render a degenerate %I token and
             -- only fail later when a worker parses the chunk SQL; reject it here.
-            IF i_primary_key_columns[l_position] IS NULL
-                OR i_primary_key_columns[l_position] = ''
+            IF i_key_columns[l_position] IS NULL
+                OR i_key_columns[l_position] = ''
             THEN
-                RAISE EXCEPTION 'primary-key column name must not be NULL or empty at position %',
+                RAISE EXCEPTION 'key column name must not be NULL or empty at position %',
                     l_position
                     USING ERRCODE = '22023';
             END IF;
 
             o_column_names := o_column_names || pg_catalog.format('%I.%I',
                                                                   i_table_alias,
-                                                                  i_primary_key_columns[l_position]);
+                                                                  i_key_columns[l_position]);
 
-            -- Precompute the text column's collation once (bigint/uuid do not order
-            -- by collation). NULL means the column is not in the catalog (a renderer
-            -- unit test with a synthetic table), so render_prepared_chunk_sql falls
-            -- back to the default operator; 'default' is the default collation; any
-            -- other value is the quoted collation name.
+            -- Precompute the text column's collation once (the other kinds do not
+            -- order by collation). NULL means the column is not in the catalog (a
+            -- renderer unit test with a synthetic table), so
+            -- render_prepared_chunk_sql falls back to the default operator;
+            -- 'default' is the default collation; any other value is the quoted
+            -- collation name.
             IF l_kind = 'text' THEN
                 l_collation := NULL;
                 SELECT CASE
@@ -89,7 +90,7 @@ BEGIN
                                    ON c.oid = a.attcollation
                 WHERE a.attrelid = pg_catalog.to_regclass(
                         pg_catalog.format('%I.%I', i_schema_name, i_table_name))
-                  AND a.attname = i_primary_key_columns[l_position];
+                  AND a.attname = i_key_columns[l_position];
                 -- array_append, not `||`: concatenating a NULL element keeps the
                 -- array aligned by position (a plain `array || NULL` would not add
                 -- an element).
@@ -127,10 +128,13 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.prepare_chunk_sql_render IS
-    'Validates a chunking template and its primary-key columns and kinds once, and '
+    'Validates a chunking template and its key columns and kinds once, and '
         'returns the run-invariant render context: the template with <driving_table> '
         'already substituted and <chunking_clause> replaced by an internal sentinel, '
         'the alias-qualified quoted column names, and each text column''s collation '
-        '(NULL when the column is not in the catalog). render_prepared_chunk_sql '
-        'consumes it per chunk, so the per-chunk call only builds the range predicate '
-        'and substitutes the chunking clause.';
+        '(NULL when the column is not in the catalog). The caller must pass the '
+        'kind resolved from the catalog for each column; the public wrappers derive '
+        'the columns and kinds together, so a direct lib caller is responsible for '
+        'keeping them consistent. render_prepared_chunk_sql consumes the context per '
+        'chunk, so the per-chunk call only builds the range predicate and substitutes '
+        'the chunking clause.';

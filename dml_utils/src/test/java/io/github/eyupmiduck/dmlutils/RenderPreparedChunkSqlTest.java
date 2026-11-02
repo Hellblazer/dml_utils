@@ -48,6 +48,45 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A timestamptz/bigint composite key renders both positions with their own
+     * casts and compares the timestamp as a timestamp, not as text.
+     */
+    @Test
+    void rendersATimestamptzCompositeKey() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"created_at", "id"}, new String[]{"timestamptz", "bigint"});
+
+        String rendered = renderPrepared(prepared, new String[]{"timestamptz", "bigint"},
+                new String[]{"2026-01-01T00:00:00+00", "1"},
+                new String[]{"2026-01-02T00:00:00+00", "5"}, false);
+
+        assertEquals(
+                "UPDATE public.src t SET processed = true"
+                        + " WHERE (t.created_at = '2026-01-01T00:00:00+00'::timestamptz"
+                        + " AND t.id >= '1'::bigint"
+                        + " OR t.created_at > '2026-01-01T00:00:00+00'::timestamptz"
+                        + " AND t.created_at < '2026-01-02T00:00:00+00'::timestamptz"
+                        + " OR t.created_at = '2026-01-02T00:00:00+00'::timestamptz"
+                        + " AND t.id < '5'::bigint)",
+                rendered);
+    }
+
+    /**
+     * A malformed timestamptz literal is rejected as an invalid boundary value
+     * rather than failing later when a worker parses the chunk SQL.
+     */
+    @Test
+    void rejectsAnInvalidTimestamptzLiteral() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"created_at"}, new String[]{"timestamptz"});
+
+        assertSqlState("22023", () -> renderPrepared(prepared, new String[]{"timestamptz"},
+                new String[]{"not-a-date"}, new String[]{"2026-01-02T00:00:00+00"}, false));
+    }
+
+    /**
      * A prepared template without the chunking-clause placeholder is rejected,
      * since the clause would never be substituted and the chunk would render with
      * no predicate.

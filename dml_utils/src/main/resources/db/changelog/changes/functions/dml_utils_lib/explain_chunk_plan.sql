@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plan(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_primary_key_columns name[],
+    i_key_columns name[],
     i_key_kinds text[],
     i_start_values text[],
     i_end_values text[],
@@ -36,7 +36,7 @@ BEGIN
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,
             i_table_alias => i_table_alias,
-            i_primary_key_columns => i_primary_key_columns,
+            i_key_columns => i_key_columns,
             i_key_kinds => i_key_kinds,
             i_start_values => i_start_values,
             i_end_values => i_end_values,
@@ -47,10 +47,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.explain_chunk_plan IS
-    'Returns the EXPLAIN (FORMAT JSON) plan for one explicitly supplied '
-        'primary-key chunk range, as a single chunk_non_final or chunk_final row. '
-        'Unlike explain_chunk_plans it explains the exact predicate a real chunk '
-        'renders, including the prefix-equality shapes a multi-column key '
-        'produces when the leading key columns do not differ between the start '
-        'and end boundaries. render_chunk_sql validates and casts the range; no '
-        'run or boundary is read or written.';
+    'Returns the EXPLAIN (FORMAT JSON) plan for one explicitly supplied key chunk '
+        'range, as a single chunk_non_final or chunk_final row. Unlike '
+        'explain_chunk_plans it explains the exact predicate a real chunk renders, '
+        'including the prefix-equality shapes a multi-column key produces when the '
+        'leading key columns do not differ between the start and end boundaries. '
+        'render_chunk_sql validates and casts the range; no run or boundary is read '
+        'or written.';

@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plans(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_primary_key_columns name[],
+    i_key_columns name[],
     i_key_kinds text[],
     i_chunk_size bigint,
     i_chunk_by dml_utils_data.chunking_strategy DEFAULT 'primary_key'
@@ -67,15 +67,15 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 1. The statement that scans the driving table in primary-key order and
-    -- inserts the run's boundaries. The run id is synthetic (0): EXPLAIN plans
-    -- the insert as a ModifyTable and does not evaluate the foreign key, so no
-    -- run needs to exist and nothing is written.
+    -- 1. The statement that scans the driving table in key order and inserts the
+    -- run's boundaries. The run id is synthetic (0): EXPLAIN plans the insert as
+    -- a ModifyTable and does not evaluate the foreign key, so no run needs to
+    -- exist and nothing is written.
     o_plan_kind := 'boundary_population';
     o_sql_text := dml_utils_lib.build_boundary_population_sql(
             i_schema_name => i_schema_name,
             i_table_name => i_table_name,
-            i_key_columns => i_primary_key_columns,
+            i_key_columns => i_key_columns,
             i_key_kinds => i_key_kinds,
             i_run_id => 0,
             i_chunk_size => i_chunk_size);
@@ -98,7 +98,7 @@ BEGIN
                     i_schema_name => i_schema_name,
                     i_table_name => i_table_name,
                     i_table_alias => i_table_alias,
-                    i_primary_key_columns => i_primary_key_columns,
+                    i_key_columns => i_key_columns,
                     i_key_kinds => i_key_kinds,
                     i_start_values => l_range.o_start_values,
                     i_end_values => l_range.o_end_values,

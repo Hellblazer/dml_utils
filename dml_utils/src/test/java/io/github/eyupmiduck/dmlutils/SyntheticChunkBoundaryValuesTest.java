@@ -55,6 +55,20 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
     }
 
     /**
+     * A timestamptz key gets a fixed pair of instants whose start sorts before
+     * its end.
+     */
+    @Test
+    void returnsAPairForATimestamptzKey() {
+        SyntheticChunkBoundaryValuesRecord timestamptz = Routines.syntheticChunkBoundaryValues(
+                dsl.configuration(), new String[]{"timestamptz"}, 10L).get(0);
+        assertArrayEquals(new String[]{"2026-01-01T00:00:00Z"},
+                timestamptz.getOStartValues());
+        assertArrayEquals(new String[]{"2026-01-02T00:00:00Z"},
+                timestamptz.getOEndValues());
+    }
+
+    /**
      * A composite key aligns each position with its own kind, so a bigint and a
      * text column get the bigint and text pairs respectively.
      */

@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,14 +40,6 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         assertEquals(a, boundary.getBoundaryId().getBigintValues()[0].longValue(),
                 "bigint position");
         assertEquals(b, boundary.getBoundaryId().getTextValues()[1], "text position");
-    }
-
-    private static UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
-    }
-
-    private static OffsetDateTime timestamp(int second) {
-        return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
     }
 
     private static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second, long id) {

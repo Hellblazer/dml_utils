@@ -5,11 +5,12 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.PrepareChunkSql
 import org.junit.jupiter.api.Test;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeCollated.TEST_COMPOSITE_COLLATED;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.prepare_chunk_sql_render}: it validates the
- * template and the primary-key columns and kinds once and returns the
+ * template and the key columns and kinds once and returns the
  * run-invariant render context — the template with the driving table
  * substituted and the chunking clause left as a sentinel, the alias-qualified
  * column names, and each text column's collation, position-aligned with the
@@ -54,6 +55,24 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
         assertEquals(2, collations.length, "one collation entry per key column");
         assertNull(collations[0], "a bigint column has no collation entry");
         assertEquals("\"en-x-icu\"", collations[1], "the text column's ICU collation");
+    }
+
+    /**
+     * A timestamptz column has no collation entry, so the renderer casts and
+     * compares it as a timestamp rather than as text.
+     */
+    @Test
+    void acceptsATimestamptzKindWithoutACollation() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE,
+                TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(), "t",
+                new String[]{"created_at", "id"}, new String[]{"timestamptz", "bigint"});
+
+        assertArrayEquals(new String[]{"t.created_at", "t.id"}, prepared.getOColumnNames());
+        String[] collations = prepared.getOKeyCollations();
+        assertEquals(2, collations.length, "one collation entry per key column");
+        assertNull(collations[0], "a timestamptz column has no collation entry");
+        assertNull(collations[1], "a bigint column has no collation entry");
     }
 
     /**

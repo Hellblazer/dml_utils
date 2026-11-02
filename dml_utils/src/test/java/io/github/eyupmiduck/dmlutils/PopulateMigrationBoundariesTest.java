@@ -436,13 +436,6 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
                         LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0));
     }
 
-    /**
-     * Builds the ordered uuid used for source key {@code n}.
-     */
-    private UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
-    }
-
     private void createSource(long... ids) {
         seedBigint(ids);
     }

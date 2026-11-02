@@ -730,14 +730,14 @@ once each.
 
 ###
 
-`dml_utils_lib.render_chunk_sql(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_primary_key_columns, i_key_kinds, i_start_values, i_end_values, i_is_final)`
+`dml_utils_lib.render_chunk_sql(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds, i_start_values, i_end_values, i_is_final)`
 
 ```sql
 i_sql_text          dml_utils_data.non_null_text
 i_schema_name       dml_utils_data.non_null_text
 i_table_name        dml_utils_data.non_null_text
 i_table_alias       dml_utils_data.non_null_text
-i_primary_key_columns name[]
+i_key_columns       name[]
 i_key_kinds         text[]
 i_start_values      text[]
 i_end_values        text[]
@@ -758,12 +758,13 @@ chunk's last upper bound is `<=` so the captured maximum row is included; a key
 that differs only in its last column is a single scalar range and a key whose
 bounds are all equal is a single row. Each box is a prefix of equalities plus a
 range on the next column, so PostgreSQL estimates it column by column and uses
-the primary-key index, where a single row-value comparison is mis-estimated and
+the key index, where a single row-value comparison is mis-estimated and
 can sequential-scan the whole table. Each
-`i_key_kinds` entry must be `bigint`, `text` or `uuid` and is interpolated as the
-literal's cast, so any other value raises `22023`; the arrays must all have the
-same length, and a NULL start or end value raises `22023` (a NULL would render
-as an unquoted `NULL`, making the predicate match no rows). The start and end
+`i_key_kinds` entry must be `bigint`, `text`, `uuid` or `timestamptz` and is
+interpolated as the literal's cast, so any other value raises `22023`; the
+arrays must all have the same length, and a NULL start or end value raises
+`22023` (a NULL would render as an unquoted `NULL`, making the predicate match
+no rows). The start and end
 values are the text form of the packed boundary key. Identifiers are quoted with
 `%I` and values with `%L`, so neither substitution can reintroduce a token. It
 is the one-shot pair of `prepare_chunk_sql_render` and
@@ -772,31 +773,34 @@ calls those two directly and prepares once.
 
 ###
 
-`dml_utils_lib.prepare_chunk_sql_render(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_primary_key_columns, i_key_kinds)`
+`dml_utils_lib.prepare_chunk_sql_render(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds)`
 
 ```sql
 i_sql_text            dml_utils_data.non_null_text
 i_schema_name         dml_utils_data.non_null_text
 i_table_name          dml_utils_data.non_null_text
 i_table_alias         dml_utils_data.non_null_text
-i_primary_key_columns name[]
+i_key_columns         name[]
 i_key_kinds           text[]
 RETURNS record
     (o_template text, o_column_names text[], o_key_collations text[])
 ```
 
 `STABLE`, `SECURITY INVOKER`. Validates the chunking template (see
-`assert_chunking_template`) and the primary-key columns and kinds once, and
+`assert_chunking_template`) and the key columns and kinds once, and
 returns the run-invariant render context for `render_prepared_chunk_sql`: the
 template with `<driving_table>` already substituted and `<chunking_clause>`
 replaced by an internal sentinel, the alias-qualified quoted column names, and
 each text column's collation (the quoted collation name, `default`, or NULL when
 the column is not in the catalog, in which case the per-chunk render compares
-under the default operator). It reads the catalog for the collations and rejects
-an unsupported kind, a NULL/empty column name, a malformed columns/kinds array, a
-template that is not a valid chunking template, or an identifier/template
-containing a reserved substitution character (`22023`). Prepare once per run and
-pass the result to `render_prepared_chunk_sql` for every chunk.
+under the default operator). The caller must pass the kind resolved from the
+catalog for each column; the public wrappers derive both together, so a direct
+lib caller is responsible for keeping them consistent. It reads the catalog for
+the collations and rejects an unsupported kind, a NULL/empty column name, a
+malformed columns/kinds array, a template that is not a valid chunking template,
+or an identifier/template containing a reserved substitution character (`22023`).
+Prepare once per run and pass the result to `render_prepared_chunk_sql` for every
+chunk.
 
 ###
 
@@ -918,8 +922,8 @@ RETURNS TABLE
 
 `IMMUTABLE`, `SECURITY INVOKER`. Returns two representative chunk ranges, one
 per key kind and in key order: the non-final (`o_is_final` false) and final (`o_is_final` true) rows. `bigint` spans
-`0..chunk_size`, `text` uses `a..b` and
-`uuid` the first two all-zero forms. The values are synthetic, so the explain
+`0..chunk_size`, `text` uses `a..b`, `uuid` the first two all-zero forms and
+`timestamptz` two consecutive days. The values are synthetic, so the explain
 path can render a plausible chunk predicate without reading real boundaries.
 Rejects malformed kinds or a non-positive chunk size (`22023`).
 
@@ -937,14 +941,14 @@ because PostgreSQL forbids `EXPLAIN` in a non-volatile function.
 
 ###
 
-`dml_utils_lib.explain_chunk_plans(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_primary_key_columns, i_key_kinds, i_chunk_size [, i_chunk_by])`
+`dml_utils_lib.explain_chunk_plans(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds, i_chunk_size [, i_chunk_by])`
 
 ```sql
 i_sql_text            dml_utils_data.non_null_text
 i_schema_name         dml_utils_data.non_null_text
 i_table_name          dml_utils_data.non_null_text
 i_table_alias         dml_utils_data.non_null_text
-i_primary_key_columns name[]
+i_key_columns         name[]
 i_key_kinds           text[]
 i_chunk_size          bigint
 i_chunk_by            dml_utils_data.chunking_strategy DEFAULT 'primary_key'
@@ -955,7 +959,7 @@ RETURNS TABLE
 `VOLATILE`, `SECURITY INVOKER`. Renders and explains the three statements a
 chunked run generates — the boundary-population insert (synthetic run id `0`), a
 non-final chunk and the final chunk — using synthetic ranges and reading no
-boundaries. For `primary_key` the boundary plan is the primary-key boundary
+boundaries. For `primary_key` the boundary plan is the key boundary
 insert and the chunk plans are a `<` non-final and a `<=` final range; for
 `blocks` the boundary plan is the block boundary insert and both chunk plans are
 half-open ctid ranges. Shared by `explain_migration_chunks` and
@@ -963,14 +967,14 @@ half-open ctid ranges. Shared by `explain_migration_chunks` and
 
 ###
 
-`dml_utils_lib.explain_chunk_plan(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_primary_key_columns, i_key_kinds, i_start_values, i_end_values, i_is_final)`
+`dml_utils_lib.explain_chunk_plan(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds, i_start_values, i_end_values, i_is_final)`
 
 ```sql
 i_sql_text            dml_utils_data.non_null_text
 i_schema_name         dml_utils_data.non_null_text
 i_table_name          dml_utils_data.non_null_text
 i_table_alias         dml_utils_data.non_null_text
-i_primary_key_columns name[]
+i_key_columns         name[]
 i_key_kinds           text[]
 i_start_values        text[]
 i_end_values          text[]
@@ -980,7 +984,7 @@ RETURNS TABLE
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. The explicit-boundary companion to
-`explain_chunk_plans`: it renders one primary-key chunk from the supplied
+`explain_chunk_plans`: it renders one key chunk from the supplied
 boundaries and returns its `EXPLAIN (FORMAT JSON)` plan as a single
 `chunk_non_final` or `chunk_final` row. The range is validated and cast by
 `render_chunk_sql`, so a reversed or empty range is rejected with `22023`. It is

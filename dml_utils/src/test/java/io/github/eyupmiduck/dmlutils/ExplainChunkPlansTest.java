@@ -46,6 +46,24 @@ class ExplainChunkPlansTest extends PostgresTestBase {
     }
 
     /**
+     * A timestamptz/bigint composite key yields the same three plan kinds with
+     * timestamp literals in the chunk predicate.
+     */
+    @Test
+    void returnsTheThreePlansForATimestamptzCompositeKey() {
+        List<ExplainChunkPlansRecord> plans = Routines.explainChunkPlans(
+                dsl.configuration(), TEMPLATE, FIXTURE_SCHEMA, "test_ordered_key", "t",
+                new String[]{"created_at", "id"}, new String[]{"timestamptz", "bigint"},
+                10L, ChunkingStrategy.primary_key);
+
+        assertPlanKinds(plans);
+        assertTrue(plans.get(1).getOSqlText()
+                        .contains("'2026-01-01T00:00:00Z'::timestamptz"),
+                "the non-final chunk uses the synthetic timestamptz start");
+        plans.forEach(plan -> assertEquals("ModifyTable", planNodeType(plan.getOPlan())));
+    }
+
+    /**
      * A block run yields the same three plan kinds.
      */
     @Test
@@ -84,6 +102,28 @@ class ExplainChunkPlansTest extends PostgresTestBase {
         assertTrue(plans.get(0).getOSqlText()
                         .contains("t.a = '7'::bigint AND t.b >= 'a'::text AND t.b < 'b'::text"),
                 "the shared leading column is a prefix equality");
+        assertNotNull(plans.get(0).getOPlan(), "the row carries the JSON plan");
+    }
+
+    /**
+     * The explicit-boundary explain renders exactly the SQL the runner renders for
+     * the same timestamptz chunk.
+     */
+    @Test
+    void explainsTheSameTimestamptzSqlTheRunnerRenders() {
+        String[] columns = {"created_at", "id"};
+        String[] kinds = {"timestamptz", "bigint"};
+        String[] start = {"2026-01-01T00:00:00+00", "2"};
+        String[] end = {"2026-01-02T00:00:00+00", "4"};
+
+        String runnerSql = Routines.renderChunkSql(dsl.configuration(), TEMPLATE,
+                FIXTURE_SCHEMA, "test_ordered_key", "t", columns, kinds, start, end, false);
+        List<ExplainChunkPlanRecord> plans = Routines.explainChunkPlan(
+                dsl.configuration(), TEMPLATE, FIXTURE_SCHEMA, "test_ordered_key", "t",
+                columns, kinds, start, end, false);
+
+        assertEquals(runnerSql, plans.get(0).getOSqlText(),
+                "the explain path must explain the runner's exact SQL");
         assertNotNull(plans.get(0).getOPlan(), "the row carries the JSON plan");
     }
 

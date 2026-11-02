@@ -32,6 +32,8 @@ DECLARE
     l_end_bigint                        bigint;
     l_start_uuid                        uuid;
     l_end_uuid                          uuid;
+    l_start_timestamptz                 timestamptz;
+    l_end_timestamptz                   timestamptz;
     -- Direction of the first differing column (-1 start < end, 1 start > end,
     -- 0 all equal) and its position, which selects the box decomposition.
     l_first_difference                  integer := 0;
@@ -92,7 +94,7 @@ BEGIN
 
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL, not
             -- true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -111,8 +113,9 @@ BEGIN
             -- emitted into the chunk SQL and only fail when a worker parses it;
             -- validate by casting here (and keep the typed value for the range check
             -- below), so the failure is not deferred. text accepts any value, so only
-            -- bigint and uuid need a cast. Catch only the invalid-text conditions
-            -- (22023 / 22P02); an unexpected error is re-raised with its SQLSTATE.
+            -- bigint, uuid and timestamptz need a cast. Catch the invalid-text and
+            -- invalid-datetime conditions (22023 / 22P02 / 22007 / 22008 / 22009); an
+            -- unexpected error is re-raised with its SQLSTATE.
             BEGIN
                 IF l_kind = 'bigint' THEN
                     l_start_bigint := i_start_values[l_position]::bigint;
@@ -126,6 +129,18 @@ BEGIN
                     l_end_uuid := i_end_values[l_position]::uuid;
                     IF l_first_difference = 0 AND l_start_uuid IS DISTINCT FROM l_end_uuid THEN
                         l_first_difference := CASE WHEN l_start_uuid < l_end_uuid THEN -1 ELSE 1 END;
+                        l_first_difference_position := l_position;
+                    END IF;
+                ELSIF l_kind = 'timestamptz' THEN
+                    l_start_timestamptz := i_start_values[l_position]::timestamptz;
+                    l_end_timestamptz := i_end_values[l_position]::timestamptz;
+                    IF l_first_difference = 0
+                        AND l_start_timestamptz IS DISTINCT FROM l_end_timestamptz
+                    THEN
+                        l_first_difference := CASE
+                                                  WHEN l_start_timestamptz < l_end_timestamptz THEN -1
+                                                  ELSE 1
+                                              END;
                         l_first_difference_position := l_position;
                     END IF;
                 ELSE
@@ -153,7 +168,11 @@ BEGIN
                     END IF;
                 END IF;
             EXCEPTION
-                WHEN invalid_parameter_value OR invalid_text_representation THEN
+                WHEN invalid_parameter_value
+                    OR invalid_text_representation
+                    OR invalid_datetime_format
+                    OR datetime_field_overflow
+                    OR SQLSTATE '22009' THEN
                     RAISE EXCEPTION
                         'boundary value for column % is not a valid %',
                         i_column_names[l_position], l_kind

@@ -40,9 +40,10 @@ BEGIN
 
     -- Build one representative start/end literal per position, in key order.
     -- Each kind gets a pair whose start sorts before its end: bigint spans one
-    -- chunk (0 .. chunk_size), text uses a .. b and uuid uses the first two
-    -- values of the all-zero form. The literals are synthetic; the explain path
-    -- uses them only to render a valid, plausible chunk predicate.
+    -- chunk (0 .. chunk_size), text uses a .. b, uuid uses the first two values
+    -- of the all-zero form, and timestamptz uses two consecutive days. The
+    -- literals are synthetic; the explain path uses them only to render a valid,
+    -- plausible chunk predicate.
     FOR l_position IN 1..pg_catalog.cardinality(i_key_kinds)
         LOOP
             l_kind := i_key_kinds[l_position];
@@ -58,6 +59,9 @@ BEGIN
             ELSIF l_kind = 'uuid' THEN
                 l_start := '00000000-0000-0000-0000-000000000000';
                 l_end := '00000000-0000-0000-0000-000000000001';
+            ELSIF l_kind = 'timestamptz' THEN
+                l_start := '2026-01-01T00:00:00Z';
+                l_end := '2026-01-02T00:00:00Z';
             ELSE
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
@@ -80,6 +84,7 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.synthetic_chunk_boundary_values IS
     'Returns two representative chunk ranges, one per key kind and in key order: '
         'the non-final (o_is_final false) and final (o_is_final true) rows. '
-        'bigint spans 0..chunk_size, text a..b and uuid the first two all-zero '
-        'forms. The values are synthetic, so the explain path can render and '
-        'EXPLAIN a plausible chunk predicate without reading real boundaries.';
+        'bigint spans 0..chunk_size, text a..b, uuid the first two all-zero forms '
+        'and timestamptz two consecutive days. The values are synthetic, so the '
+        'explain path can render and EXPLAIN a plausible chunk predicate without '
+        'reading real boundaries.';
