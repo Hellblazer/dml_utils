@@ -548,6 +548,78 @@ column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
 `text` key, and `uuid` for a `uuid` key. Raises `invalid_parameter_value`
 (`22023`) for any other type.
 
+### `dml_utils_lib.ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS TABLE
+(ordinality integer, column_name name, column_oid oid,
+    column_type regtype, key_kind text)
+```
+
+`STABLE`, `SECURITY INVOKER`. The single catalog reader and validator for an
+ordered key: resolves the named unique btree index on the driving table to one
+row per key column in index order, with its ordinal position, name, type oid,
+type and collapsed boundary kind (`bigint`, `text`, `uuid` or `timestamptz`).
+`INCLUDE` columns are ignored. It rejects:
+
+| Situation | SQLSTATE |
+|---|---|
+| Missing index on the table | `42704` |
+| Missing schema / table | `3F000` / `42P01` |
+| Non-plain (partitioned) table, non-btree, non-unique, partial, expression, DESC / NULLS FIRST, non-default opclass, collation mismatch, nullable key column | `0A000` |
+| Index not valid/ready/live | `55000` |
+| Wrong arity (more than three key columns) or unsupported key type | `22023` |
+
+The index must be a valid, live, unique btree index on one to three simple
+`NOT NULL` columns using the type's default btree operator class and the
+column's own collation. An exclusion-constraint index is rejected by the
+non-btree check, because PostgreSQL backs exclusion constraints only with
+gist/spgist.
+
+### `dml_utils_lib.ordered_key_columns(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS name[]
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the ordered-key columns in index order,
+delegating validation to `ordered_key_attributes`.
+
+### `dml_utils_lib.ordered_key_kinds(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS text[]
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the collapsed boundary key kind of each
+ordered-key column in index order, delegating validation to
+`ordered_key_attributes`.
+
+### `dml_utils_lib.assert_usable_ordered_key(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises the `ordered_key_attributes` error when the
+index cannot serve as an ordered key, and returns normally when it can. Used by
+the run path and by resume validation. A caller that also needs the descriptor
+should read `ordered_key_attributes` once instead of calling this wrapper and
+then `ordered_key_columns`/`ordered_key_kinds`, which would repeat the catalog
+read and validation.
+
 ### `dml_utils_lib.migration_key_is_canonical(i_key)`
 
 ```sql

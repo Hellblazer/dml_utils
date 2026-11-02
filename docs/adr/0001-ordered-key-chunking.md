@@ -84,7 +84,7 @@ The index must satisfy all of:
 
 | Check | Rule |
 |---|---|
-| Kind | btree, not an exclusion constraint |
+| Kind | btree (exclusion constraints use gist/spgist, so the btree check rejects them) |
 | Uniqueness | `indisunique` |
 | Health | `indisvalid`, `indisready`, `indislive` |
 | Shape | `indpred IS NULL`, `indexprs IS NULL`, `indnkeyatts BETWEEN 1 AND 3` |
@@ -133,12 +133,11 @@ v1 supports the same collapsed kinds as the primary key plus timestamptz:
     ordered_key_columns name[],
     ordered_key_kinds   text[],
     ```
-  - constrain the combinations:
+  - constrain the combinations (all-or-nothing, so a non-ordered run cannot
+    carry a partly populated descriptor):
     ```
-    (chunk_by = 'ordered_key') = (
-        ordered_key_index IS NOT NULL AND
-        ordered_key_columns IS NOT NULL AND
-        ordered_key_kinds IS NOT NULL)
+    num_nonnulls(ordered_key_index, ordered_key_columns, ordered_key_kinds)
+        = CASE WHEN chunk_by = 'ordered_key' THEN 3 ELSE 0 END
     ```
     and keep `ordered_key` runs without a `driving_table_relation_filepath`;
   - update the `chunk_by` / `chunk_size` comments.

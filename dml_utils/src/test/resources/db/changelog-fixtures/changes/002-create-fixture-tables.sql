@@ -266,3 +266,132 @@ CREATE TABLE dml_utils_fixtures.test_partitioned_p1 PARTITION OF dml_utils_fixtu
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_p1 IS
     'Fixture: the first partition of test_partitioned.';
+
+-- A partitioned parent with an index, to prove ordered-key resolution rejects a
+-- relation that has no single physical heap or ordered storage of its own.
+CREATE UNIQUE INDEX test_partitioned_id_idx
+    ON dml_utils_fixtures.test_partitioned (id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_partitioned_id_idx IS
+    'Fixture index on the partitioned parent, which ordered-key resolution must reject.';
+
+-- A table with the index shapes the ordered-key resolver accepts and rejects.
+-- The valid keys are (created_at, id) and (external_id); the other indexes each
+-- violate one contract rule so a test can pin the corresponding rejection.
+CREATE TABLE dml_utils_fixtures.test_ordered_key
+(
+    id             bigint      NOT NULL,
+    created_at     timestamptz NOT NULL,
+    external_id    uuid        NOT NULL,
+    label          text        NOT NULL,
+    collated_label text COLLATE "en-x-icu" NOT NULL,
+    numeric_key    numeric     NOT NULL,
+    nullable_key   bigint,
+    payload        text,
+    PRIMARY KEY (id)
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_ordered_key IS
+    'Fixture: a table with ordered-key indexes in both valid and invalid shapes.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.id IS
+    'Fixture primary key and second part of the (created_at, id) ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.created_at IS
+    'Fixture timestamptz column, the leading part of the (created_at, id) ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.external_id IS
+    'Fixture uuid column with a single-column unique index.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.label IS
+    'Fixture text column used by the partial, expression, non-unique, hash and opclass indexes.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.collated_label IS
+    'Fixture ICU-collated text column, used by the collation-mismatch index.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.numeric_key IS
+    'Fixture numeric column, an unsupported ordered-key type.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.nullable_key IS
+    'Fixture nullable bigint column, which cannot be an ordered-key column.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.payload IS
+    'Fixture payload column.';
+
+CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx
+    ON dml_utils_fixtures.test_ordered_key (created_at, id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx IS
+    'Fixture: the valid two-column ordered key (timestamptz, bigint).';
+
+CREATE UNIQUE INDEX test_ordered_key_external_id_idx
+    ON dml_utils_fixtures.test_ordered_key (external_id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_external_id_idx IS
+    'Fixture: the valid single-column uuid ordered key.';
+
+-- INCLUDE columns are not part of the key order, so this resolves to the same
+-- two columns as test_ordered_key_created_at_id_idx.
+CREATE UNIQUE INDEX test_ordered_key_include_idx
+    ON dml_utils_fixtures.test_ordered_key (created_at, id) INCLUDE (label);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_include_idx IS
+    'Fixture: a valid key with a non-key INCLUDE column that resolution must ignore.';
+
+CREATE INDEX test_ordered_key_nonunique_idx
+    ON dml_utils_fixtures.test_ordered_key (label);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nonunique_idx IS
+    'Fixture: a non-unique index, which ordered-key resolution must reject.';
+
+CREATE INDEX test_ordered_key_hash_idx
+    ON dml_utils_fixtures.test_ordered_key USING hash (label);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_hash_idx IS
+    'Fixture: a hash index, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_expression_idx
+    ON dml_utils_fixtures.test_ordered_key (pg_catalog.lower(label));
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_expression_idx IS
+    'Fixture: an expression index, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_partial_idx
+    ON dml_utils_fixtures.test_ordered_key (label) WHERE label <> '';
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_partial_idx IS
+    'Fixture: a partial index, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_desc_idx
+    ON dml_utils_fixtures.test_ordered_key (created_at DESC, id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_desc_idx IS
+    'Fixture: a DESC index, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_nulls_first_idx
+    ON dml_utils_fixtures.test_ordered_key (created_at NULLS FIRST, id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nulls_first_idx IS
+    'Fixture: a NULLS FIRST index, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_nullable_idx
+    ON dml_utils_fixtures.test_ordered_key (nullable_key);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nullable_idx IS
+    'Fixture: a unique index on a nullable column, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_four_idx
+    ON dml_utils_fixtures.test_ordered_key (created_at, id, external_id, label);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_four_idx IS
+    'Fixture: a four-column index, more than the supported maximum.';
+
+CREATE UNIQUE INDEX test_ordered_key_collation_idx
+    ON dml_utils_fixtures.test_ordered_key (collated_label COLLATE "C");
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_collation_idx IS
+    'Fixture: an index whose collation differs from its column, which resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_opclass_idx
+    ON dml_utils_fixtures.test_ordered_key (label text_pattern_ops);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_opclass_idx IS
+    'Fixture: a non-default btree opclass, which ordered-key resolution must reject.';
+
+CREATE UNIQUE INDEX test_ordered_key_numeric_idx
+    ON dml_utils_fixtures.test_ordered_key (numeric_key);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_numeric_idx IS
+    'Fixture: a unique index on an unsupported key type, which resolution must reject.';

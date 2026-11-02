@@ -1,4 +1,7 @@
 DROP TABLE IF EXISTS
+    dml_utils_fixtures.test_ordered_key,
+    dml_utils_fixtures.test_partitioned_p1,
+    dml_utils_fixtures.test_partitioned,
     dml_utils_fixtures.test_bigint,
     dml_utils_fixtures.test_other,
     dml_utils_fixtures.test_integer,
