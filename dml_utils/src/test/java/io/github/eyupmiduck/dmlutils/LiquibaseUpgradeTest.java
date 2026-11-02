@@ -24,9 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * <p>Suspended while the pre-deployment baseline is edited in place: changing an
  * existing changeset changes its Liquibase checksum, so upgrading the last
  * published release is not meaningful until a release is cut from the cleaned
- * changelog. Restore this test in dml-b87.13 once that baseline exists.
+ * changelog. Restore this test in dml-b87.13 once that baseline exists and the
+ * partition-wise epic (dml-sw6) is complete.
  */
-@Disabled("Pre-deployment baseline edit: changesets are being changed in place; restore in dml-b87.13")
+@Disabled("Pre-deployment baseline edit: changesets are being changed in place; restore in dml-b87.13 after dml-sw6")
 class LiquibaseUpgradeTest extends UpgradeContract {
 
     @Override

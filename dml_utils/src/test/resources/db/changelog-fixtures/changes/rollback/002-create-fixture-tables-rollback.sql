@@ -1,4 +1,7 @@
 DROP TABLE IF EXISTS
+    dml_utils_fixtures.test_ordered_key_uuid,
+    dml_utils_fixtures.test_ordered_key_text,
+    dml_utils_fixtures.test_ordered_key_timestamptz,
     dml_utils_fixtures.test_ordered_key,
     dml_utils_fixtures.test_partitioned_p1,
     dml_utils_fixtures.test_partitioned,

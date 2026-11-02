@@ -395,3 +395,64 @@ CREATE UNIQUE INDEX test_ordered_key_numeric_idx
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_numeric_idx IS
     'Fixture: a unique index on an unsupported key type, which resolution must reject.';
+
+-- The case ordered_key exists for: a random UUID primary key with a useful
+-- time/ID order supplied by a separate unique index.
+CREATE TABLE dml_utils_fixtures.test_ordered_key_uuid
+(
+    id         uuid        PRIMARY KEY,
+    created_at timestamptz NOT NULL,
+    payload    text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_ordered_key_uuid IS
+    'Fixture: a UUIDv4 primary key with a (created_at, id) ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_uuid.id IS
+    'Fixture random-ish UUID primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_uuid.created_at IS
+    'Fixture timestamptz, the leading part of the ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_uuid.payload IS
+    'Fixture payload column.';
+
+CREATE UNIQUE INDEX test_ordered_key_uuid_created_at_id_idx
+    ON dml_utils_fixtures.test_ordered_key_uuid (created_at, id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_uuid_created_at_id_idx IS
+    'Fixture: the valid (timestamptz, uuid) ordered key.';
+
+-- A natural text key whose primary-key index is itself the ordered key.
+CREATE TABLE dml_utils_fixtures.test_ordered_key_text
+(
+    natural_key text PRIMARY KEY,
+    payload     text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_ordered_key_text IS
+    'Fixture: a table whose natural text primary key orders the chunks.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_text.natural_key IS
+    'Fixture natural text primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_text.payload IS
+    'Fixture payload column.';
+
+-- A single-column timestamptz ordered key with a separate surrogate primary key.
+CREATE TABLE dml_utils_fixtures.test_ordered_key_timestamptz
+(
+    id         bigint      PRIMARY KEY,
+    created_at timestamptz NOT NULL,
+    payload    text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_ordered_key_timestamptz IS
+    'Fixture: a separate unique timestamptz ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_timestamptz.id IS
+    'Fixture surrogate primary key, not the ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_timestamptz.created_at IS
+    'Fixture timestamptz, the unique ordered key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_timestamptz.payload IS
+    'Fixture payload column.';
+
+CREATE UNIQUE INDEX test_ordered_key_timestamptz_created_at_idx
+    ON dml_utils_fixtures.test_ordered_key_timestamptz (created_at);
+
+COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_timestamptz_created_at_idx IS
+    'Fixture: the valid single-column timestamptz ordered key.';

@@ -17,6 +17,8 @@ import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.Migration
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestNoPk.TEST_NO_PK;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKeyUuid.TEST_ORDERED_KEY_UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -48,6 +50,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         dsl.truncate(TEST_BIGINT).execute();
+        dsl.truncate(TEST_ORDERED_KEY_UUID).execute();
     }
 
     /**
@@ -93,6 +96,49 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                         TEST_BIGINT.PAYLOAD.eq("dml_utils_caller")),
                 "the chunk SQL should execute with the caller role, not the owner");
         assertTrue(runCompleted(label), "the run should complete");
+    }
+
+    /**
+     * The caller can run an ordered-key chunk as itself, and an unsafe index is
+     * still rejected with the resolver's SQLSTATE.
+     */
+    @Test
+    void callerCanRunAnOrderedKeyChunk() throws Exception {
+        for (int i = 1; i <= 4; i++) {
+            dsl.insertInto(TEST_ORDERED_KEY_UUID,
+                            TEST_ORDERED_KEY_UUID.ID, TEST_ORDERED_KEY_UUID.CREATED_AT)
+                    .values(uuid(i), timestamp((i + 1) / 2))
+                    .execute();
+        }
+        try (Connection owner = openOwnerConnection();
+             Statement statement = owner.createStatement()) {
+            statement.execute("GRANT SELECT, UPDATE ON dml_utils_fixtures.test_ordered_key_uuid"
+                    + " TO dml_utils_caller");
+            statement.execute("GRANT SELECT ON dml_utils_fixtures.test_ordered_key"
+                    + " TO dml_utils_caller");
+        }
+
+        try (Connection connection = openTestConnection()) {
+            connection.setAutoCommit(true);
+            setRole(connection, "dml_utils_caller");
+            DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
+
+            Routines.runMigrationChunks(caller.configuration(), ROLE_TEMPLATE,
+                    TEST_ORDERED_KEY_UUID.getSchema().getName(),
+                    TEST_ORDERED_KEY_UUID.getName(), uniqueLabel("caller-ordered"),
+                    2, 1, "t", ChunkingStrategy.ordered_key, 1, 0,
+                    "test_ordered_key_uuid_created_at_id_idx");
+
+            assertSqlState("0A000", () -> Routines.runMigrationChunks(
+                    caller.configuration(), ROLE_TEMPLATE,
+                    TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
+                    uniqueLabel("caller-ordered-unsafe"), 2, 1, "t",
+                    ChunkingStrategy.ordered_key, 1, 0, "test_ordered_key_nonunique_idx"));
+        }
+
+        assertEquals(4, dsl.fetchCount(TEST_ORDERED_KEY_UUID,
+                        TEST_ORDERED_KEY_UUID.PAYLOAD.eq("dml_utils_caller")),
+                "the ordered-key chunk SQL should execute as the caller");
     }
 
     /**
