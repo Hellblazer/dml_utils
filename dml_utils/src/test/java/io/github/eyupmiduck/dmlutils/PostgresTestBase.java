@@ -126,6 +126,11 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             // owner and test roles (membership is cluster-wide).
             statement.execute("GRANT pgbackground_role TO " + OWNER_USER);
             statement.execute("GRANT pgbackground_role TO " + TEST_USER);
+            // postgres_fdw lets the leaf-enumeration test attach a foreign-table
+            // partition, which has no heap and must be rejected. The test creates
+            // and drops the placeholder server itself.
+            statement.execute("CREATE EXTENSION IF NOT EXISTS postgres_fdw");
+            statement.execute("GRANT USAGE ON FOREIGN DATA WRAPPER postgres_fdw TO " + OWNER_USER);
             // ddl_utils is installed alongside dml_utils; its grants target
             // ddl_utils_caller, so create the role and let the dml_utils roles
             // call the DDL helpers.

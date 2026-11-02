@@ -69,6 +69,24 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_plain_heap(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_table(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_table(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.leaf_partitions(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_partitions(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy
+    ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.primary_key_columns(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text

@@ -526,6 +526,41 @@ RETURNS void
 `STABLE`, `SECURITY INVOKER`. Raises `undefined_table` (`42P01`) when the table
 does not exist in the schema.
 
+### `dml_utils_lib.assert_partitioned_table(i_schema_name, i_table_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `undefined_table` (`42P01`) when the
+relation does not exist, or `wrong_object_type` (`42809`) when it is not a
+declarative partitioned table (`relkind = 'p'`), so a non-partitioned driving
+table is rejected before any leaf is enumerated.
+
+### `dml_utils_lib.leaf_partitions(i_schema_name, i_table_name, i_chunk_by)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_chunk_by    dml_utils_data.chunking_strategy
+RETURNS TABLE
+(leaf_ordinal integer, leaf_schema_name text, leaf_name text,
+    leaf_oid oid, leaf_bound text, relation_filepath text)
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Enumerates the storage leaves below a declarative
+partitioned parent with `pg_partition_tree`, expanding sub-partitioned tables,
+and numbers them by the manifest order: partition-bound expression, then schema,
+then name, then OID, all byte-wise (`COLLATE "C"`). Each row carries the leaf
+identity, its `pg_get_expr(relpartbound)` snapshot and, for
+`chunk_by = 'blocks'`, its `pg_relation_filepath`; the filepath is NULL for the
+key strategies. A leaf with no rows is still returned (emptiness is a calculation
+result). Raises `wrong_object_type` (`42809`) for a non-partitioned parent or a
+leaf that is not an ordinary table (for example a foreign-table partition), and
+`insufficient_privilege` (`42501`) when the caller cannot `SELECT` a leaf.
+
 ### `dml_utils_lib.primary_key_attributes(i_schema_name, i_table_name)`
 
 ```sql

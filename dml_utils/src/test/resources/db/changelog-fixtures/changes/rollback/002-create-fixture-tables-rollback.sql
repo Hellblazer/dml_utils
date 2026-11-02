@@ -21,4 +21,10 @@ DROP TABLE IF EXISTS
     dml_utils_fixtures.test_numeric,
     dml_utils_fixtures.test_composite_three,
     dml_utils_fixtures.test_composite_id1,
-    dml_utils_fixtures.test_composite_four;
+    dml_utils_fixtures.test_composite_four,
+    dml_utils_fixtures.test_partitioned_range,
+    dml_utils_fixtures.test_partitioned_multi,
+    dml_utils_fixtures.test_partitioned_list,
+    dml_utils_fixtures.test_partitioned_empty,
+    dml_utils_fixtures.test_partitioned_detach,
+    dml_utils_fixtures.test_partitioned_foreign;

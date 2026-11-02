@@ -488,3 +488,173 @@ COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.id IS
     'Fixture second primary-key column (bigint).';
 COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.payload IS
     'Fixture payload column.';
+
+-- Declarative partitioned fixtures for partition-wise chunking. The leaf names
+-- are deliberately not in bound order, so an enumeration that sorts by name
+-- rather than by partition bound is observable.
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_range
+(
+    id      bigint NOT NULL,
+    payload text,
+    PRIMARY KEY (id)
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range IS
+    'Fixture: a range-partitioned parent with three leaves.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_range.id IS
+    'Fixture range key and primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_range.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_range_mid
+    PARTITION OF dml_utils_fixtures.test_partitioned_range
+    FOR VALUES FROM (100) TO (200);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_mid IS
+    'Fixture: the middle range leaf, created before the low leaf.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_range_high
+    PARTITION OF dml_utils_fixtures.test_partitioned_range
+    FOR VALUES FROM (200) TO (300);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_high IS
+    'Fixture: the high range leaf.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_range_low
+    PARTITION OF dml_utils_fixtures.test_partitioned_range
+    FOR VALUES FROM (0) TO (100);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_low IS
+    'Fixture: the low range leaf, created after the other two.';
+
+-- A two-level tree: the low range leaf is itself hash-partitioned, so the
+-- enumeration must expand the sub-parent to its leaves.
+CREATE TABLE dml_utils_fixtures.test_partitioned_multi
+(
+    id      bigint  NOT NULL,
+    bucket  integer NOT NULL,
+    payload text,
+    PRIMARY KEY (id, bucket)
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi IS
+    'Fixture: a two-level range-then-hash partitioned parent.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.id IS
+    'Fixture range key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.bucket IS
+    'Fixture hash key inside the low range leaf.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low
+    PARTITION OF dml_utils_fixtures.test_partitioned_multi
+    FOR VALUES FROM (0) TO (100) PARTITION BY HASH (bucket);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low IS
+    'Fixture: the low range sub-parent, hash-partitioned into two leaves.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h1
+    PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
+    FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h1 IS
+    'Fixture: hash leaf remainder 1, created before remainder 0.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h0
+    PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
+    FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h0 IS
+    'Fixture: hash leaf remainder 0.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_multi_high
+    PARTITION OF dml_utils_fixtures.test_partitioned_multi
+    FOR VALUES FROM (100) TO (200);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_high IS
+    'Fixture: the high range leaf, not sub-partitioned.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_list
+(
+    id      integer NOT NULL,
+    payload text,
+    PRIMARY KEY (id)
+) PARTITION BY LIST (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list IS
+    'Fixture: a list-partitioned parent whose leaves sort by bound, not name.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_list.id IS
+    'Fixture list key and primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_list.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_list_b
+    PARTITION OF dml_utils_fixtures.test_partitioned_list
+    FOR VALUES IN (3);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_b IS
+    'Fixture: the list leaf for 3, created before the leaf for 1 and 2.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_list_a
+    PARTITION OF dml_utils_fixtures.test_partitioned_list
+    FOR VALUES IN (1, 2);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_a IS
+    'Fixture: the list leaf for 1 and 2.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_empty
+(
+    id      integer NOT NULL,
+    payload text
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_empty IS
+    'Fixture: a partitioned parent with no leaves.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_empty.id IS
+    'Fixture range key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_empty.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_detach
+(
+    id      integer NOT NULL,
+    payload text
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach IS
+    'Fixture: a partitioned parent used to prove a detached leaf is not enumerated.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_detach.id IS
+    'Fixture range key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_detach.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_detach_a
+    PARTITION OF dml_utils_fixtures.test_partitioned_detach
+    FOR VALUES FROM (0) TO (10);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_a IS
+    'Fixture: the leaf the detach test removes from the tree and reattaches.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_detach_b
+    PARTITION OF dml_utils_fixtures.test_partitioned_detach
+    FOR VALUES FROM (10) TO (20);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_b IS
+    'Fixture: the leaf that stays attached.';
+
+-- A partitioned parent used by the foreign-leaf rejection test. The foreign leaf
+-- itself is created by the test as the owner: the fixture codegen container does
+-- not install the postgres_fdw extension, so it cannot be part of this changelog.
+CREATE TABLE dml_utils_fixtures.test_partitioned_foreign
+(
+    id      integer NOT NULL,
+    payload text
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_foreign IS
+    'Fixture: a partitioned parent the test attaches a foreign-table leaf to.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_foreign.id IS
+    'Fixture range key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_foreign.payload IS
+    'Fixture payload column.';

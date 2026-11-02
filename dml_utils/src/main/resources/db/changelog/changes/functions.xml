@@ -94,6 +94,26 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_partitioned_table" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_partitioned_table.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_partitioned_table-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.leaf_partitions" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/leaf_partitions.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/leaf_partitions-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.primary_key_columns" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/primary_key_columns.sql"
