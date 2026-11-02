@@ -495,7 +495,7 @@ RETURNS TABLE
 
 `STABLE`, `SECURITY INVOKER`. Returns the run's chunk boundaries in order.
 `boundary_id` is a `dml_utils_data.migration_key`: position-aligned arrays, one
-per key kind. Index i is the i-th primary-key column, so a bigint key's first
+per key kind. Index i is the i-th key column, so a bigint key's first
 column is `(boundary_id).bigint_values[1]`. A `started_at` of `NULL` means the
 chunk has not been claimed; a `completed_at` of `NULL` (with `started_at` set)
 means it is in progress.
@@ -676,10 +676,11 @@ i_key_kinds text[]
 RETURNS text[]
 ```
 
-`IMMUTABLE`, `SECURITY INVOKER`. Flattens a position-aligned `migration_key`
-into one text value per primary-key column, in key order, using `i_key_kinds` to
-pick the array for each position. The chunk predicate re-casts each value. Pure
-casts and array element access, so it is `IMMUTABLE`.
+`STABLE`, `SECURITY INVOKER`. Flattens a position-aligned `migration_key`
+into one text value per key column, in key order, using `i_key_kinds` to
+pick the array for each position. The chunk predicate re-casts each value. It is
+`STABLE` rather than `IMMUTABLE` because `timestamptz::text` depends on the
+session time zone.
 
 ### `dml_utils_lib.migration_key_pair_values(i_start_key, i_end_key, i_key_kinds)`
 
@@ -690,12 +691,13 @@ i_key_kinds text[]
 RETURNS record (o_start_values text[], o_end_values text[])
 ```
 
-`IMMUTABLE`, `SECURITY INVOKER`. Flattens a chunk's two boundaries (its start
-and end `migration_key`) in one pass, returning one text value per primary-key
+`STABLE`, `SECURITY INVOKER`. Flattens a chunk's two boundaries (its start
+and end `migration_key`) in one pass, returning one text value per key
 column for each, in key order. It is the two-key form of
 `migration_key_values`, so the coordinator extracts both bounds with a single
-call per chunk instead of two. Rejects malformed kinds or an unsupported kind
-with `22023`.
+call per chunk instead of two. It is `STABLE` for the same
+`timestamptz::text` session-time-zone reason. Rejects malformed kinds or an
+unsupported kind with `22023`.
 
 ###
 

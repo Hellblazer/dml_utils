@@ -41,8 +41,8 @@ anything above it:
   errors. It may use `dml_utils_data`, never `dml_utils`.
 - **`dml_utils_data`** — the data layer: the shared domains (`non_null_text`,
   `positive_integer`), the `migration_key` composite type that packs a
-  boundary's primary-key value (position-aligned arrays, one per key kind), and
-  the fixed-row chunk migration tables
+  boundary's key value (position-aligned arrays, one per key kind, including
+  `timestamptz`), and the fixed-row chunk migration tables
   `migration_run` / `migration_boundary` (`migration_error` records failed
   chunks), plus their trigger functions.
 
@@ -92,20 +92,23 @@ You supply a SQL **template** with two placeholders that must each appear
 exactly once:
 
 - `<driving_table>` — replaced by `"<schema>"."<table>" "<alias>"`.
-- `<chunking_clause>` — replaced by the chunk's primary-key range,
-  `((<alias>.<pk1>, ...) >= (<start1>, ...) AND (<alias>.<pk1>, ...) <op>
-  (<end1>, ...))`, where every start and end is an explicitly cast literal and
-  `<op>` is `<` for every chunk except the last, which uses `<=` so the captured
-  maximum row is included. A one-column key degenerates to a scalar comparison (`((<alias>.<pk>) >= (<start>))`).
+- `<chunking_clause>` — replaced by the chunk's key range over the order chosen
+  by `i_chunk_by` (see [Choosing the chunking key](#choosing-the-chunking-key)).
+  The predicate is a disjunction of axis-aligned boxes, so a composite key
+  compares column by column and the planner can use the key index. Every start
+  and end is an explicitly cast literal; the upper bound is `<` for every chunk
+  except the last, which uses `<=` so the captured maximum row is included.
 
-The driving table must have a **primary key of up to three columns**, each of
-type `smallint`, `integer`, `bigint`, `text` or `uuid`; the column names are read
-from the catalog, so they need not be `id`. The predicate compares the key tuple
-to explicitly cast literals (`(t.id) >= ('1'::bigint)`, or
-`(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a composite key) so the planner can
-use the primary-key index. Chunks are cut by row number over `ORDER BY <pk>`;
-rows inserted later with keys above the captured maximum are outside the final
-chunk and are not processed.
+For the default `primary_key` strategy, the driving table must have a **primary
+key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`
+or `uuid`; the column names are read from the catalog, so they need not be `id`.
+The predicate compares the key tuple to explicitly cast literals
+(`(t.id) >= ('1'::bigint)`, or `(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
+composite key) so the planner can use the primary-key index. Chunks are cut by
+row number over the primary-key order; rows inserted later with keys above the
+captured maximum are outside the final chunk and are not processed.
+`ordered_key` uses the named unique index instead of the primary key, and
+`blocks` uses physical heap ranges.
 
 The first call for a `label` computes the boundaries (via
 `populate_migration_boundaries`) and then processes them. Re-running with the
@@ -115,6 +118,91 @@ chunk size and driving table recorded when the run was created (a differing
 and a run that is already complete is a no-op. To change the SQL of an existing run deliberately, use
 `dml_utils.set_migration_run_sql_text`. Progress and completion are visible in
 `dml_utils_data.migration_run` and `dml_utils_data.migration_boundary`.
+
+### Choosing the chunking key
+
+`i_chunk_by` selects the order the rows are cut in:
+
+| `i_chunk_by` | Order | Key |
+|---|---|---|
+| `primary_key` (default) | primary-key order | the table's primary key |
+| `ordered_key` | a caller-selected unique index order | `i_boundary_key_index` |
+| `blocks` | physical heap order | `ctid` ranges |
+
+Use `primary_key` when the primary key is a useful order (a sequence, a time, a
+natural key). Use `ordered_key` when the primary key is random — for example a
+UUIDv4 — or when a separate index is the order the workload actually uses, such
+as `(created_at, id)`. `blocks` is a physical fallback with strong
+preconditions; see `dml_utils/src/main/resources/db/changelog/changes/functions/README.md`
+for its limitations.
+
+#### Ordered-key chunks
+
+An ordered key is a **unique btree index on the driving table**. Naming the
+index rather than passing a column list is deliberate: the catalog must prove
+that the order exists, and the run records the resolved descriptor so resume and
+EXPLAIN use exactly the same key.
+
+The index must be:
+
+- a valid, live, unique btree index on a plain table (partitioned parents are not
+  supported yet);
+- one to three **simple** key columns — no expressions, no partial index, no
+  exclusion constraint — and every key column must be `NOT NULL`;
+- ascending with `NULLS LAST`, using the type's default btree operator class and
+  the column's own collation;
+- on key columns of type `smallint`, `integer`, `bigint` (all collapsed to
+  `bigint`), `text`, `uuid` or `timestamptz`.
+
+The order is lexicographic. A one-column key is a scalar range; a composite key
+compares column by column, so a second column (for example `id`) is the
+tiebreaker for duplicate leading values. A non-unique index plus a separate
+tiebreaker is not supported; use a composite unique index such as
+`(created_at, id)`.
+
+The key columns must not be modified by the chunk SQL: the boundaries are values
+of that key, so mutating it can move a row into a chunk that was already
+processed, or out of one that was not. This is a caller contract, not detected;
+archive and restart the run if the key is mutated. A resumed ordered run
+re-validates the stored index and descriptor and fails with `55000` if the index
+was dropped, redefined or is no longer usable.
+
+Non-goals: hash/bucket chunking, partition-wise chunking, non-unique keys without
+a composite unique index, expression/partial/exclusion indexes, non-default
+operator classes, `DESC`/`NULLS FIRST`, `date`/`numeric` keys and
+`run_function_over_table`.
+
+Example: a UUIDv4 primary key with a useful time/ID order:
+
+```sql
+CREATE TABLE app.orders
+(
+    id           uuid PRIMARY KEY,
+    created_at   timestamptz NOT NULL,
+    processed_at timestamptz
+);
+
+CREATE UNIQUE INDEX orders_created_at_id_key
+    ON app.orders (created_at, id);
+
+SELECT dml_utils.run_migration_chunks(
+           i_sql_text =>
+               'UPDATE <driving_table> SET processed_at = now() WHERE <chunking_clause>',
+           i_driving_table_schema_name => 'app',
+           i_driving_table_name => 'orders',
+           i_label => 'orders-processed',
+           i_chunk_size => 10000,
+           i_threads => 4,
+           i_chunk_by => 'ordered_key',
+           i_boundary_key_index => 'orders_created_at_id_key');
+```
+
+`i_boundary_key_index` is required for `ordered_key` and rejected for the other
+strategies. To inspect the plan without running anything, pass the same
+`i_chunk_by` and `i_boundary_key_index` to
+`dml_utils.explain_migration_chunks`; for one real chunk, use
+`dml_utils.explain_migration_chunk` with the chunk's boundary values and the
+same key selection. See `docs/adr/0001-ordered-key-chunking.md` for the design.
 
 ### Example: backfill a column
 
@@ -241,6 +329,12 @@ full runnable script.
   granted only `USAGE`/`EXECUTE` plus `SELECT` on the migration metadata; grant
   application-table privileges to the application/login role that runs the
   migration.
+- `ordered_key` additionally requires the unique btree index described in
+  [Ordered-key chunks](#ordered-key-chunks), and the caller needs
+  `SELECT` on the driving table for the boundary scan plus whatever the chunk SQL
+  needs. The run stores the resolved descriptor; a resume re-validates it and
+  fails with `55000` if the index changed. The chunk SQL must not modify the key
+  columns.
 - Metadata writes are delegated to owner-owned `SECURITY DEFINER` helpers (`claim_migration_boundary`,
   `complete_migration_boundary`,
   `complete_migration_run`, `mark_migration_run_cancelled`, and
@@ -280,7 +374,7 @@ FROM dml_utils.migration_run_summary(i_label => 'events-region-backfill');
 
 -- Per-chunk progress (completed_at IS NULL means still to do). boundary_id is a
 -- migration_key: position-aligned arrays, one per key kind. Index i is the i-th
--- primary-key column, so (boundary_id).bigint_values[1] reads the first column
+-- key column, so (boundary_id).bigint_values[1] reads the first column
 -- of a bigint key.
 SELECT boundary_no, (boundary_id).bigint_values[1], completed_at
 FROM dml_utils.migration_boundaries(i_run_id => 42);
@@ -292,8 +386,8 @@ FROM dml_utils.migration_errors(i_run_id => 42);
 ```
 
 To inspect the plan for one real chunk (rather than the synthetic representative
-ranges), supply its start and end boundary values — one text value per
-primary-key column, in key order — and whether it is the final chunk:
+ranges), supply its start and end boundary values — one text value per key
+column, in key order — and whether it is the final chunk:
 
 ```sql
 SELECT o_plan_kind, o_sql_text, o_plan
@@ -305,6 +399,9 @@ FROM dml_utils.explain_migration_chunk(
         i_end_values => ARRAY ['1000'],
         i_is_final => false);
 ```
+
+For an ordered-key chunk, pass the same `i_chunk_by => 'ordered_key'` and
+`i_boundary_key_index` used by the run.
 
 `dml_utils.explain_function_over_table_chunk` is the equivalent for a
 `run_function_over_table` call. Neither has a `blocks` form: a block chunk is a
