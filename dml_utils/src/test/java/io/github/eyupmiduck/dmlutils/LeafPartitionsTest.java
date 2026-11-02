@@ -223,9 +223,9 @@ class LeafPartitionsTest extends PostgresTestBase {
                 + " FROM " + TEST_USER + ", dml_utils_caller");
         try {
             assertEquals(Boolean.FALSE, dsl.fetchOne(
-                            "SELECT pg_catalog.has_table_privilege(?::regclass, 'SELECT')",
-                            SCHEMA + ".test_partitioned_list_a")
-                    .get(0, Boolean.class),
+                                    "SELECT pg_catalog.has_table_privilege(?::regclass, 'SELECT')",
+                                    SCHEMA + ".test_partitioned_list_a")
+                            .get(0, Boolean.class),
                     "the revoke should remove the test role's SELECT privilege");
             assertSqlState("42501", () -> leaves("test_partitioned_list",
                     ChunkingStrategy.primary_key));

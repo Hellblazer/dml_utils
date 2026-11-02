@@ -81,10 +81,10 @@ BEGIN
     -- result, not a reason to drop it from the snapshot.
     RETURN QUERY
         SELECT (pg_catalog.row_number() OVER (
-                    ORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) COLLATE pg_catalog."C",
-                             n.nspname::text COLLATE pg_catalog."C",
-                             c.relname::text COLLATE pg_catalog."C",
-                             c.oid))::integer,
+            ORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) COLLATE pg_catalog."C",
+                n.nspname::text COLLATE pg_catalog."C",
+                c.relname::text COLLATE pg_catalog."C",
+                c.oid))::integer,
                n.nspname::text,
                c.relname::text,
                c.oid,

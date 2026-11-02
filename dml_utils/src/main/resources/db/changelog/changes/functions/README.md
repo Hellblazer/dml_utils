@@ -1094,6 +1094,127 @@ block number in `migration_key`. The block count comes from `pg_relation_size`
 and the server block size at execution time, so no table scan is needed; a table
 with no blocks yields no boundaries. See the block-strategy limitations above.
 
+### `dml_utils_lib.boundary_key_descriptor_sql(i_key_columns, i_key_kinds)`
+
+```sql
+i_key_columns name[]
+i_key_kinds   text[]
+RETURNS TABLE
+    (o_select_list text, o_id_list text, o_order_by text,
+     o_order_by_desc text, o_pack_expression text)
+```
+
+`STABLE`, `SECURITY INVOKER`. Validates a one-to-three-column boundary key (one-dimensional, 1-based, matching lengths,
+known kinds) and returns the SQL
+fragments that read, order and pack it: the `idN`-aliased select list, the `idN`
+list, the ascending and descending `ORDER BY`, and the `migration_key` row
+expression. Shared by the single-relation and per-leaf boundary builders so the
+key logic cannot drift.
+
+###
+`dml_utils_lib.build_leaf_boundary_population_sql(i_schema_name, i_table_name, i_key_columns, i_key_kinds, i_run_id, i_chunk_size, i_leaf_ordinal)`
+
+```sql
+i_schema_name  dml_utils_data.non_null_text
+i_table_name   dml_utils_data.non_null_text
+i_key_columns  name[]
+i_key_kinds    text[]
+i_run_id       bigint
+i_chunk_size   bigint
+i_leaf_ordinal integer
+RETURNS text
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the statement that scans one leaf in
+boundary-key order and inserts its chunk **starts** only (no per-leaf terminal)
+after the boundaries already committed for the run, tagged with
+`i_leaf_ordinal`. The base `boundary_no` is `max(boundary_no) + 1` over the run's
+existing boundaries, so the flat sequence stays contiguous across commits.
+
+###
+`dml_utils_lib.build_block_leaf_boundary_population_sql(i_schema_name, i_table_name, i_run_id, i_chunk_size, i_leaf_ordinal)`
+
+```sql
+i_schema_name  dml_utils_data.non_null_text
+i_table_name   dml_utils_data.non_null_text
+i_run_id       bigint
+i_chunk_size   bigint
+i_leaf_ordinal integer
+RETURNS text
+```
+
+`STABLE`, `SECURITY INVOKER`. The blocks-strategy per-leaf companion: inserts one
+start every `i_chunk_size` heap blocks of the leaf, appended after the run's
+existing boundaries and tagged with the leaf ordinal. A leaf with no blocks
+yields no starts.
+
+### `dml_utils_lib.migration_run_boundary_key(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS TABLE (o_key_columns name[], o_key_kinds text[])
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the boundary key a run chunks by: NULL for
+`blocks`, the stored ordered-key descriptor for `ordered_key`, and the driving
+parent's primary key for `primary_key`. Resolved once so every leaf uses the same
+key order.
+
+### `dml_utils_lib.assert_migration_leaf_unchanged(i_run_id, i_leaf_ordinal)`
+
+```sql
+i_run_id       bigint
+i_leaf_ordinal integer
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Fails closed with `invalid_transaction_initiation`
+(`55000`) when the manifest leaf no longer matches the live relation: missing,
+replaced (different OID), detached or rebound (different partition bound), not an
+ordinary table, or (for `blocks`) a rewritten heap (different
+`pg_relation_filepath`). Used before calculating a leaf and before finalizing, so
+a changed partition tree never mixes stale ranges with new ones.
+
+### `dml_utils_lib.leaf_terminal_boundary_id(i_run_id, i_leaf_ordinal)`
+
+```sql
+i_run_id       bigint
+i_leaf_ordinal integer
+RETURNS dml_utils_data.migration_key
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Returns the high-water key of a leaf: the last row
+in the run's key order, or the one-past-end block number for `blocks`. Used by
+`finalize_migration_boundaries` for the run's single terminal boundary.
+
+### `dml_utils_lib.calculate_migration_leaf(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS integer
+```
+
+`VOLATILE`, `SECURITY DEFINER` (pinned `search_path`). Calculates one leaf in the
+caller's transaction: locks the run row, returns NULL when the run is finalized,
+cancelled or fully calculated, otherwise claims the first `pending`, `failed` or
+stale `calculating` leaf in manifest order, re-checks it with
+`assert_migration_leaf_unchanged`, checks the effective caller's `SELECT` on the
+leaf, appends its chunk starts and marks it `calculated` with its boundary count.
+Returns the ordinal. The run-row lock serializes calculation for the run.
+
+### `dml_utils_lib.finalize_migration_boundaries(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY DEFINER` (pinned `search_path`). Writes the run's single
+terminal high-water boundary from the last non-empty leaf, then sets
+`boundaries_calculated_at` and `total_chunks` (`0` when every leaf is empty) in
+one update. Idempotent: a finalized or cancelled run is a no-op, and it raises
+`55000` while any leaf is still uncalculated.
+
 ###
 
 `dml_utils_lib.render_block_chunk_sql(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_start_block, i_end_block)`
@@ -1200,8 +1321,7 @@ RETURNS trigger
 granted to no one). The `BEFORE UPDATE ... FOR EACH ROW` trigger on
 `migration_run` that rejects any change to `label`, `chunk_size`, `chunk_by`,
 `partition_wise`, the ordered-key descriptor (`ordered_key_index`,
-`ordered_key_columns`, `ordered_key_kinds`) or the driving table
-(`driving_table_schema_name`, `driving_table_name`,
+`ordered_key_columns`, `ordered_key_kinds`) or the driving table (`driving_table_schema_name`, `driving_table_name`,
 `driving_table_relation_filepath`), all fixed when the run is created or (for the
 filepath) when its boundaries are computed, and to `total_chunks` once
 `boundaries_calculated_at` is set (the two are written together);

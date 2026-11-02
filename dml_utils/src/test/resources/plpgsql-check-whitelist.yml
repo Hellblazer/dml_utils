@@ -28,6 +28,28 @@
     SECURITY INVOKER, so a caller already holds the privileges the SQL would
     use. The dynamic SQL is deliberate; see build_boundary_population_sql.sql.
 - schema: dml_utils_lib
+  function: calculate_migration_leaf
+  level: security
+  statement: EXECUTE
+  message: text type variable is not sanitized
+  reason: >-
+    The routine executes the statement built by
+    dml_utils_lib.build_leaf_boundary_population_sql or its block companion,
+    which quote every identifier with %I, take every kind from the key
+    descriptor whitelist, and inline only the run id, chunk size and leaf
+    ordinal (all integers). The leaf itself was checked against the manifest
+    before the statement runs.
+- schema: dml_utils_lib
+  function: leaf_terminal_boundary_id
+  level: security
+  statement: EXECUTE
+  message: text type variable is not sanitized
+  reason: >-
+    The routine executes a statement assembled from the shared key-descriptor
+    fragments (quoted identifiers and whitelisted kinds) and the leaf's schema
+    and name from the manifest, which were validated when the run was created.
+    It only reads the leaf's last key or block count.
+- schema: dml_utils_lib
   function: explain_query_plan
   level: security
   statement: EXECUTE

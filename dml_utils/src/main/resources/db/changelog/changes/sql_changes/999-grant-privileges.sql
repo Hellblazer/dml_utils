@@ -394,6 +394,68 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.build_block_boundary_population_sql(
     bigint,
     bigint
     ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
+    name[],
+    text[]
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
+    name[],
+    text[]
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[],
+    bigint,
+    bigint,
+    integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[],
+    bigint,
+    bigint,
+    integer
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_block_leaf_boundary_population_sql(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    bigint,
+    bigint,
+    integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.build_block_leaf_boundary_population_sql(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    bigint,
+    bigint,
+    integer
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.migration_run_boundary_key(bigint) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.migration_run_boundary_key(bigint) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
+    bigint,
+    integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
+    bigint,
+    integer
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.leaf_terminal_boundary_id(
+    bigint,
+    integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_terminal_boundary_id(
+    bigint,
+    integer
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(bigint) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(bigint) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.finalize_migration_boundaries(bigint) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.finalize_migration_boundaries(bigint) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.render_block_chunk_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,

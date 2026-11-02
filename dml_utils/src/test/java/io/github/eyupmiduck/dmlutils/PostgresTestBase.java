@@ -1,6 +1,7 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import liquibase.Liquibase;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
@@ -23,7 +24,6 @@ import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -221,6 +221,74 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Returns the schema name of a fixture table.
+     *
+     * @param table the jOOQ table
+     * @return the table's schema name
+     */
+    protected static String schema(Table<?> table) {
+        return table.getSchema().getName();
+    }
+
+    /**
+     * Returns the name of a fixture table.
+     *
+     * @param table the jOOQ table
+     * @return the table's name
+     */
+    protected static String name(Table<?> table) {
+        return table.getName();
+    }
+
+    /**
+     * Returns the default bigint fixture's schema name.
+     *
+     * @return the schema name
+     */
+    protected static String schema() {
+        return schema(TEST_BIGINT);
+    }
+
+    /**
+     * Returns the default bigint fixture's table name.
+     *
+     * @return the table name
+     */
+    protected static String name() {
+        return name(TEST_BIGINT);
+    }
+
+    /**
+     * Asserts the two position-aligned parts of a {@code (timestamptz, bigint)}
+     * boundary key.
+     *
+     * @param boundary the boundary row
+     * @param second   the expected timestamp, in seconds after the fixture epoch
+     * @param id       the expected bigint tiebreaker
+     */
+    protected static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second,
+                                                  long id) {
+        assertEquals(timestamp(second).toInstant(),
+                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
+                "timestamptz position");
+        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
+                "bigint position");
+    }
+
+    /**
+     * Sets the current role on a test connection.
+     *
+     * @param connection the connection
+     * @param role       the role to assume
+     * @throws SQLException if the role cannot be set
+     */
+    protected static void setRole(Connection connection, String role) throws SQLException {
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("SET ROLE " + role);
+        }
+    }
+
+    /**
      * Grants the test harness its extra setup privileges after the template
      * database is migrated.
      *
@@ -300,44 +368,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Returns the schema name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's schema name
-     */
-    protected static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    /**
-     * Returns the name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's name
-     */
-    protected static String name(Table<?> table) {
-        return table.getName();
-    }
-
-    /**
-     * Returns the default bigint fixture's schema name.
-     *
-     * @return the schema name
-     */
-    protected static String schema() {
-        return schema(TEST_BIGINT);
-    }
-
-    /**
-     * Returns the default bigint fixture's table name.
-     *
-     * @return the table name
-     */
-    protected static String name() {
-        return name(TEST_BIGINT);
-    }
-
-    /**
      * Seeds the five-row ordered-key fixture: timestamps repeat in pairs, so
      * the bigint column is the tiebreaker.
      */
@@ -354,23 +384,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Asserts the two position-aligned parts of a {@code (timestamptz, bigint)}
-     * boundary key.
-     *
-     * @param boundary the boundary row
-     * @param second   the expected timestamp, in seconds after the fixture epoch
-     * @param id       the expected bigint tiebreaker
-     */
-    protected static void assertTimestamptzBigint(MigrationBoundaryRecord boundary, int second,
-                                                  long id) {
-        assertEquals(timestamp(second).toInstant(),
-                boundary.getBoundaryId().getTimestamptzValues()[0].toInstant(),
-                "timestamptz position");
-        assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
-                "bigint position");
-    }
-
-    /**
      * A per-invocation unique run label: {@code prefix-UUID}, so tests never
      * collide on the one-active-run-per-label rule regardless of order.
      *
@@ -379,19 +392,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected String uniqueLabel(String prefix) {
         return prefix + "-" + UUID.randomUUID();
-    }
-
-    /**
-     * Sets the current role on a test connection.
-     *
-     * @param connection the connection
-     * @param role       the role to assume
-     * @throws SQLException if the role cannot be set
-     */
-    protected static void setRole(Connection connection, String role) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + role);
-        }
     }
 
     /**

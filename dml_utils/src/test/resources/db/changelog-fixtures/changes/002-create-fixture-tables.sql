@@ -509,24 +509,32 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_range.payload IS
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_range_mid
     PARTITION OF dml_utils_fixtures.test_partitioned_range
-    FOR VALUES FROM (100) TO (200);
+        FOR VALUES FROM (100) TO (200);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_mid IS
     'Fixture: the middle range leaf, created before the low leaf.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_range_high
     PARTITION OF dml_utils_fixtures.test_partitioned_range
-    FOR VALUES FROM (200) TO (300);
+        FOR VALUES FROM (200) TO (300);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_high IS
     'Fixture: the high range leaf.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_range_low
     PARTITION OF dml_utils_fixtures.test_partitioned_range
-    FOR VALUES FROM (0) TO (100);
+        FOR VALUES FROM (0) TO (100);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_low IS
     'Fixture: the low range leaf, created after the other two.';
+
+-- A parent unique index for partition-wise ordered-key runs. PostgreSQL creates
+-- the matching child index on every leaf (and on partitions attached later).
+CREATE UNIQUE INDEX test_partitioned_range_ordered_key_idx
+    ON dml_utils_fixtures.test_partitioned_range (id);
+
+COMMENT ON INDEX dml_utils_fixtures.test_partitioned_range_ordered_key_idx IS
+    'Fixture: the parent unique index for partition-wise ordered-key runs.';
 
 -- A two-level tree: the low range leaf is itself hash-partitioned, so the
 -- enumeration must expand the sub-parent to its leaves.
@@ -549,28 +557,28 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.payload IS
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low
     PARTITION OF dml_utils_fixtures.test_partitioned_multi
-    FOR VALUES FROM (0) TO (100) PARTITION BY HASH (bucket);
+        FOR VALUES FROM (0) TO (100) PARTITION BY HASH (bucket);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low IS
     'Fixture: the low range sub-parent, hash-partitioned into two leaves.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h1
     PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
-    FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+        FOR VALUES WITH (MODULUS 2, REMAINDER 1);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h1 IS
     'Fixture: hash leaf remainder 1, created before remainder 0.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h0
     PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
-    FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+        FOR VALUES WITH (MODULUS 2, REMAINDER 0);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h0 IS
     'Fixture: hash leaf remainder 0.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_multi_high
     PARTITION OF dml_utils_fixtures.test_partitioned_multi
-    FOR VALUES FROM (100) TO (200);
+        FOR VALUES FROM (100) TO (200);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_high IS
     'Fixture: the high range leaf, not sub-partitioned.';
@@ -591,14 +599,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_list.payload IS
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_list_b
     PARTITION OF dml_utils_fixtures.test_partitioned_list
-    FOR VALUES IN (3);
+        FOR VALUES IN (3);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_b IS
     'Fixture: the list leaf for 3, created before the leaf for 1 and 2.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_list_a
     PARTITION OF dml_utils_fixtures.test_partitioned_list
-    FOR VALUES IN (1, 2);
+        FOR VALUES IN (1, 2);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_a IS
     'Fixture: the list leaf for 1 and 2.';
@@ -631,14 +639,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_detach.payload IS
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_detach_a
     PARTITION OF dml_utils_fixtures.test_partitioned_detach
-    FOR VALUES FROM (0) TO (10);
+        FOR VALUES FROM (0) TO (10);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_a IS
     'Fixture: the leaf the detach test removes from the tree and reattaches.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_detach_b
     PARTITION OF dml_utils_fixtures.test_partitioned_detach
-    FOR VALUES FROM (10) TO (20);
+        FOR VALUES FROM (10) TO (20);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_b IS
     'Fixture: the leaf that stays attached.';
