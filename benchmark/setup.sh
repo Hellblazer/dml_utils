@@ -4,10 +4,11 @@
 # Starts a PostgreSQL container from the custom image with max_worker_processes
 # raised enough for the thread sweep, applies the dml_utils changelog to it, then
 # creates the deterministic synthetic source table and the throwaway target
-# table. The source is a plain heap with a bigint primary key, so it supports both
-# the primary_key and blocks chunking strategies; the workload (by default an
-# INSERT into the target) leaves it read-only, which blocks requires. Safe to
-# re-run; pass --refresh to drop the container and its data volume first
+# table. The bigint-keyed source is a plain heap, so it supports both the
+# primary_key and blocks chunking strategies; a second UUIDv4-keyed source with a
+# (created_at, id) unique index supports ordered_key. The default workload (an
+# INSERT into the target) leaves the source read-only, which blocks requires.
+# Safe to re-run; pass --refresh to drop the container and its data volume first
 # (required after changing the server settings or the image).
 #
 # Usage: benchmark/setup.sh [--refresh]
@@ -212,6 +213,20 @@ psql_stdin -v ON_ERROR_STOP=1 \
     -v pk_def="$pk_def" \
     -f - < "$here/sql/create-target.sql"
 
+# The ordered-key variant: a UUIDv4-keyed source with a (created_at, id) unique
+# index, and its throwaway target.
+echo "creating ordered-key benchmark tables ($BENCH_ROWS source rows) ..." >&2
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v source_table="$BENCH_ORDERED_SOURCE_TABLE" \
+    -v rows="$BENCH_ROWS" \
+    -v index="$BENCH_ORDERED_INDEX" \
+    -f - < "$here/sql/create-ordered-source.sql"
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v target_table="$BENCH_ORDERED_TARGET_TABLE" \
+    -f - < "$here/sql/create-ordered-target.sql"
+
 # dml_utils_lib.populate_migration_boundaries is SECURITY DEFINER: it writes the
 # run metadata as the owner, and its boundary query scans the driving table in
 # that definer context. The fixture schema is created outside the
@@ -222,10 +237,12 @@ psql_stdin -v ON_ERROR_STOP=1 \
 psql_stdin -q -v ON_ERROR_STOP=1 \
     -v schema="$BENCH_SCHEMA" \
     -v source_table="$BENCH_SOURCE_TABLE" \
+    -v ordered_source="$BENCH_ORDERED_SOURCE_TABLE" \
     -v owner="$BENCH_OWNER_USER" \
     -f - <<'SQL'
 GRANT USAGE ON SCHEMA :"schema" TO :"owner";
 GRANT SELECT ON :"schema".:"source_table" TO :"owner";
+GRANT SELECT ON :"schema".:"ordered_source" TO :"owner";
 SQL
 
 echo "benchmark database ready: $BENCH_CONTAINER / $BENCH_DB" >&2

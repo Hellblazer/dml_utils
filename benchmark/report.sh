@@ -79,6 +79,8 @@ if command -v docker >/dev/null 2>&1 \
         UNION ALL
         SELECT 'blocks', (pg_relation_size('${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}'::regclass)
                           / current_setting('block_size')::bigint)::text
+        UNION ALL
+        SELECT 'ordered_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_ORDERED_SOURCE_TABLE}
         ORDER BY 1" > "$dataset_file" 2>&1 || true
 else
     echo "(benchmark container not running; dataset unavailable)" > "$dataset_file"
@@ -88,6 +90,8 @@ fi
 src_rows="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "rows") { gsub(/ /, "", $2); print $2 } }' \
     "$dataset_file" 2>/dev/null || true)"
 src_blocks="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "blocks") { gsub(/ /, "", $2); print $2 } }' \
+    "$dataset_file" 2>/dev/null || true)"
+ordered_rows="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "ordered_rows") { gsub(/ /, "", $2); print $2 } }' \
     "$dataset_file" 2>/dev/null || true)"
 
 # --- Per-strategy charts ----------------------------------------------------
@@ -119,9 +123,12 @@ done
     echo "| image | \`$BENCH_IMAGE\` |"
     echo "| source table | \`$BENCH_SCHEMA.$BENCH_SOURCE_TABLE\` |"
     echo "| target table | \`$BENCH_SCHEMA.$BENCH_TARGET_TABLE\` |"
+    echo "| ordered source table | \`$BENCH_SCHEMA.$BENCH_ORDERED_SOURCE_TABLE\` |"
+    echo "| ordered target table | \`$BENCH_SCHEMA.$BENCH_ORDERED_TARGET_TABLE\` |"
+    echo "| ordered key index | \`$BENCH_ORDERED_INDEX\` |"
     echo "| rows | $BENCH_ROWS |"
     echo "| chunk_by (current config) | \`$BENCH_CHUNK_BY\` |"
-    echo "| chunk size | $BENCH_CHUNK_SIZE (rows for primary_key, blocks for blocks) |"
+    echo "| chunk size | $BENCH_CHUNK_SIZE (rows for primary_key and ordered_key, blocks for blocks) |"
     echo "| threads | $BENCH_THREADS_FROM .. $BENCH_THREADS_TO |"
     echo "| measured runs per thread | $BENCH_RUNS |"
     echo "| warm-up runs per thread | $BENCH_WARMUP_RUNS |"
@@ -168,7 +175,7 @@ done
         echo
         echo "| threads | runs | chunks | rows/chunk | blocks/chunk | mean range calc (s) | mean chunk run (s) | mean total (s) | speedup vs first |"
         echo "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
-        awk -F, -v s="$s" -v c="$cs" -v k="$pk" -v src_rows="$src_rows" -v src_blocks="$src_blocks" '
+        awk -F, -v s="$s" -v c="$cs" -v k="$pk" -v src_rows="$src_rows" -v src_blocks="$src_blocks" -v ordered_rows="$ordered_rows" '
             NR == 1 { next }
             $1 != s || $3 != c || $10 != k { next }
             {
@@ -191,8 +198,9 @@ done
                 for (i = 1; i <= k; i++) {
                     t = order[i]
                     mc = ch[t] / n[t]
-                    rpc = (src_rows + 0 > 0 && mc > 0) ? sprintf("%.0f", src_rows / mc) : "-"
-                    bpc = (src_blocks + 0 > 0 && mc > 0) ? sprintf("%.0f", src_blocks / mc) : "-"
+                    rows_for_chunk = (s == "ordered_key") ? ordered_rows : src_rows
+                    rpc = (rows_for_chunk + 0 > 0 && mc > 0) ? sprintf("%.0f", rows_for_chunk / mc) : "-"
+                    bpc = (s == "blocks" && src_blocks + 0 > 0 && mc > 0) ? sprintf("%.0f", src_blocks / mc) : "-"
                     ms = tt[t] / n[t]
                     sp = (ms > 0) ? base / ms : 0
                     printf "| %s | %d | %.0f | %s | %s | %.3f | %.3f | %.3f | %.2fx |\n",
@@ -207,7 +215,8 @@ done
     echo
     echo "- **range calc** = \`boundaries_calculated_at - started_at\`: the"
     echo "  chunk-boundary calculation (a primary-key index scan for \`primary_key\`,"
-    echo "  an O(1) block count for \`blocks\`)."
+    echo "  the ordered-index scan for \`ordered_key\`, an O(1) block count for"
+    echo "  \`blocks\`)."
     echo "- **chunk run** = \`completed_at - boundaries_calculated_at\`: the workload SQL"
     echo "  run over every chunk, up to the thread count at a time."
     echo "- **total** = \`completed_at - started_at\`."
@@ -230,6 +239,9 @@ done
     echo "- \`primary_key\` and \`blocks\` are not directly comparable at the same numeric"
     echo "  chunk size: \`primary_key\` chunks a fixed number of rows, \`blocks\` a fixed"
     echo "  number of heap blocks, and a block holds a variable number of rows."
+    echo "- \`ordered_key\` chunks a fixed number of rows like \`primary_key\`, so compare"
+    echo "  those two by \`rows/chunk\`; it uses its own UUID-keyed source and target, so"
+    echo "  its absolute times also include that table's shape."
     echo "- Autovacuum, checkpoints and other background activity can add noise; run more"
     echo "  measured runs (increase \`BENCH_RUNS\`) to tighten the mean."
     echo "- Each thread is one \`pg_background\` worker; the count is capped by"

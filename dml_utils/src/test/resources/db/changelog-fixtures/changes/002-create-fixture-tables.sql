@@ -280,12 +280,12 @@ COMMENT ON INDEX dml_utils_fixtures.test_partitioned_id_idx IS
 -- violate one contract rule so a test can pin the corresponding rejection.
 CREATE TABLE dml_utils_fixtures.test_ordered_key
 (
-    id             bigint      NOT NULL,
-    created_at     timestamptz NOT NULL,
-    external_id    uuid        NOT NULL,
-    label          text        NOT NULL,
+    id             bigint                  NOT NULL,
+    created_at     timestamptz             NOT NULL,
+    external_id    uuid                    NOT NULL,
+    label          text                    NOT NULL,
     collated_label text COLLATE "en-x-icu" NOT NULL,
-    numeric_key    numeric     NOT NULL,
+    numeric_key    numeric                 NOT NULL,
     nullable_key   bigint,
     payload        text,
     PRIMARY KEY (id)
@@ -400,7 +400,7 @@ COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_numeric_idx IS
 -- time/ID order supplied by a separate unique index.
 CREATE TABLE dml_utils_fixtures.test_ordered_key_uuid
 (
-    id         uuid        PRIMARY KEY,
+    id         uuid PRIMARY KEY,
     created_at timestamptz NOT NULL,
     payload    text
 );
@@ -437,7 +437,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_text.payload IS
 -- A single-column timestamptz ordered key with a separate surrogate primary key.
 CREATE TABLE dml_utils_fixtures.test_ordered_key_timestamptz
 (
-    id         bigint      PRIMARY KEY,
+    id         bigint PRIMARY KEY,
     created_at timestamptz NOT NULL,
     payload    text
 );

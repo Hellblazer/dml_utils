@@ -2,9 +2,9 @@
 # Run a small end-to-end smoke test of the benchmark harness.
 #
 # Creates an isolated benchmark database, runs one measured run per chunking
-# strategy (primary_key and blocks) with two threads, and removes the database
-# again. The dataset is tiny and deterministic, and config.local.env is ignored,
-# so the result does not depend on a developer's personal sweep.
+# strategy (primary_key, blocks and ordered_key) with two threads, and removes the
+# database again. The dataset is tiny and deterministic, and config.local.env is
+# ignored, so the result does not depend on a developer's personal sweep.
 #
 # Intended for CI (see .github/workflows/benchmark-smoke.yml) and for checking a
 # changelog or benchmark change locally. Pass --keep to leave the database
@@ -55,9 +55,10 @@ trap cleanup EXIT INT TERM
 
 "$here/setup.sh"
 
-for strategy in primary_key blocks; do
+for strategy in primary_key blocks ordered_key; do
     BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" "$here/run.sh"
 done
 
-rm -f "$here/results/smoke-primary_key.csv" "$here/results/smoke-blocks.csv"
+rm -f "$here/results/smoke-primary_key.csv" "$here/results/smoke-blocks.csv" \
+    "$here/results/smoke-ordered_key.csv"
 echo "benchmark smoke test passed" >&2

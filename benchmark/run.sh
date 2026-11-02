@@ -20,21 +20,48 @@ if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]
     . "$here/config.local.env"
 fi
 
-# The chunk-size unit is determined by the strategy.
+# The chunk-size unit and source/target/workload are determined by the strategy.
 case "$BENCH_CHUNK_BY" in
-    primary_key) chunk_unit="rows" ;;
-    blocks) chunk_unit="blocks" ;;
-    *) echo "BENCH_CHUNK_BY must be primary_key or blocks: $BENCH_CHUNK_BY" >&2; exit 2 ;;
+    primary_key)
+        chunk_unit="rows"
+        run_table="$BENCH_SOURCE_TABLE"
+        run_target="$BENCH_TARGET_TABLE"
+        run_sql="$BENCH_SQL"
+        boundary_clause=""
+        ;;
+    ordered_key)
+        chunk_unit="rows"
+        run_table="$BENCH_ORDERED_SOURCE_TABLE"
+        run_target="$BENCH_ORDERED_TARGET_TABLE"
+        run_sql="$BENCH_ORDERED_SQL"
+        # psql substitutes this raw (not quoted), so an empty value leaves the
+        # call unchanged and the ordered variant adds the index parameter.
+        boundary_clause=", i_boundary_key_index => '$BENCH_ORDERED_INDEX'"
+        ;;
+    blocks)
+        chunk_unit="blocks"
+        run_table="$BENCH_SOURCE_TABLE"
+        run_target="$BENCH_TARGET_TABLE"
+        run_sql="$BENCH_SQL"
+        boundary_clause=""
+        ;;
+    *)
+        echo "BENCH_CHUNK_BY must be primary_key, ordered_key or blocks: $BENCH_CHUNK_BY" >&2
+        exit 2
+        ;;
 esac
 
-# The key column names (k1..kN), joined by '+' so a report group key has no
-# spaces.
-pk_columns_csv=""
-_pk_i=0
-while [ "$_pk_i" -lt "$BENCH_PK_COLUMNS" ]; do
-    _pk_i=$((_pk_i + 1))
-    pk_columns_csv="${pk_columns_csv:+$pk_columns_csv+}k$_pk_i"
-done
+# The key column names, joined by '+' so a report group key has no spaces.
+if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
+    pk_columns_csv="created_at+id"
+else
+    pk_columns_csv=""
+    _pk_i=0
+    while [ "$_pk_i" -lt "$BENCH_PK_COLUMNS" ]; do
+        _pk_i=$((_pk_i + 1))
+        pk_columns_csv="${pk_columns_csv:+$pk_columns_csv+}k$_pk_i"
+    done
+fi
 
 usage() {
     echo "usage: $0 [--reset]" >&2
@@ -94,7 +121,7 @@ run_once() {
 
     if [ "$BENCH_TRUNCATE_TARGET" = 1 ]; then
         psql_run -q -v ON_ERROR_STOP=1 \
-            -c "TRUNCATE ${BENCH_SCHEMA}.${BENCH_TARGET_TABLE}"
+            -c "TRUNCATE ${BENCH_SCHEMA}.${run_target}"
     fi
 
     # pg_background caps concurrent workers per session at
@@ -103,13 +130,14 @@ run_once() {
     # launching the workers. It is a user-settable GUC, so this needs no server
     # change.
     psql_stdin -q -v ON_ERROR_STOP=1 \
-        -v sql="$BENCH_SQL" \
+        -v sql="$run_sql" \
         -v schema="$BENCH_SCHEMA" \
-        -v table="$BENCH_SOURCE_TABLE" \
+        -v table="$run_table" \
         -v label="$label" \
         -v chunk="$BENCH_CHUNK_SIZE" \
         -v threads="$threads" \
         -v chunk_by="$BENCH_CHUNK_BY" \
+        -v boundary_clause="$boundary_clause" \
         -f - >/dev/null <<'SQL'
 SET pg_background.max_workers = :threads;
 SELECT dml_utils.run_migration_chunks(
@@ -119,7 +147,7 @@ SELECT dml_utils.run_migration_chunks(
     i_label => :'label',
     i_chunk_size => :'chunk',
     i_threads => :'threads',
-    i_chunk_by => :'chunk_by');
+    i_chunk_by => :'chunk_by' :boundary_clause);
 SQL
 
     # chunks, range_seconds, chunk_seconds, total_seconds. The chunk count is the
@@ -146,8 +174,13 @@ SQL
 }
 
 # Report the dataset the sweep runs against.
-src_rows="$(psql_run -At -c "SELECT count(*) FROM ${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}")"
-echo "sweep: strategy=${BENCH_CHUNK_BY} (${chunk_unit}), ${BENCH_PK_COLUMNS} pk column(s), ${src_rows} rows, threads ${BENCH_THREADS_FROM}..${BENCH_THREADS_TO}, ${BENCH_RUNS} measured + ${BENCH_WARMUP_RUNS} warm-up run(s) each" >&2
+src_rows="$(psql_run -At -c "SELECT count(*) FROM ${BENCH_SCHEMA}.${run_table}")"
+if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
+    key_desc="ordered key ${pk_columns_csv}"
+else
+    key_desc="${BENCH_PK_COLUMNS} pk column(s)"
+fi
+echo "sweep: strategy=${BENCH_CHUNK_BY} (${chunk_unit}), ${key_desc}, ${src_rows} rows, threads ${BENCH_THREADS_FROM}..${BENCH_THREADS_TO}, ${BENCH_RUNS} measured + ${BENCH_WARMUP_RUNS} warm-up run(s) each" >&2
 threads="$BENCH_THREADS_FROM"
 while [ "$threads" -le "$BENCH_THREADS_TO" ]; do
     warmup=1
