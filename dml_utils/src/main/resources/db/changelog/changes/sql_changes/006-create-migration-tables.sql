@@ -5,6 +5,9 @@ CREATE TABLE dml_utils_data.migration_run
     sql_text                        text                                NOT NULL,
     chunk_size                      integer                             NOT NULL,
     chunk_by                        dml_utils_data.chunking_strategy    NOT NULL DEFAULT 'primary_key',
+    -- True when chunk_by is applied leaf by leaf to a declarative partitioned
+    -- table; false for the existing single-relation strategies. Immutable.
+    partition_wise                  boolean                             NOT NULL DEFAULT FALSE,
     threads                         dml_utils_data.positive_integer     NOT NULL,
     sleep_ms                        dml_utils_data.non_negative_integer NOT NULL DEFAULT 0,
     driving_table_schema_name       dml_utils_data.non_null_text        NOT NULL,
@@ -27,11 +30,14 @@ CREATE TABLE dml_utils_data.migration_run
     cancelled_at                    timestamptz,
     archived_at                     timestamptz,
     CONSTRAINT migration_run_chunk_size_check CHECK (chunk_size > 0),
-    -- A block run always records the physical relation filepath it was computed
-    -- against, and a primary-key run never does, so a block resume can detect a
-    -- heap rewrite (see dml_utils_lib.relation_filepath).
+    -- A non-partition-wise block run records the physical relation filepath it
+    -- was computed against, and a primary-key/ordered-key run never does, so a
+    -- block resume can detect a heap rewrite (see dml_utils_lib.relation_filepath).
+    -- A partition-wise block run instead records one filepath per leaf in
+    -- migration_run_leaf, so the run-level filepath stays NULL.
     CONSTRAINT migration_run_chunk_by_filepath_check CHECK (
-        (chunk_by = 'blocks') = (driving_table_relation_filepath IS NOT NULL)
+        (chunk_by = 'blocks' AND NOT partition_wise)
+            = (driving_table_relation_filepath IS NOT NULL)
         ),
     -- An ordered-key run records the index and the key descriptor; the other
     -- strategies leave all three unset. All-or-nothing: a partly populated
@@ -91,7 +97,12 @@ COMMENT ON COLUMN dml_utils_data.migration_run.chunk_size IS
 COMMENT ON COLUMN dml_utils_data.migration_run.chunk_by IS
     'Chunking strategy: primary_key (fixed rows in primary-key order, the '
         'default), ordered_key (fixed rows in a caller-selected unique index '
-        'order) or blocks (physical heap block ranges). Immutable.';
+        'order) or blocks (physical heap block ranges). With partition_wise it '
+        'is the strategy applied inside each leaf. Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run.partition_wise IS
+    'True when the driving table is a declarative partitioned table chunked '
+        'leaf by leaf, using chunk_by inside each leaf; false for the existing '
+        'single-relation strategies. Immutable.';
 COMMENT ON COLUMN dml_utils_data.migration_run.threads IS
     'Number of pg_background workers used to process the run''s chunks; may be '
         'changed with dml_utils.set_migration_run_threads while the run is unfinished.';
@@ -184,11 +195,112 @@ CREATE INDEX migration_run_archived_idx
 COMMENT ON INDEX dml_utils_data.migration_run_archived_idx IS
     'Supports delete_archived_migration_runs() over archived runs.';
 
+-- Per-leaf manifest for a partition-wise run. One row per leaf, in the
+-- deterministic order used for boundary numbering; the run and this manifest are
+-- committed before any leaf boundaries, so a failure during calculation can
+-- resume at the first pending/failed leaf.
+CREATE TABLE dml_utils_data.migration_run_leaf
+(
+    run_id            bigint                       NOT NULL,
+    leaf_ordinal      integer                      NOT NULL,
+    leaf_schema_name  dml_utils_data.non_null_text NOT NULL,
+    leaf_name         dml_utils_data.non_null_text NOT NULL,
+    -- The leaf's relation OID and partition-bound expression are snapshotted so
+    -- a dropped/recreated/reattached leaf is detectable on resume.
+    leaf_oid          oid                          NOT NULL,
+    leaf_bound        text                         NOT NULL,
+    -- The leaf's pg_relation_filepath for chunk_by = blocks; NULL otherwise.
+    relation_filepath text,
+    state             text                         NOT NULL DEFAULT 'pending',
+    boundary_count    bigint                       NOT NULL DEFAULT 0,
+    calculated_at     timestamptz,
+    error_sqlstate    text,
+    error_message     text,
+    created_at        timestamptz                  NOT NULL DEFAULT pg_catalog.now(),
+    updated_at        timestamptz                  NOT NULL DEFAULT pg_catalog.now(),
+    PRIMARY KEY (run_id, leaf_ordinal),
+    CONSTRAINT migration_run_leaf_run_fk
+        FOREIGN KEY (run_id)
+            REFERENCES dml_utils_data.migration_run (run_id)
+            ON DELETE CASCADE,
+    CONSTRAINT migration_run_leaf_leaf_oid_key UNIQUE (run_id, leaf_oid),
+    CONSTRAINT migration_run_leaf_ordinal_check CHECK (leaf_ordinal >= 1),
+    CONSTRAINT migration_run_leaf_state_check CHECK (
+        state IN ('pending', 'calculating', 'calculated', 'failed')
+        ),
+    -- A calculated leaf records when; the other states do not. A failed leaf
+    -- records both error fields; the other states carry neither.
+    CONSTRAINT migration_run_leaf_calculated_check CHECK (
+        (state = 'calculated') = (calculated_at IS NOT NULL)
+        ),
+    CONSTRAINT migration_run_leaf_error_check CHECK (
+        pg_catalog.num_nonnulls(error_sqlstate, error_message)
+            = CASE WHEN state = 'failed' THEN 2 ELSE 0 END
+        ),
+    CONSTRAINT migration_run_leaf_boundary_count_check CHECK (boundary_count >= 0),
+    -- Only a calculated leaf has committed boundaries; pending/calculating and
+    -- failed leaves have none.
+    CONSTRAINT migration_run_leaf_unstarted_check CHECK (
+        state = 'calculated' OR boundary_count = 0
+        )
+);
+
+COMMENT ON TABLE dml_utils_data.migration_run_leaf IS
+    'One row per leaf of a partition-wise run: the deterministic leaf order, '
+        'identity snapshot, calculation state and per-leaf boundary count. The '
+        'manifest is committed before leaf boundaries so calculation can resume.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.run_id IS
+    'Partition-wise run this leaf belongs to.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.leaf_ordinal IS
+    'Deterministic leaf order within the run, starting at 1; immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.leaf_schema_name IS
+    'Schema of the leaf relation, snapshotted at run creation; immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.leaf_name IS
+    'Name of the leaf relation, snapshotted at run creation; immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.leaf_oid IS
+    'OID of the leaf relation, snapshotted at run creation; immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.leaf_bound IS
+    'The leaf''s partition-bound expression at run creation, used to detect a '
+        'changed partition tree; immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.relation_filepath IS
+    'For chunk_by = blocks, the leaf''s pg_relation_filepath at calculation '
+        'time, used to detect a heap rewrite on resume; NULL for key strategies. '
+        'Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.state IS
+    'Calculation state: pending, calculating, calculated or failed. Only a '
+        'calculated leaf has committed boundaries.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.boundary_count IS
+    'Number of chunk-start boundaries committed for this leaf; 0 for an empty '
+        'or not-yet-calculated leaf.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.calculated_at IS
+    'Actual server time when this leaf''s boundaries were committed; NULL unless '
+        'state = calculated.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.error_sqlstate IS
+    'SQLSTATE of a failed leaf calculation; NULL unless state = failed.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.error_message IS
+    'Error message of a failed leaf calculation; NULL unless state = failed.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.created_at IS
+    'Row creation time.';
+COMMENT ON COLUMN dml_utils_data.migration_run_leaf.updated_at IS
+    'Last update time, maintained by the set_updated_at() trigger.';
+
+CREATE INDEX migration_run_leaf_pending_idx
+    ON dml_utils_data.migration_run_leaf (run_id, leaf_ordinal)
+    WHERE state <> 'calculated';
+
+COMMENT ON INDEX dml_utils_data.migration_run_leaf_pending_idx IS
+    'Supports the resume lookup for the first pending, calculating or failed '
+        'leaf without scanning the calculated prefix.';
+
 CREATE TABLE dml_utils_data.migration_boundary
 (
     run_id       bigint                       NOT NULL,
     boundary_no  bigint                       NOT NULL,
     boundary_id  dml_utils_data.migration_key NOT NULL,
+    -- For a partition-wise run, the leaf this boundary belongs to. The
+    -- migration_boundary_leaf trigger requires it for partition-wise runs and
+    -- rejects it otherwise; the composite FK resolves it to the manifest.
+    leaf_ordinal integer,
     created_at   timestamptz                  NOT NULL DEFAULT pg_catalog.now(),
     updated_at   timestamptz                  NOT NULL DEFAULT pg_catalog.now(),
     started_at   timestamptz,
@@ -198,6 +310,10 @@ CREATE TABLE dml_utils_data.migration_boundary
     CONSTRAINT migration_boundary_run_fk
         FOREIGN KEY (run_id)
             REFERENCES dml_utils_data.migration_run (run_id)
+            ON DELETE CASCADE,
+    CONSTRAINT migration_boundary_leaf_fk
+        FOREIGN KEY (run_id, leaf_ordinal)
+            REFERENCES dml_utils_data.migration_run_leaf (run_id, leaf_ordinal)
             ON DELETE CASCADE,
     -- Boundaries are contiguous 0..N; the runner finds the next chunk with
     -- boundary_no + 1, so a negative number would break that arithmetic.
@@ -228,6 +344,9 @@ COMMENT ON COLUMN dml_utils_data.migration_boundary.boundary_id IS
     'Packed primary-key value (position-aligned arrays in migration_key) of the '
         'first row in the chunk, or the captured maximum for the final high-water '
         'boundary.';
+COMMENT ON COLUMN dml_utils_data.migration_boundary.leaf_ordinal IS
+    'For a partition-wise run, the manifest leaf this boundary belongs to; NULL '
+        'for a single-relation run. Immutable.';
 COMMENT ON COLUMN dml_utils_data.migration_boundary.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_boundary.updated_at IS

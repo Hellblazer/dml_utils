@@ -243,29 +243,6 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     }
 
     /**
-     * A resumed ordered_key run fails closed with {@code 55000} when the live
-     * index no longer resolves to the descriptor stored with the run.
-     */
-    @Test
-    void resumeFailsWhenTheStoredDescriptorNoLongerMatchesTheIndex() throws Exception {
-        seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-changed");
-        ResolveMigrationRun first = resolveOrderedKey(label,
-                "test_ordered_key_created_at_id_idx");
-
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("UPDATE dml_utils_data.migration_run"
-                    + " SET ordered_key_columns = ARRAY['id']::name[],"
-                    + " ordered_key_kinds = ARRAY['bigint']::text[]"
-                    + " WHERE run_id = " + first.getORunId());
-        }
-
-        assertSqlState("55000", () -> resolveOrderedKey(label,
-                "test_ordered_key_created_at_id_idx"));
-    }
-
-    /**
      * A resumed ordered run fails closed with {@code 55000} when the stored
      * index was dropped.
      */

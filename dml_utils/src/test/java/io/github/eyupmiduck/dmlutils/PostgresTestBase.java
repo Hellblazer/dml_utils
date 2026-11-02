@@ -236,6 +236,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                     + " ON dml_utils_data.migration_boundary TO dml_utils_test");
             statement.execute("GRANT SELECT, INSERT, UPDATE, DELETE"
                     + " ON dml_utils_data.migration_error TO dml_utils_test");
+            statement.execute("GRANT SELECT, INSERT, UPDATE, DELETE"
+                    + " ON dml_utils_data.migration_run_leaf TO dml_utils_test");
 
             statement.execute("GRANT USAGE ON SCHEMA dml_utils_fixtures TO dml_utils_caller");
             statement.execute("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE"

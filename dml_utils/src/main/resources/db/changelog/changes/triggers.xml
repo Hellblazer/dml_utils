@@ -58,4 +58,34 @@
                      relativeToChangelogFile="true" splitStatements="false"/>
         </rollback>
     </changeSet>
+
+    <changeSet id="trigger-dml_utils_data.migration_run_leaf_set_updated_at" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <sqlFile path="triggers/dml_utils_data/migration_run_leaf_set_updated_at.sql"
+                 relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="triggers-rollback/dml_utils_data/migration_run_leaf_set_updated_at-rollback.sql"
+                     relativeToChangelogFile="true" splitStatements="false"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="trigger-dml_utils_data.migration_run_leaf_check" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <sqlFile path="triggers/dml_utils_data/migration_run_leaf_check.sql"
+                 relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="triggers-rollback/dml_utils_data/migration_run_leaf_check-rollback.sql"
+                     relativeToChangelogFile="true" splitStatements="false"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="trigger-dml_utils_data.migration_boundary_leaf" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <sqlFile path="triggers/dml_utils_data/migration_boundary_leaf.sql"
+                 relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="triggers-rollback/dml_utils_data/migration_boundary_leaf-rollback.sql"
+                     relativeToChangelogFile="true" splitStatements="false"/>
+        </rollback>
+    </changeSet>
 </databaseChangeLog>

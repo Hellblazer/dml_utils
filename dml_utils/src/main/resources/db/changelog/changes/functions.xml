@@ -44,6 +44,26 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_data.check_migration_run_leaf" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_data/check_migration_run_leaf.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_data/check_migration_run_leaf-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_data.check_migration_boundary_leaf" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_data/check_migration_boundary_leaf.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_data/check_migration_boundary_leaf-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.assert_schema_exists" author="lee.horner" dbms="postgresql"
                runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/assert_schema_exists.sql"

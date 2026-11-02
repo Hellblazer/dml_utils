@@ -24,9 +24,12 @@ ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_data
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_run FROM dml_utils_caller;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_boundary FROM dml_utils_caller;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_error FROM dml_utils_caller;
+REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_run_leaf FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_data.set_updated_at() TO public;
 GRANT EXECUTE ON FUNCTION dml_utils_data.reject_migration_run_update() TO public;
 GRANT EXECUTE ON FUNCTION dml_utils_data.reject_migration_boundary_update() TO public;
+GRANT EXECUTE ON FUNCTION dml_utils_data.check_migration_run_leaf() TO public;
+GRANT EXECUTE ON FUNCTION dml_utils_data.check_migration_boundary_leaf() TO public;
 
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.claim_migration_boundary(bigint, bigint)
     FROM dml_utils_caller;

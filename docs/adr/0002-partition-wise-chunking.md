@@ -1,6 +1,6 @@
 # ADR 0002: Partition-wise chunking for declarative partitioned tables
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-02
 - **Beads:** `dml-sw6` (epic), `dml-sw6.1` (this design)
 

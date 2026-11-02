@@ -1163,11 +1163,14 @@ RETURNS trigger
 
 `SECURITY INVOKER`, not callable by users (PUBLIC `EXECUTE` is revoked and it is
 granted to no one). The `BEFORE UPDATE ... FOR EACH ROW` trigger on
-`migration_run` that rejects any change to `label`, `chunk_size` or the driving
-table (`driving_table_schema_name`, `driving_table_name`), all fixed when the run
-is created, and to `total_chunks` once `boundaries_calculated_at` is set (the two
-are written together); `total_chunks_completed` stays mutable for the chunk
-workers.
+`migration_run` that rejects any change to `label`, `chunk_size`, `chunk_by`,
+`partition_wise`, the ordered-key descriptor (`ordered_key_index`,
+`ordered_key_columns`, `ordered_key_kinds`) or the driving table
+(`driving_table_schema_name`, `driving_table_name`,
+`driving_table_relation_filepath`), all fixed when the run is created or (for the
+filepath) when its boundaries are computed, and to `total_chunks` once
+`boundaries_calculated_at` is set (the two are written together);
+`total_chunks_completed` stays mutable for the chunk workers.
 
 ### `dml_utils_data.reject_migration_boundary_update()`
 
@@ -1177,5 +1180,33 @@ RETURNS trigger
 
 `SECURITY INVOKER`, not callable by users (PUBLIC `EXECUTE` is revoked and it is
 granted to no one). The `BEFORE UPDATE ... FOR EACH ROW` trigger on
-`migration_boundary` that rejects any change to `boundary_no` or `boundary_id`,
-both fixed when the boundaries are computed.
+`migration_boundary` that rejects any change to `run_id`, `boundary_no`,
+`boundary_id` or `leaf_ordinal`, all fixed when the boundaries are computed.
+
+### `dml_utils_data.check_migration_run_leaf()`
+
+```sql
+RETURNS trigger
+```
+
+`SECURITY INVOKER`, not callable by users (PUBLIC `EXECUTE` is revoked and it is
+granted to no one). The `BEFORE INSERT OR UPDATE ... FOR EACH ROW` trigger on
+`migration_run_leaf` that requires the run to exist and be partition-wise,
+requires a `relation_filepath` exactly when the run's `chunk_by` is `blocks`, and
+rejects any change to the snapshotted leaf identity (`run_id`, `leaf_ordinal`,
+`leaf_schema_name`, `leaf_name`, `leaf_oid`, `leaf_bound`, `relation_filepath`)
+on update. The calculation state, count, timestamp and error fields stay mutable.
+
+### `dml_utils_data.check_migration_boundary_leaf()`
+
+```sql
+RETURNS trigger
+```
+
+`SECURITY INVOKER`, not callable by users (PUBLIC `EXECUTE` is revoked and it is
+granted to no one). The `BEFORE INSERT OR UPDATE ... FOR EACH ROW` trigger on
+`migration_boundary` that requires `leaf_ordinal` for a partition-wise run and
+rejects it for a single-relation run; the composite foreign key resolves the
+ordinal to the run's leaf manifest. On update it returns early when the run and
+leaf are unchanged, so the claim/complete path does not repeat the catalog
+lookup.

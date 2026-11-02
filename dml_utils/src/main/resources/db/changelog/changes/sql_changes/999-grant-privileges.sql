@@ -43,6 +43,9 @@ GRANT SELECT ON dml_utils_data.migration_boundary TO dml_utils_caller;
 REVOKE ALL ON dml_utils_data.migration_error FROM public;
 REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_error FROM dml_utils_caller;
 GRANT SELECT ON dml_utils_data.migration_error TO dml_utils_caller;
+REVOKE ALL ON dml_utils_data.migration_run_leaf FROM public;
+REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_run_leaf FROM dml_utils_caller;
+GRANT SELECT ON dml_utils_data.migration_run_leaf TO dml_utils_caller;
 
 -- Metadata write helpers called by the invoker-owned coordinator/worker.
 -- Note: these are callable by the caller because the same role runs the
@@ -70,6 +73,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.mark_migration_run_cancelled(bigint)
 REVOKE EXECUTE ON FUNCTION dml_utils_data.set_updated_at() FROM public;
 REVOKE EXECUTE ON FUNCTION dml_utils_data.reject_migration_run_update() FROM public;
 REVOKE EXECUTE ON FUNCTION dml_utils_data.reject_migration_boundary_update() FROM public;
+REVOKE EXECUTE ON FUNCTION dml_utils_data.check_migration_run_leaf() FROM public;
+REVOKE EXECUTE ON FUNCTION dml_utils_data.check_migration_boundary_leaf() FROM public;
 
 -- Functions grant EXECUTE to PUBLIC by default; revoke it and grant only to
 -- the caller role, so execution is explicit.

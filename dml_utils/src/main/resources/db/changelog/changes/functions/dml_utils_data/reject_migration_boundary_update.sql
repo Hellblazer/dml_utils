@@ -5,16 +5,17 @@ CREATE OR REPLACE FUNCTION dml_utils_data.reject_migration_boundary_update()
 AS
 $$
 BEGIN
-    -- run_id, boundary_no and boundary_id identify the boundary and the run whose
-    -- driving table, key ordering and chunk ranges it belongs to. They are set
-    -- when the boundaries are computed and must never change; moving a boundary
-    -- to another run would let that run process values computed for a different
-    -- migration.
+    -- run_id, boundary_no, boundary_id and leaf_ordinal identify the boundary
+    -- and the run/leaf whose key ordering and chunk ranges it belongs to. They
+    -- are set when the boundaries are computed and must never change; moving a
+    -- boundary to another run or leaf would let it process values computed for a
+    -- different relation.
     IF NEW.run_id IS DISTINCT FROM OLD.run_id
         OR NEW.boundary_no IS DISTINCT FROM OLD.boundary_no
         OR NEW.boundary_id IS DISTINCT FROM OLD.boundary_id
+        OR NEW.leaf_ordinal IS DISTINCT FROM OLD.leaf_ordinal
     THEN
-        RAISE EXCEPTION 'migration_boundary.run_id, boundary_no and boundary_id are immutable'
+        RAISE EXCEPTION 'migration_boundary.run_id, boundary_no, boundary_id and leaf_ordinal are immutable'
             USING ERRCODE = '22023';
     END IF;
 
@@ -33,5 +34,6 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_data.reject_migration_boundary_update IS
     'BEFORE UPDATE trigger that rejects any change to '
-        'migration_boundary.run_id, boundary_no or boundary_id, and rejects '
-        'rewriting a migration_boundary.cancelled_at that is already set.';
+        'migration_boundary.run_id, boundary_no, boundary_id or leaf_ordinal, '
+        'and rejects rewriting a migration_boundary.cancelled_at that is already '
+        'set.';
