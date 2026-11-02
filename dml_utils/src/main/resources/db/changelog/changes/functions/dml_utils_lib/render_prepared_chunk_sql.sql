@@ -140,7 +140,7 @@ BEGIN
                         l_first_difference := CASE
                                                   WHEN l_start_timestamptz < l_end_timestamptz THEN -1
                                                   ELSE 1
-                                              END;
+                            END;
                         l_first_difference_position := l_position;
                     END IF;
                 ELSE

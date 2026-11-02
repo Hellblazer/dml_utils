@@ -44,9 +44,9 @@ CREATE TABLE dml_utils_data.migration_run
     CONSTRAINT migration_run_ordered_key_shape_check CHECK (
         ordered_key_columns IS NULL
             OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
-                AND pg_catalog.cardinality(ordered_key_kinds)
+            AND pg_catalog.cardinality(ordered_key_kinds)
                     = pg_catalog.cardinality(ordered_key_columns)
-                AND ordered_key_kinds <@ ARRAY['bigint', 'text', 'uuid', 'timestamptz']::text[])
+            AND ordered_key_kinds <@ ARRAY ['bigint', 'text', 'uuid', 'timestamptz']::text[])
         ),
     -- The run's milestones are ordered: the boundary calculation cannot finish
     -- before the run started, and the run cannot finish before it started. Each

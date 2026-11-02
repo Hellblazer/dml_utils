@@ -161,16 +161,16 @@ BEGIN
                  JOIN pg_catalog.pg_attribute AS a
                       ON a.attrelid = l_index.indrelid AND a.attnum = k.attnum
                  JOIN pg_catalog.unnest(l_index.indclass) WITH ORDINALITY
-                      AS oc(opclass_oid, key_position)
+            AS oc(opclass_oid, key_position)
                       ON oc.key_position = k.key_position
                  JOIN pg_catalog.unnest(l_index.indcollation) WITH ORDINALITY
-                      AS co(collation_oid, key_position)
+            AS co(collation_oid, key_position)
                       ON co.key_position = k.key_position
         WHERE k.key_position <= l_index.indnkeyatts
         ORDER BY k.key_position
         LOOP
-            -- The integer family collapses to bigint, as it does for a primary
-            -- key; the other supported types map one-to-one.
+        -- The integer family collapses to bigint, as it does for a primary
+        -- key; the other supported types map one-to-one.
             l_key_kind := CASE
                               WHEN l_key.key_column_oid IN ('smallint'::pg_catalog.regtype,
                                                             'integer'::pg_catalog.regtype,
@@ -182,7 +182,7 @@ BEGIN
                                   THEN 'uuid'
                               WHEN l_key.key_column_oid = 'timestamptz'::pg_catalog.regtype
                                   THEN 'timestamptz'
-                              END;
+                END;
 
             IF l_key_kind IS NULL THEN
                 RAISE EXCEPTION 'ordered-key column %.%.% has unsupported type %',

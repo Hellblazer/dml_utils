@@ -13,16 +13,16 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.build_boundary_population_sql(
 AS
 $$
 DECLARE
-    l_key_select_list text;
-    l_key_id_list     text;
-    l_order_by        text;
-    l_order_by_desc   text;
+    l_key_select_list   text;
+    l_key_id_list       text;
+    l_order_by          text;
+    l_order_by_desc     text;
     l_bigint_terms      text[];
     l_text_terms        text[];
     l_uuid_terms        text[];
     l_timestamptz_terms text[];
-    l_pack_expression text;
-    l_kind            text;
+    l_pack_expression   text;
+    l_kind              text;
 BEGIN
     -- The boundary-key columns and kinds must be one-dimensional, 1-based and
     -- the same non-empty length of one to three. A different lower bound, a

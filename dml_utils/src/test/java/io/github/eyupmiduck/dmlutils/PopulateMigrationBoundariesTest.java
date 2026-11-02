@@ -21,6 +21,7 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeThr
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestInteger.TEST_INTEGER;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestKey.TEST_KEY;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitioned.TEST_PARTITIONED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
 import static org.junit.jupiter.api.Assertions.*;
@@ -105,17 +106,42 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     }
 
     /**
-     * An unusable ordered key is rejected with its resolver SQLSTATE before a
-     * run is created.
+     * Every unsafe ordered key is rejected before a run or boundary is written:
+     * non-unique, non-btree, partial, expression, DESC, NULLS FIRST, nullable,
+     * non-default opclass and collation-mismatched indexes with {@code 0A000};
+     * over-long and unsupported-type keys with {@code 22023}; and a partitioned
+     * parent with {@code 0A000}.
      */
     @Test
-    void rejectsAnUnusableOrderedKey() {
-        int before = dsl.fetchCount(MIGRATION_RUN);
+    void rejectsEveryUnsafeOrderedKeyBeforeWritingAnything() {
+        int runsBefore = dsl.fetchCount(MIGRATION_RUN);
+        int boundariesBefore = dsl.fetchCount(MIGRATION_BOUNDARY);
 
-        assertSqlState("0A000", () -> populate(TEST_ORDERED_KEY, ChunkingStrategy.ordered_key,
-                "test_ordered_key_nonunique_idx"));
+        for (String index : List.of(
+                "test_ordered_key_nonunique_idx",
+                "test_ordered_key_hash_idx",
+                "test_ordered_key_partial_idx",
+                "test_ordered_key_expression_idx",
+                "test_ordered_key_desc_idx",
+                "test_ordered_key_nulls_first_idx",
+                "test_ordered_key_nullable_idx",
+                "test_ordered_key_opclass_idx",
+                "test_ordered_key_collation_idx")) {
+            assertSqlState("0A000", () -> populate(TEST_ORDERED_KEY,
+                    ChunkingStrategy.ordered_key, index));
+        }
+        for (String index : List.of(
+                "test_ordered_key_four_idx",
+                "test_ordered_key_numeric_idx")) {
+            assertSqlState("22023", () -> populate(TEST_ORDERED_KEY,
+                    ChunkingStrategy.ordered_key, index));
+        }
+        assertSqlState("0A000", () -> populate(TEST_PARTITIONED,
+                ChunkingStrategy.ordered_key, "test_partitioned_id_idx"));
 
-        assertEquals(before, dsl.fetchCount(MIGRATION_RUN), "no run is created");
+        assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN), "no run is written");
+        assertEquals(boundariesBefore, dsl.fetchCount(MIGRATION_BOUNDARY),
+                "no boundary is written");
     }
 
     /**

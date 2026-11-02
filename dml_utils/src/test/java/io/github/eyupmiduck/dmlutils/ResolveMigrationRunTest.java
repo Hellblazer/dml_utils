@@ -275,6 +275,103 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     }
 
     /**
+     * A resumed ordered run fails closed with {@code 55000} when the stored
+     * index was dropped.
+     */
+    @Test
+    void resumeFailsWhenTheStoredIndexWasDropped() throws Exception {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-dropped");
+        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
+
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
+            assertSqlState("55000", () -> resolveOrderedKey(label,
+                    "test_ordered_key_created_at_id_idx"));
+        } finally {
+            recreateOrderedKeyIndex();
+        }
+    }
+
+    /**
+     * A resumed ordered run fails closed with {@code 55000} when the index still
+     * exists but its key order changed.
+     */
+    @Test
+    void resumeFailsWhenTheIndexOrderChanged() throws Exception {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-reordered");
+        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
+
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
+            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                    + " ON dml_utils_fixtures.test_ordered_key (id, created_at)");
+            assertSqlState("55000", () -> resolveOrderedKey(label,
+                    "test_ordered_key_created_at_id_idx"));
+        } finally {
+            recreateOrderedKeyIndex();
+        }
+    }
+
+    /**
+     * A resumed ordered run fails closed with {@code 55000} when the stored
+     * index is recreated as non-unique (resolver {@code 0A000}).
+     */
+    @Test
+    void resumeFailsWhenTheStoredIndexIsNoLongerUnique() throws Exception {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-nonunique");
+        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
+
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
+            statement.execute("CREATE INDEX test_ordered_key_created_at_id_idx"
+                    + " ON dml_utils_fixtures.test_ordered_key (created_at, id)");
+            assertSqlState("55000", () -> resolveOrderedKey(label,
+                    "test_ordered_key_created_at_id_idx"));
+        } finally {
+            recreateOrderedKeyIndex();
+        }
+    }
+
+    /**
+     * A resumed ordered run fails closed with {@code 55000} when the stored
+     * index is recreated with too many key columns (resolver {@code 22023}).
+     */
+    @Test
+    void resumeFailsWhenTheStoredIndexHasTooManyColumns() throws Exception {
+        seedOrderedKey();
+        String label = uniqueLabel("resolve-ordered-four-columns");
+        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
+
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
+            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                    + " ON dml_utils_fixtures.test_ordered_key"
+                    + " (created_at, id, external_id, label)");
+            assertSqlState("55000", () -> resolveOrderedKey(label,
+                    "test_ordered_key_created_at_id_idx"));
+        } finally {
+            recreateOrderedKeyIndex();
+        }
+    }
+
+    private void recreateOrderedKeyIndex() throws Exception {
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP INDEX IF EXISTS"
+                    + " dml_utils_fixtures.test_ordered_key_created_at_id_idx");
+            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                    + " ON dml_utils_fixtures.test_ordered_key (created_at, id)");
+        }
+    }
+
+    /**
      * ordered_key without an index is rejected before a run is created.
      */
     @Test

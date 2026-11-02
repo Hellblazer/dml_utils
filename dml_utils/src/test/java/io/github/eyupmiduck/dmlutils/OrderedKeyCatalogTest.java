@@ -7,11 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the ordered-key catalog resolution: a unique btree index on one to
@@ -27,6 +23,14 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
 
     private static final String FIXTURE_SCHEMA = "dml_utils_fixtures";
     private static final String TABLE = "test_ordered_key";
+
+    private static void assertAttribute(OrderedKeyAttributesRecord row, int ordinality,
+                                        String name, String kind) {
+        assertEquals(ordinality, row.getOrdinality());
+        assertEquals(name, row.getColumnName());
+        assertEquals(kind, row.getKeyKind());
+        assertNotNull(row.getColumnOid(), "the column type oid is returned");
+    }
 
     private List<OrderedKeyAttributesRecord> attributes(String index) {
         return Routines.orderedKeyAttributes(
@@ -252,13 +256,5 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
     @Test
     void rejectsABlankIndexName() {
         assertDomainViolation(() -> attributes("  "));
-    }
-
-    private static void assertAttribute(OrderedKeyAttributesRecord row, int ordinality,
-                                        String name, String kind) {
-        assertEquals(ordinality, row.getOrdinality());
-        assertEquals(name, row.getColumnName());
-        assertEquals(kind, row.getKeyKind());
-        assertNotNull(row.getColumnOid(), "the column type oid is returned");
     }
 }

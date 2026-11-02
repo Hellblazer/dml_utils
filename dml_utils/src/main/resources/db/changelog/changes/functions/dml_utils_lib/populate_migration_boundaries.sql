@@ -21,11 +21,11 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_migration_boundaries(
 AS
 $$
 DECLARE
-    l_key_columns         name[];
-    l_key_kinds           text[];
-    l_relation_filepath   text;
-    l_run_id              bigint;
-    l_caller              name;
+    l_key_columns       name[];
+    l_key_kinds         text[];
+    l_relation_filepath text;
+    l_run_id            bigint;
+    l_caller            name;
 BEGIN
     -- The index selects the ordered key, so it is required for that strategy and
     -- rejected for the others; the shared helper owns that rule.
