@@ -698,3 +698,33 @@ CREATE TABLE dml_utils_fixtures."test partitioned ""odd"""
 
 COMMENT ON TABLE dml_utils_fixtures."test partitioned ""odd""" IS
     'Fixture: a leaf whose name contains a space and a double quote.';
+
+-- A top-level hash-partitioned parent with two leaves, for the partition-wise
+-- integration matrix.
+CREATE TABLE dml_utils_fixtures.test_partitioned_hash
+(
+    id      bigint NOT NULL,
+    payload text,
+    PRIMARY KEY (id)
+) PARTITION BY HASH (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash IS
+    'Fixture: a hash-partitioned parent with two leaves.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_hash.id IS
+    'Fixture hash key and primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_hash.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p0
+    PARTITION OF dml_utils_fixtures.test_partitioned_hash
+    FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p0 IS
+    'Fixture: hash leaf remainder 0.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p1
+    PARTITION OF dml_utils_fixtures.test_partitioned_hash
+    FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p1 IS
+    'Fixture: hash leaf remainder 1.';
