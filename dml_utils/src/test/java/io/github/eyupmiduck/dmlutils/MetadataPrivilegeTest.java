@@ -75,7 +75,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
 
             Routines.runMigrationChunks(caller.configuration(), ROLE_TEMPLATE,
                     TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(), label,
-                    2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null);
+                    2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false);
         }
 
         assertEquals(3, dsl.fetchCount(TEST_BIGINT,
@@ -113,13 +113,13 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     TEST_ORDERED_KEY_UUID.getSchema().getName(),
                     TEST_ORDERED_KEY_UUID.getName(), uniqueLabel("caller-ordered"),
                     2, 1, "t", ChunkingStrategy.ordered_key, 1, 0,
-                    "test_ordered_key_uuid_created_at_id_idx");
+                    "test_ordered_key_uuid_created_at_id_idx", false);
 
             assertSqlState("0A000", () -> Routines.runMigrationChunks(
                     caller.configuration(), ROLE_TEMPLATE,
                     TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
                     uniqueLabel("caller-ordered-unsafe"), 2, 1, "t",
-                    ChunkingStrategy.ordered_key, 1, 0, "test_ordered_key_nonunique_idx"));
+                    ChunkingStrategy.ordered_key, 1, 0, "test_ordered_key_nonunique_idx", false));
         }
 
         assertEquals(4, dsl.fetchCount(TEST_ORDERED_KEY_UUID,
@@ -147,7 +147,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             assertSqlState("42501", () -> Routines.runMigrationChunks(
                     caller.configuration(), malicious, TEST_BIGINT.getSchema().getName(),
                     TEST_BIGINT.getName(), label, 2, 1, "t",
-                    ChunkingStrategy.primary_key, 1, 0, null));
+                    ChunkingStrategy.primary_key, 1, 0, null, false));
         }
 
         assertFalse(runCompleted(label), "the failed run must not be complete");
@@ -248,7 +248,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                     .populateMigrationBoundaries(caller.configuration(),
                             TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(), label,
-                            ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null);
+                            ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
 
             Routines.setMigrationRunThreads(caller.configuration(), label, 2);
             Routines.setMigrationRunSleepMs(caller.configuration(), label, 5);
@@ -285,7 +285,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                             .populateMigrationBoundaries(caller.configuration(),
                                     schema(TEST_NO_PK), name(TEST_NO_PK), label,
-                                    ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null));
+                                    ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
         } finally {
             try (Connection owner = openOwnerConnection(); Statement statement = owner.createStatement()) {
                 statement.execute("GRANT SELECT ON " + schema(TEST_NO_PK) + "." + name(TEST_NO_PK)
@@ -297,7 +297,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
     private long populate(String label) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                label, "SELECT 1", 2, 1, ChunkingStrategy.primary_key, "t", 0, null);
+                label, "SELECT 1", 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
     }
 
     private long totalCompleted(long runId) {

@@ -48,6 +48,14 @@ BEGIN
             RAISE EXCEPTION 'migration_run_leaf identity is immutable'
                 USING ERRCODE = '22023';
         END IF;
+
+        -- The high-water snapshot is written once, with the calculated state.
+        IF OLD.terminal_boundary_id IS DISTINCT FROM NULL
+            AND NEW.terminal_boundary_id IS DISTINCT FROM OLD.terminal_boundary_id
+        THEN
+            RAISE EXCEPTION 'migration_run_leaf terminal snapshot is immutable once set'
+                USING ERRCODE = '22023';
+        END IF;
     END IF;
 
     RETURN NEW;
@@ -56,5 +64,6 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_data.check_migration_run_leaf IS
     'BEFORE INSERT OR UPDATE trigger that requires a partition-wise run, '
-        'enforces the per-leaf relation-filepath rule for chunk_by = blocks, and '
-        'rejects changes to the manifest identity snapshot on update.';
+        'enforces the per-leaf relation-filepath rule for chunk_by = blocks, '
+        'rejects changes to the manifest identity snapshot on update, and freezes '
+        'the high-water snapshot once set.';

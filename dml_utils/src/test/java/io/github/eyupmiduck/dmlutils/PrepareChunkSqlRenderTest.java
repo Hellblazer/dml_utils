@@ -17,9 +17,13 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class PrepareChunkSqlRenderTest extends PostgresTestBase {
 
-    /** Sentinel that prepare_chunk_sql_render leaves for <driving_table>. */
+    /**
+     * Sentinel that prepare_chunk_sql_render leaves for <driving_table>.
+     */
     private static final char DRIVING_TABLE_SENTINEL = 1;
-    /** Sentinel that prepare_chunk_sql_render leaves for <chunking_clause>. */
+    /**
+     * Sentinel that prepare_chunk_sql_render leaves for <chunking_clause>.
+     */
     private static final char CLAUSE_SENTINEL = 2;
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET processed = true WHERE <chunking_clause>";

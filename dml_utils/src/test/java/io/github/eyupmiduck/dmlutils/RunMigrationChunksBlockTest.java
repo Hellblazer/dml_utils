@@ -51,7 +51,7 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
 
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null);
+                label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false);
 
         assertEquals(10, dsl.fetchCount(TEST_OTHER), "every source row is inserted exactly once");
         assertEquals(10, dsl.fetchCount(TEST_BIGINT), "the source table is unchanged");
@@ -73,11 +73,11 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
         // Create the block run's boundaries without processing it.
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), SCHEMA, TEST_BIGINT.getName(), label, TEMPLATE, 1, 1,
-                ChunkingStrategy.blocks, "t", 0, null);
+                ChunkingStrategy.blocks, "t", 0, null, false);
 
         // Resume with a different requested strategy; the stored one wins.
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, SCHEMA, TEST_BIGINT.getName(),
-                label, 1, 1, "t", ChunkingStrategy.primary_key, 1, 0, null);
+                label, 1, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false);
 
         assertEquals(5, dsl.fetchCount(TEST_OTHER), "the stored block strategy processed every row");
         assertEquals(ChunkingStrategy.blocks, chunkBy(label), "the stored strategy is unchanged");
@@ -94,13 +94,13 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), SCHEMA, TEST_BIGINT.getName(), label, TEMPLATE, 1, 1,
-                ChunkingStrategy.blocks, "t", 0, null);
+                ChunkingStrategy.blocks, "t", 0, null, false);
 
         // TRUNCATE gives the table a new relfilenode, changing its filepath.
         dsl.execute("TRUNCATE dml_utils_fixtures.test_bigint");
 
         assertSqlState("22023", () -> Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
-                SCHEMA, TEST_BIGINT.getName(), label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null));
+                SCHEMA, TEST_BIGINT.getName(), label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false));
     }
 
     /**
@@ -129,7 +129,7 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
         String label = uniqueLabel("block-empty");
 
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, SCHEMA, TEST_BIGINT.getName(),
-                label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null);
+                label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false);
 
         assertTrue(runCompleted(label), "an empty run should complete");
         long runId = dsl.select(MIGRATION_RUN.RUN_ID)
@@ -150,7 +150,7 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
         String label = uniqueLabel("block-threads");
 
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, SCHEMA, TEST_BIGINT.getName(),
-                label, 1, 4, "t", ChunkingStrategy.blocks, 1, 0, null);
+                label, 1, 4, "t", ChunkingStrategy.blocks, 1, 0, null, false);
 
         assertEquals(1000, dsl.fetchCount(TEST_OTHER), "every source row is copied exactly once");
         assertEquals(1000, dsl.fetchCount(TEST_BIGINT), "the source table is unchanged");

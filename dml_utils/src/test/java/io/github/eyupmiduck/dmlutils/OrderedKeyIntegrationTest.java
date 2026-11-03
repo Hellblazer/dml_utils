@@ -179,7 +179,7 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                 .populateMigrationBoundaries(dsl.configuration(),
                         TEST_ORDERED_KEY_UUID.getSchema().getName(),
                         TEST_ORDERED_KEY_UUID.getName(), label, APPEND_TEMPLATE,
-                        2, 1, ChunkingStrategy.ordered_key, "t", 0, UUID_INDEX);
+                        2, 1, ChunkingStrategy.ordered_key, "t", 0, UUID_INDEX, false);
         Routines.cancelMigrationRun(dsl.configuration(), label);
 
         run(label, TEST_ORDERED_KEY_UUID, UUID_INDEX, 2, 1, APPEND_TEMPLATE);
@@ -194,7 +194,7 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                      String template) {
         Routines.runMigrationChunks(dsl.configuration(), template,
                 table.getSchema().getName(), table.getName(), label, chunkSize, threads,
-                "t", ChunkingStrategy.ordered_key, 1, 0, index);
+                "t", ChunkingStrategy.ordered_key, 1, 0, index, false);
     }
 
     private void seedUuid(int rows) {

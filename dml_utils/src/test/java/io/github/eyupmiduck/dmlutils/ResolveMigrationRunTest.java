@@ -133,7 +133,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
-                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0, null));
+                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0, null, false));
     }
 
     /**
@@ -153,7 +153,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertDomainViolation(() -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
                 uniqueLabel("resolve-sleep-null"), 2, 1, "t",
-                ChunkingStrategy.primary_key, null, null));
+                ChunkingStrategy.primary_key, null, null, false));
     }
 
     /**
@@ -184,7 +184,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("42P01", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), "does_not_exist",
-                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null));
+                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null, false));
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
                 "a failed worker transaction must not leave a run row");
@@ -348,7 +348,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                 dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
                 uniqueLabel("resolve-ordered-null"), 2, 1, "t",
-                ChunkingStrategy.ordered_key, 0, null));
+                ChunkingStrategy.ordered_key, 0, null, false));
     }
 
     /**
@@ -359,7 +359,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
                 uniqueLabel("resolve-primary-index"), 2, 1, "t",
-                ChunkingStrategy.primary_key, 0, "test_bigint_pkey"));
+                ChunkingStrategy.primary_key, 0, "test_bigint_pkey", false));
     }
 
     /**
@@ -369,7 +369,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     private ResolveMigrationRun resolveOrderedKey(String label, String index) {
         return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
-                label, 2, 1, "t", ChunkingStrategy.ordered_key, 0, index);
+                label, 2, 1, "t", ChunkingStrategy.ordered_key, 0, index, false);
     }
 
     private String storedOrderedKeyIndex(ResolveMigrationRun resolved) {
@@ -393,6 +393,6 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                                                    int chunkSize, int threads, ChunkingStrategy chunkBy,
                                                    int sleepMs) {
         return Routines.resolveMigrationRun(dsl.configuration(), sqlText, schema(), name(),
-                label, chunkSize, threads, alias, chunkBy, sleepMs, null);
+                label, chunkSize, threads, alias, chunkBy, sleepMs, null, false);
     }
 }

@@ -88,7 +88,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
 
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null);
+                ChunkingStrategy.primary_key, 1, 0, null, false);
 
         MigrationRunRecord run = run(runId);
         assertNotNull(run.getCancelledAt(), "the run stays cancelled");
@@ -108,7 +108,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
         String label = uniqueLabel("cancel-completed");
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null);
+                ChunkingStrategy.primary_key, 1, 0, null, false);
         Long runId = dsl.fetchOne(
                         "SELECT run_id FROM dml_utils_data.migration_run WHERE label = ?", label)
                 .get(0, Long.class);
@@ -165,7 +165,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
     private Long populate(String label) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT), label,
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null);
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
     }
 
     /**

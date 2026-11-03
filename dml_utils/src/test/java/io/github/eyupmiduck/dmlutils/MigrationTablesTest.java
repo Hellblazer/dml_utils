@@ -101,6 +101,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 "migration_run_leaf should exist");
         for (String column : List.of("run_id", "leaf_ordinal", "leaf_schema_name", "leaf_name",
                 "leaf_oid", "leaf_bound", "relation_filepath", "state", "boundary_count",
+                "terminal_boundary_id",
                 "calculated_at", "error_sqlstate", "error_message", "created_at", "updated_at")) {
             assertTrue(hasColumn("dml_utils_data", "migration_run_leaf", column),
                     column + " should exist");
@@ -383,13 +384,32 @@ class MigrationTablesTest extends PostgresTestBase {
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute());
 
-        dsl.update(MIGRATION_RUN_LEAF)
+        // A calculated non-empty leaf needs a high-water snapshot.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN_LEAF)
                 .set(MIGRATION_RUN_LEAF.STATE, "calculated")
                 .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
                 .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 2L)
                 .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
+
+        dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.STATE, "calculated")
+                .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
+                .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 2L)
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{5L}, null, null, null))
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute();
+
+        // The snapshot is frozen once written.
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{6L}, null, null, null))
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
     }
 
     /**

@@ -8,14 +8,18 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_migration_boundaries(
 AS
 $$
 DECLARE
-    l_run          dml_utils_data.migration_run%ROWTYPE;
-    l_leaf_ordinal integer;
-    l_leaf_schema  text;
-    l_leaf_name    text;
-    l_caller       name;
-    l_terminal_key dml_utils_data.migration_key;
-    l_boundary_no  bigint;
-    l_total_chunks bigint;
+    l_run                dml_utils_data.migration_run%ROWTYPE;
+    l_leaf_ordinal       integer;
+    l_leaf_schema        text;
+    l_leaf_name          text;
+    l_caller             name;
+    l_terminal_key       dml_utils_data.migration_key;
+    l_bigint_values      bigint[];
+    l_text_values        text[];
+    l_uuid_values        uuid[];
+    l_timestamptz_values timestamptz[];
+    l_boundary_no        bigint;
+    l_total_chunks       bigint;
 BEGIN
     IF i_run_id IS NULL THEN
         RAISE EXCEPTION 'run id must not be NULL'
@@ -55,8 +59,15 @@ BEGIN
 
     -- The terminal belongs to the last non-empty leaf in manifest order. An
     -- empty leaf (boundary_count = 0) is calculated but has no chunk to end.
-    SELECT leaf.leaf_ordinal, leaf.leaf_schema_name::text, leaf.leaf_name::text
-    INTO l_leaf_ordinal, l_leaf_schema, l_leaf_name
+    SELECT leaf.leaf_ordinal,
+           leaf.leaf_schema_name::text,
+           leaf.leaf_name::text,
+           (leaf.terminal_boundary_id).bigint_values,
+           (leaf.terminal_boundary_id).text_values,
+           (leaf.terminal_boundary_id).uuid_values,
+           (leaf.terminal_boundary_id).timestamptz_values
+    INTO l_leaf_ordinal, l_leaf_schema, l_leaf_name, l_bigint_values,
+        l_text_values, l_uuid_values, l_timestamptz_values
     FROM dml_utils_data.migration_run_leaf AS leaf
     WHERE leaf.run_id = i_run_id
       AND leaf.boundary_count > 0
@@ -64,6 +75,9 @@ BEGIN
     LIMIT 1;
 
     IF FOUND THEN
+        l_terminal_key := ROW (l_bigint_values, l_text_values, l_uuid_values,
+            l_timestamptz_values)::dml_utils_data.migration_key;
+
         -- The terminal scan runs in the definer context, so the effective caller
         -- must still be allowed to read the leaf, as for leaf calculation.
         l_caller := COALESCE(NULLIF(pg_catalog.current_setting('role', true), 'none'),
@@ -84,9 +98,11 @@ BEGIN
                 i_run_id => i_run_id,
                 i_leaf_ordinal => l_leaf_ordinal);
 
-        l_terminal_key := dml_utils_lib.leaf_terminal_boundary_id(
-                i_run_id => i_run_id,
-                i_leaf_ordinal => l_leaf_ordinal);
+        IF l_terminal_key IS NULL THEN
+            RAISE EXCEPTION 'leaf % of run % has no terminal snapshot',
+                l_leaf_ordinal, i_run_id
+                USING ERRCODE = '55000';
+        END IF;
 
         SELECT coalesce(max(boundary.boundary_no), -1) + 1
         INTO l_boundary_no

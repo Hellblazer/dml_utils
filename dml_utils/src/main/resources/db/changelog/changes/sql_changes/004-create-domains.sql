@@ -27,6 +27,16 @@ COMMENT ON DOMAIN dml_utils_data.non_null_text IS
         'ASCII whitespace characters (space, tab, LF, CR, FF, vertical tab); '
         'non-ASCII whitespace such as NBSP is not trimmed.';
 
+-- A boolean whose explicit NULL is rejected. Function signatures may still give
+-- it a DEFAULT, so omitting the argument is fine; passing NULL is not, and it
+-- cannot silently fall through SQL three-valued logic.
+CREATE DOMAIN dml_utils_data.non_null_boolean AS boolean
+    CONSTRAINT non_null_boolean_check CHECK (value IS NOT NULL);
+
+COMMENT ON DOMAIN dml_utils_data.non_null_boolean IS
+    'boolean that is NOT NULL, so an explicitly passed NULL is rejected instead '
+        'of falling through three-valued logic.';
+
 -- Packs the primary-key value of a chunk boundary, for a primary key of one to
 -- three columns. One array per supported kind, each position-aligned to the
 -- primary-key columns: at index i, the array matching column i's kind holds its

@@ -12,7 +12,11 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_migration_boundaries(
     i_sleep_ms dml_utils_data.non_negative_integer DEFAULT 0,
     -- The unique index whose order an ordered_key run uses. Required for
     -- ordered_key and rejected for the other strategies.
-    i_boundary_key_index name DEFAULT NULL
+    i_boundary_key_index name DEFAULT NULL,
+    -- When true, the driving table is a declarative partitioned parent and this
+    -- call only creates the run and its pending leaf manifest; the per-leaf
+    -- boundaries are calculated separately, one committed transaction per leaf.
+    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE
 )
     RETURNS bigint
     LANGUAGE plpgsql
@@ -21,11 +25,16 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_migration_boundaries(
 AS
 $$
 DECLARE
-    l_key_columns       name[];
-    l_key_kinds         text[];
-    l_relation_filepath text;
-    l_run_id            bigint;
-    l_caller            name;
+    l_key_columns         name[];
+    l_key_kinds           text[];
+    l_relation_filepath   text;
+    l_run_id              bigint;
+    l_caller              name;
+    l_leaf_schema         text;
+    l_leaf_name           text;
+    l_ordered_key_index   name;
+    l_ordered_key_columns name[];
+    l_ordered_key_kinds   text[];
 BEGIN
     -- The index selects the ordered key, so it is required for that strategy and
     -- rejected for the others; the shared helper owns that rule.
@@ -57,17 +66,29 @@ BEGIN
 
     PERFORM dml_utils_lib.assert_no_active_run_for_label(i_label => i_label);
 
+    -- Resolve and validate the key before the run exists. A partition-wise parent
+    -- is resolved the same way; the per-leaf scan applies that key to each leaf.
+    IF i_partition_wise::boolean THEN
+        PERFORM dml_utils_lib.assert_partitioned_table(
+                i_schema_name => i_schema_name,
+                i_table_name => i_table_name);
+    END IF;
+
     -- A range run reads its key columns and kinds from the primary key or the
-    -- named ordered-key index. A block run instead records the driving table's
-    -- physical filepath so a resume can detect a heap rewrite, and the
-    -- blocks<->filepath check on migration_run requires exactly one of the two.
+    -- named ordered-key index. A non-partition-wise block run instead records the
+    -- driving table's physical filepath so a resume can detect a heap rewrite,
+    -- and the blocks<->filepath check on migration_run requires exactly one of
+    -- the two. A partition-wise block run records one filepath per leaf in the
+    -- manifest, so the run-level filepath stays NULL.
     IF i_chunk_by = 'blocks' THEN
-        PERFORM dml_utils_lib.assert_plain_heap(
-                i_schema_name => i_schema_name,
-                i_table_name => i_table_name);
-        l_relation_filepath := dml_utils_lib.relation_filepath(
-                i_schema_name => i_schema_name,
-                i_table_name => i_table_name);
+        IF NOT i_partition_wise::boolean THEN
+            PERFORM dml_utils_lib.assert_plain_heap(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name);
+            l_relation_filepath := dml_utils_lib.relation_filepath(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name);
+        END IF;
     ELSIF i_chunk_by = 'ordered_key' THEN
         PERFORM dml_utils_lib.assert_usable_ordered_key(
                 i_schema_name => i_schema_name,
@@ -90,12 +111,21 @@ BEGIN
                 i_table_name => i_table_name);
     END IF;
 
+    -- The run-row constraint requires the ordered descriptor all-or-nothing; build
+    -- the three values once so the INSERT has no mixed-type CASE expressions.
+    IF i_chunk_by = 'ordered_key' THEN
+        l_ordered_key_index := i_boundary_key_index;
+        l_ordered_key_columns := l_key_columns;
+        l_ordered_key_kinds := l_key_kinds;
+    END IF;
+
     -- started_at is the run's start: the boundary calculation begins here. It is
     -- written in this worker's transaction, so it commits with the run and the
     -- boundaries and survives a later failed chunk-processing attempt.
     -- The alias is a creation-time input, stored with the run so a resume
     -- renders with the same alias the first call used.
-    INSERT INTO dml_utils_data.migration_run (label, sql_text, chunk_size, chunk_by, threads,
+    INSERT INTO dml_utils_data.migration_run (label, sql_text, chunk_size, chunk_by,
+                                              partition_wise, threads,
                                               sleep_ms,
                                               driving_table_schema_name, driving_table_name,
                                               driving_table_alias,
@@ -103,16 +133,61 @@ BEGIN
                                               ordered_key_index, ordered_key_columns,
                                               ordered_key_kinds,
                                               started_at)
-    VALUES (i_label, i_sql_text, i_chunk_size, i_chunk_by, i_threads, i_sleep_ms,
+    VALUES (i_label, i_sql_text, i_chunk_size, i_chunk_by, i_partition_wise::boolean, i_threads,
+            i_sleep_ms,
             i_schema_name, i_table_name,
             i_driving_table_alias,
             l_relation_filepath,
-            CASE WHEN i_chunk_by = 'ordered_key' THEN i_boundary_key_index END,
-            CASE WHEN i_chunk_by = 'ordered_key' THEN l_key_columns END,
-            CASE WHEN i_chunk_by = 'ordered_key' THEN l_key_kinds END,
+            l_ordered_key_index,
+            l_ordered_key_columns,
+            l_ordered_key_kinds,
             pg_catalog.clock_timestamp())
     RETURNING run_id
         INTO l_run_id;
+
+    IF i_partition_wise::boolean THEN
+        -- Phase 1 only: snapshot the deterministic leaf manifest. The boundaries
+        -- are calculated later, one leaf per committed transaction, so a failure
+        -- preserves the leaves already done. Every leaf is inserted, including one
+        -- with no rows; emptiness is a calculation result.
+
+        -- One live enumeration feeds the snapshot. The caller's privilege is then
+        -- checked against the inserted manifest (not a second enumeration, which
+        -- could see a different tree); a denied leaf rolls the whole create back.
+        INSERT INTO dml_utils_data.migration_run_leaf
+        (run_id, leaf_ordinal, leaf_schema_name, leaf_name, leaf_oid,
+         leaf_bound, relation_filepath, state)
+        SELECT l_run_id,
+               live.leaf_ordinal,
+               live.leaf_schema_name,
+               live.leaf_name,
+               live.leaf_oid,
+               live.leaf_bound,
+               live.relation_filepath,
+               'pending'
+        FROM dml_utils_lib.leaf_partitions(
+                     i_schema_name => i_schema_name,
+                     i_table_name => i_table_name,
+                     i_chunk_by => i_chunk_by) AS live;
+
+        SELECT leaf.leaf_schema_name, leaf.leaf_name
+        INTO l_leaf_schema, l_leaf_name
+        FROM dml_utils_data.migration_run_leaf AS leaf
+        WHERE leaf.run_id = l_run_id
+          AND NOT pg_catalog.has_table_privilege(
+                l_caller,
+                pg_catalog.format('%I.%I', leaf.leaf_schema_name, leaf.leaf_name),
+                'SELECT')
+        LIMIT 1;
+
+        IF FOUND THEN
+            RAISE EXCEPTION 'caller lacks SELECT privilege on leaf %.%',
+                l_leaf_schema, l_leaf_name
+                USING ERRCODE = '42501';
+        END IF;
+
+        RETURN l_run_id;
+    END IF;
 
     -- The boundary statement is built by a dml_utils_lib helper shared with the
     -- explain path, so both execute and explain the identical SQL. It is safe
@@ -154,13 +229,12 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.populate_migration_boundaries IS
-    'Creates a migration run for the label and populates its chunk boundaries for '
-        'the given table and chunking strategy (primary_key, ordered_key or blocks), '
-        'returning the new run_id. Stores the driving table alias and sleep_ms with '
-        'the run at creation. Records the run''s started_at when the calculation '
-        'begins and boundaries_calculated_at and total_chunks when it finishes, all '
-        'in the worker''s transaction so they commit with the run; a block run also '
-        'records the driving table''s physical filepath, and an ordered_key run '
-        'records i_boundary_key_index and its resolved columns and kinds. '
-        'Boundaries are written as the contiguous sequence 0..N in one statement; '
-        'this is the only supported write path for boundaries.';
+    'Creates a run and returns its id. For a single-relation run it scans the '
+        'driving table in boundary-key order and inserts the contiguous 0..N '
+        'boundaries in one statement. For i_partition_wise it instead validates the '
+        'partitioned parent and every leaf, snapshots the deterministic leaf manifest '
+        '(all leaves pending, with their OIDs, bounds and per-leaf block filepaths) '
+        'and returns without boundaries or a boundaries_calculated_at milestone, so '
+        'calculation can resume one leaf per transaction. SECURITY DEFINER so the '
+        'metadata writes run as the owner, with an explicit effective-caller SELECT '
+        'check on the parent and every leaf.';

@@ -107,7 +107,7 @@ heap rewrites safe; it does not replace a quiescent source.
 
 ###
 
-`dml_utils.run_migration_chunks(i_sql_text, i_driving_table_schema_name, i_driving_table_name, i_label, i_chunk_size [, i_threads, i_driving_table_alias, i_chunk_by, i_poll_timeout_ms, i_sleep_ms, i_boundary_key_index])`
+`dml_utils.run_migration_chunks(i_sql_text, i_driving_table_schema_name, i_driving_table_name, i_label, i_chunk_size [, i_threads, i_driving_table_alias, i_chunk_by, i_poll_timeout_ms, i_sleep_ms, i_boundary_key_index, i_partition_wise])`
 
 ```sql
 i_sql_text                  dml_utils_data.non_null_text
@@ -121,6 +121,7 @@ i_chunk_by                  dml_utils_data.chunking_strategy DEFAULT 'primary_ke
 i_poll_timeout_ms           dml_utils_data.positive_integer DEFAULT 1
 i_sleep_ms                  dml_utils_data.non_negative_integer DEFAULT 0
 i_boundary_key_index        name DEFAULT NULL
+i_partition_wise            dml_utils_data.non_null_boolean DEFAULT FALSE
 RETURNS void
 ```
 
@@ -132,7 +133,20 @@ btree index on the driving table; `blocks` chunks physical heap block ranges and
 requires a quiescent, read-only plain table (see "Chunking strategies" above).
 `i_boundary_key_index` is required for `ordered_key` and rejected for a new run of
 the other strategies (`22023`); when resuming an existing run the stored strategy
-and index win, and a differing index is ignored with a notice. Each
+and index win, and a differing index is ignored with a notice. With
+`i_partition_wise` the driving table is a declarative partitioned parent: the run
+and its deterministic leaf manifest are created first, each leaf's boundary
+starts are calculated in a separate committed worker transaction, the single
+terminal boundary is written at finalization, and every chunk is rendered and
+executed against its boundary's leaf. A chunk whose next boundary belongs to a
+different leaf ends at that leaf's calculation-time high-water snapshot, so
+deletes after calculation cannot regress the bound. A run whose
+`boundaries_calculated_at` is still NULL resumes calculation at its first
+pending/failed leaf instead of processing; the live leaf set/identity/bounds (and
+per-leaf block filepaths) are compared with the manifest before calculation and
+processing and any change raises `55000`. Calculation is serialized by a
+run-keyed advisory lock, so a concurrent resume fails closed rather than
+duplicating boundaries. Each
 worker runs one chunk in its own transaction; the coordinator only schedules
 and holds no locks on the driving table. On a failed chunk the coordinator
 records it, stops launching new chunks, lets the workers already in flight
@@ -772,11 +786,13 @@ i_driving_table_alias       dml_utils_data.non_null_text
 i_chunk_by                  dml_utils_data.chunking_strategy DEFAULT 'primary_key'
 i_sleep_ms                  dml_utils_data.non_negative_integer DEFAULT 0
 i_boundary_key_index        name DEFAULT NULL
+i_partition_wise            dml_utils_data.non_null_boolean DEFAULT FALSE
 RETURNS record (o_run_id bigint, o_already_completed boolean,
                 o_effective_sql_text text, o_effective_schema_name text,
                 o_effective_table_name text, o_effective_alias text,
                 o_effective_threads integer, o_effective_sleep_ms integer,
                 o_chunk_by dml_utils_data.chunking_strategy,
+                o_partition_wise boolean,
                 o_key_columns name[], o_key_kinds text[])
 ```
 
@@ -785,9 +801,12 @@ the active run for the label or creates one (populating its boundaries in a
 `pg_background` worker so they commit autonomously), then returns the run id,
 whether it was already complete, the effective sql_text/schema/table/alias/
 threads, sleep and chunking strategy (the stored values for a resumed run,
-ignoring differing inputs with a notice), and the boundary key columns and kinds (the stored ordered-key descriptor for
-`ordered_key`, the real primary key for
-`primary_key`, or a single `bigint` block number for `blocks`).
+ignoring differing inputs with a notice), and whether the run is partition-wise, plus the boundary key columns and kinds
+(the stored ordered-key descriptor for `ordered_key`, the real primary key for
+`primary_key`, or a single `bigint` block number for `blocks`). For a new
+partition-wise run the worker only creates the run and its pending leaf manifest;
+`run_migration_chunks` then calculates the leaves and finalizes. A resumed run
+keeps its stored `partition_wise` flag, ignoring a differing input with a notice.
 `i_boundary_key_index` is required for a new `ordered_key` run and rejected for a
 new run of the other strategies (`22023`); a resumed run keeps its stored index,
 and a differing input is ignored with a notice. A resumed ordered-key run
@@ -939,6 +958,7 @@ i_chunk_by    dml_utils_data.chunking_strategy DEFAULT 'primary_key'
 i_driving_table_alias dml_utils_data.non_null_text DEFAULT 't'
 i_sleep_ms    dml_utils_data.non_negative_integer DEFAULT 0
 i_boundary_key_index name DEFAULT NULL
+i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE
 RETURNS bigint
 ```
 
@@ -950,7 +970,12 @@ records the run's `started_at` (the run start, when the calculation begins), the
 populates the boundaries for the strategy and records `boundaries_calculated_at`
 (when the range calculation finishes) and `total_chunks` (the boundary count minus
 the terminal high-water boundary, clamped to 0 for an empty source); returns the
-new `run_id`. For `primary_key`
+new `run_id`. With `i_partition_wise` the parent must be a declarative partitioned
+table: the function validates the parent, every leaf and the caller's `SELECT` on
+each leaf, inserts the run with `partition_wise = true` and one pending manifest
+row per leaf (schema/name/OID/bound), and returns *without* boundaries or
+`boundaries_calculated_at`; the per-leaf calculation is a separate resumable
+step (see `calculate_migration_run_boundaries`). For `primary_key`
 it inserts one fixed-row chunk boundary per chunk plus a terminal high-water
 boundary at the captured maximum primary key; for `ordered_key` it does the same
 from the order of `i_boundary_key_index` and stores the index, columns and kinds
@@ -981,6 +1006,70 @@ inserts above the captured maximum fall outside the terminal boundary and are no
 processed. Because the definer owner scans the driving table, the function checks
 the effective caller's `SELECT` privilege first (`42501` otherwise) and the owner
 must also be able to read that table.
+
+###
+
+`dml_utils_lib.assert_migration_tree_unchanged(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Re-enumerates a partition-wise run's live leaves
+with `leaf_partitions` and compares the result with the manifest: leaf count,
+ordinal order, schema/name/OID, partition-bound expression and, for `blocks`, the
+per-leaf filepath. Any difference raises `invalid_transaction_initiation`
+(`55000`), so calculation and processing never mix stale ranges with a new tree.
+A single-relation run is a no-op. The caller's `SELECT` on every leaf is checked
+by the enumeration, so a lost privilege also fails closed (`42501`).
+
+### `dml_utils_lib.migration_run_calculation_lock_key(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS bigint
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the bigint advisory-lock key that
+serializes boundary calculation for a run, derived from the run id with a
+`dml_utils.migration_run.calculation.` prefix. It is `STABLE` rather than
+`IMMUTABLE` because `pg_catalog.format` is not immutable.
+
+### `dml_utils_lib.calculate_migration_run_boundaries(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Calculates a partition-wise run's boundaries one
+leaf per `pg_background` transaction until every leaf is calculated, then
+finalizes the run in its own worker transaction (terminal boundary and totals).
+The run-keyed transaction-scoped advisory lock makes a concurrent calculation
+fail closed with `55000`. The live tree is compared with the manifest before the
+loop and before finalization, and each claimed leaf is re-checked. A failing leaf
+is marked failed on the manifest with its SQLSTATE and message in a separate
+worker transaction before the original error is re-raised, so a later call
+resumes at that leaf. A cancelled run stops without finalizing and keeps its
+pending leaves. A single-relation run is rejected (`22023`).
+
+### `dml_utils_lib.record_migration_leaf_error(i_run_id, i_leaf_ordinal, i_sqlstate, i_error_message)`
+
+```sql
+i_run_id       bigint
+i_leaf_ordinal integer
+i_sqlstate     dml_utils_data.non_null_text
+i_error_message dml_utils_data.non_null_text
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY DEFINER` (pinned `search_path`). Marks one manifest leaf
+`failed`, resets its count/timestamp and records the SQLSTATE and message. A
+calculated leaf is never downgraded and a missing leaf is a no-op. The
+coordinator calls it in an autonomous `pg_background` transaction after a leaf
+worker fails, so the failure survives the re-raise and an operator can see which
+leaf failed.
 
 ###
 
@@ -1210,8 +1299,9 @@ caller's transaction: locks the run row, returns NULL when the run is finalized,
 cancelled or fully calculated, otherwise claims the first `pending`, `failed` or
 stale `calculating` leaf in manifest order, re-checks it with
 `assert_migration_leaf_unchanged`, checks the effective caller's `SELECT` on the
-leaf, appends its chunk starts and marks it `calculated` with its boundary count.
-Returns the ordinal. The run-row lock serializes calculation for the run.
+leaf, appends its chunk starts and marks it `calculated` with its boundary count
+and a snapshot of the leaf's high-water key. Returns the ordinal. The run-row lock
+serializes calculation for the run.
 
 ### `dml_utils_lib.finalize_migration_boundaries(i_run_id)`
 
@@ -1221,9 +1311,9 @@ RETURNS void
 ```
 
 `VOLATILE`, `SECURITY DEFINER` (pinned `search_path`). Writes the run's single
-terminal high-water boundary from the last non-empty leaf, then sets
-`boundaries_calculated_at` and `total_chunks` (`0` when every leaf is empty) in
-one update. Idempotent: a finalized or cancelled run is a no-op, and it raises
+terminal high-water boundary from the last non-empty leaf's calculation-time
+snapshot, then sets `boundaries_calculated_at` and `total_chunks` (`0` when every
+leaf is empty) in one update. Idempotent: a finalized or cancelled run is a no-op, and it raises
 `55000` while any leaf is still uncalculated.
 
 ###

@@ -15,6 +15,7 @@ DECLARE
     l_descriptor     record;
     l_caller         name;
     l_boundary_count bigint;
+    l_terminal_key   dml_utils_data.migration_key;
 BEGIN
     IF i_run_id IS NULL THEN
         RAISE EXCEPTION 'run id must not be NULL'
@@ -125,12 +126,22 @@ BEGIN
     WHERE boundary.run_id = i_run_id
       AND boundary.leaf_ordinal = l_leaf.leaf_ordinal;
 
+    -- Snapshot the leaf's high-water key now, while its rows are the ones the
+    -- starts were built from. The runner bounds the leaf's last chunk here, so a
+    -- later delete or insert cannot regress or extend it.
+    l_terminal_key := dml_utils_lib.leaf_terminal_boundary_id(
+            i_run_id => i_run_id,
+            i_leaf_ordinal => l_leaf.leaf_ordinal);
+
     UPDATE dml_utils_data.migration_run_leaf
-    SET state          = 'calculated',
-        boundary_count = l_boundary_count,
-        calculated_at  = pg_catalog.clock_timestamp(),
-        error_sqlstate = NULL,
-        error_message  = NULL
+    SET state                = 'calculated',
+        boundary_count       = l_boundary_count,
+        -- CASE, not a bare assignment: an empty leaf must store SQL NULL, not an
+        -- all-NULL composite (which the terminal constraint would see as a value).
+        terminal_boundary_id = CASE WHEN l_boundary_count > 0 THEN l_terminal_key END,
+        calculated_at        = pg_catalog.clock_timestamp(),
+        error_sqlstate       = NULL,
+        error_message        = NULL
     WHERE run_id = i_run_id
       AND leaf_ordinal = l_leaf.leaf_ordinal;
 

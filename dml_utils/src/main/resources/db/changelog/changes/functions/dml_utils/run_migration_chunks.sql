@@ -21,7 +21,12 @@ CREATE OR REPLACE FUNCTION dml_utils.run_migration_chunks(
     -- The unique index whose order an ordered_key run uses. Required for
     -- ordered_key; rejected for a new run of the other strategies and ignored
     -- with a notice when resuming an existing run.
-    i_boundary_key_index name DEFAULT NULL
+    i_boundary_key_index name DEFAULT NULL,
+    -- When true, the driving table is a declarative partitioned parent: the run
+    -- and its leaf manifest are created first, each leaf's boundaries are
+    -- calculated in its own worker/transaction, and every chunk is rendered
+    -- against its leaf.
+    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -29,46 +34,57 @@ CREATE OR REPLACE FUNCTION dml_utils.run_migration_chunks(
 AS
 $$
 DECLARE
-    l_key_columns           name[];
-    l_key_kinds             text[];
-    l_chunk_by              dml_utils_data.chunking_strategy;
-    l_run_id                bigint;
-    l_already_completed     boolean;
-    l_effective_sql_text    text;
-    l_effective_threads     integer;
-    l_effective_sleep_ms    integer;
-    l_effective_schema_name text;
-    l_effective_table_name  text;
-    l_effective_alias       text;
-    l_boundary_no           bigint;
-    l_start_values          text[];
-    l_end_values            text[];
-    l_is_final              boolean;
-    l_chunk_sql             text;
+    l_key_columns              name[];
+    l_key_kinds                text[];
+    l_chunk_by                 dml_utils_data.chunking_strategy;
+    l_partition_wise           boolean;
+    l_boundaries_calculated_at timestamptz;
+    l_run_id                   bigint;
+    l_already_completed        boolean;
+    l_effective_sql_text       text;
+    l_effective_threads        integer;
+    l_effective_sleep_ms       integer;
+    l_effective_schema_name    text;
+    l_effective_table_name     text;
+    l_effective_alias          text;
+    l_boundary_no              bigint;
+    l_start_leaf_ordinal       integer;
+    l_end_leaf_ordinal         integer;
+    l_chunk_schema             text;
+    l_chunk_table              text;
+    l_terminal_key             dml_utils_data.migration_key;
+    l_terminal_bigint          bigint[];
+    l_terminal_text            text[];
+    l_terminal_uuid            uuid[];
+    l_terminal_timestamptz     timestamptz[];
+    l_start_values             text[];
+    l_end_values               text[];
+    l_is_final                 boolean;
+    l_chunk_sql                text;
     -- Run-invariant chunk-render context, prepared once before the loop so the
     -- per-chunk render does not repeat the template validation and quoting.
-    l_render_prepared       record;
+    l_render_prepared          record;
     -- The workers kept in flight, and the boundary each one was launched for
     -- (parallel arrays, aligned by position).
-    l_in_flight             public.pg_background_handle[] := ARRAY []::public.pg_background_handle[];
-    l_in_flight_boundaries  bigint[]                      := ARRAY []::bigint[];
-    l_worker_index          integer;
-    l_aborting              boolean                       := false;
+    l_in_flight                public.pg_background_handle[] := ARRAY []::public.pg_background_handle[];
+    l_in_flight_boundaries     bigint[]                      := ARRAY []::bigint[];
+    l_worker_index             integer;
+    l_aborting                 boolean                       := false;
     -- Cancellation state: the run's cancelled_at, polled at most every 100ms.
-    l_cancelled_at          timestamptz;
-    l_last_cancel_check     timestamptz;
-    l_error_sqlstate        text;
-    l_error_message         text;
-    l_error_boundary_no     bigint;
+    l_cancelled_at             timestamptz;
+    l_last_cancel_check        timestamptz;
+    l_error_sqlstate           text;
+    l_error_message            text;
+    l_error_boundary_no        bigint;
     -- Per-chunk throttle state. The sleep is sliced so cancellation is noticed
     -- promptly; sleep_ms itself is not re-read (restart-only adjustment).
-    l_sleep_remaining_ms    integer;
-    l_sleep_slice_ms        integer;
+    l_sleep_remaining_ms       integer;
+    l_sleep_slice_ms           integer;
     -- pg_background is installed in the public schema. Qualify its types and
     -- functions explicitly so this routine resolves them regardless of the
     -- caller's (or Liquibase's) search_path.
-    l_handle                public.pg_background_handle;
-    l_outcome               public.pg_background_outcome;
+    l_handle                   public.pg_background_handle;
+    l_outcome                  public.pg_background_outcome;
 BEGIN
     -- Validate the template up front so a bad call fails before any run or
     -- worker exists.
@@ -86,11 +102,13 @@ BEGIN
            r.o_effective_threads,
            r.o_effective_sleep_ms,
            r.o_chunk_by,
+           r.o_partition_wise,
            r.o_key_columns,
            r.o_key_kinds
     INTO l_run_id, l_already_completed, l_effective_sql_text,
         l_effective_schema_name, l_effective_table_name, l_effective_alias,
-        l_effective_threads, l_effective_sleep_ms, l_chunk_by, l_key_columns, l_key_kinds
+        l_effective_threads, l_effective_sleep_ms, l_chunk_by, l_partition_wise,
+        l_key_columns, l_key_kinds
     FROM dml_utils_lib.resolve_migration_run(
                  i_sql_text => i_sql_text,
                  i_driving_table_schema_name => i_driving_table_schema_name,
@@ -101,7 +119,8 @@ BEGIN
                  i_driving_table_alias => i_driving_table_alias,
                  i_chunk_by => i_chunk_by,
                  i_sleep_ms => i_sleep_ms,
-                 i_boundary_key_index => i_boundary_key_index) AS r;
+                 i_boundary_key_index => i_boundary_key_index,
+                 i_partition_wise => i_partition_wise) AS r;
 
     IF l_already_completed THEN
         RETURN;
@@ -117,6 +136,51 @@ BEGIN
     IF l_cancelled_at IS NOT NULL THEN
         RAISE NOTICE 'run for label % is cancelled; archive it or use a new label', i_label;
         RETURN;
+    END IF;
+
+    -- A partition-wise run must finish calculating every leaf before any chunk is
+    -- processed. A resumed partial calculation continues at its first pending or
+    -- failed leaf; the loop commits each leaf in its own worker transaction, so a
+    -- failure keeps the earlier leaves. The live tree is compared with the
+    -- manifest before calculating and again before processing, so a detach,
+    -- attach, rename or heap rewrite fails closed instead of misdirecting chunks.
+    IF l_partition_wise THEN
+        SELECT run.boundaries_calculated_at
+        INTO l_boundaries_calculated_at
+        FROM dml_utils_data.migration_run AS run
+        WHERE run.run_id = l_run_id;
+
+        IF l_boundaries_calculated_at IS NULL THEN
+            PERFORM dml_utils_lib.calculate_migration_run_boundaries(i_run_id => l_run_id);
+
+            SELECT run.cancelled_at, run.boundaries_calculated_at
+            INTO l_cancelled_at, l_boundaries_calculated_at
+            FROM dml_utils_data.migration_run AS run
+            WHERE run.run_id = l_run_id;
+
+            IF l_cancelled_at IS NOT NULL THEN
+                -- A leaf worker that committed after the canceller ran leaves its
+                -- boundaries pending; mark them cancelled in an autonomous worker,
+                -- exactly as the processing-phase cancellation handler does.
+                BEGIN
+                    PERFORM public.pg_background_run(pg_catalog.format(
+                            'SELECT dml_utils_lib.mark_migration_run_cancelled(%s)',
+                            l_run_id));
+                EXCEPTION
+                    WHEN OTHERS THEN
+                        RAISE WARNING 'could not mark the boundaries of cancelled run % cancelled: %',
+                            l_run_id, SQLERRM;
+                END;
+                RAISE NOTICE 'run for label % was cancelled during boundary calculation', i_label;
+                RETURN;
+            END IF;
+            IF l_boundaries_calculated_at IS NULL THEN
+                RAISE EXCEPTION 'run % boundary calculation did not finish', l_run_id
+                    USING ERRCODE = '55000';
+            END IF;
+        END IF;
+
+        PERFORM dml_utils_lib.assert_migration_tree_unchanged(i_run_id => l_run_id);
     END IF;
 
     -- started_at (the run start) and boundaries_calculated_at (the range
@@ -184,14 +248,31 @@ BEGIN
                     -- position-aligned array of migration_key; the helper flattens
                     -- both back into a value list each, in key order.
                         SELECT b.boundary_no,
+                               b.leaf_ordinal,
+                               next.leaf_ordinal,
+                               leaf.leaf_schema_name::text,
+                               leaf.leaf_name::text,
+                               (leaf.terminal_boundary_id).bigint_values,
+                               (leaf.terminal_boundary_id).text_values,
+                               (leaf.terminal_boundary_id).uuid_values,
+                               (leaf.terminal_boundary_id).timestamptz_values,
                                pair.o_start_values,
                                pair.o_end_values,
                                next.boundary_no = last.boundary_no
-                        INTO l_boundary_no, l_start_values, l_end_values, l_is_final
+                        INTO l_boundary_no, l_start_leaf_ordinal, l_end_leaf_ordinal,
+                            l_chunk_schema, l_chunk_table, l_terminal_bigint,
+                            l_terminal_text, l_terminal_uuid, l_terminal_timestamptz,
+                            l_start_values, l_end_values, l_is_final
                         FROM dml_utils_data.migration_boundary AS b
                                  JOIN dml_utils_data.migration_boundary AS next
                                       ON next.run_id = b.run_id
                                           AND next.boundary_no = b.boundary_no + 1
+                            -- The leaf row is immutable once the run is
+                            -- finalized, so it rides along with the boundary
+                            -- instead of a second lookup per launch.
+                                 LEFT JOIN dml_utils_data.migration_run_leaf AS leaf
+                                           ON leaf.run_id = b.run_id
+                                               AND leaf.leaf_ordinal = b.leaf_ordinal
                                  CROSS JOIN LATERAL (
                             SELECT max(boundary_no) AS boundary_no
                             FROM dml_utils_data.migration_boundary
@@ -210,22 +291,54 @@ BEGIN
 
                         EXIT WHEN NOT FOUND;
 
+                        IF l_partition_wise THEN
+                            IF l_chunk_schema IS NULL THEN
+                                RAISE EXCEPTION 'partition tree changed for run %: leaf ordinal % is missing from the manifest',
+                                    l_run_id, l_start_leaf_ordinal
+                                    USING ERRCODE = '55000';
+                            END IF;
+
+                            -- The next boundary belongs to a different leaf, so this
+                            -- is the last chunk of this leaf and the next leaf's
+                            -- start is not a valid upper bound for it. End it at the
+                            -- leaf's calculation-time high-water snapshot and make
+                            -- the bound inclusive, so deletes since calculation
+                            -- cannot regress it.
+                            IF l_end_leaf_ordinal IS DISTINCT FROM l_start_leaf_ordinal THEN
+                                l_terminal_key := ROW (l_terminal_bigint, l_terminal_text,
+                                    l_terminal_uuid,
+                                    l_terminal_timestamptz)::dml_utils_data.migration_key;
+                                IF l_terminal_key IS NULL THEN
+                                    RAISE EXCEPTION 'leaf ordinal % of run % has no terminal snapshot',
+                                        l_start_leaf_ordinal, l_run_id
+                                        USING ERRCODE = '55000';
+                                END IF;
+                                l_end_values := dml_utils_lib.migration_key_values(
+                                        i_key => l_terminal_key,
+                                        i_key_kinds => l_key_kinds);
+                                l_is_final := true;
+                            END IF;
+                        ELSE
+                            l_chunk_schema := l_effective_schema_name;
+                            l_chunk_table := l_effective_table_name;
+                        END IF;
+
                         IF l_chunk_by = 'blocks' THEN
                             -- The boundary values are the start and end block
                             -- numbers; render a half-open ctid range. There is no
                             -- final/inclusive distinction for blocks.
                             l_chunk_sql := dml_utils_lib.render_block_chunk_sql(
                                     i_sql_text => l_effective_sql_text,
-                                    i_schema_name => l_effective_schema_name,
-                                    i_table_name => l_effective_table_name,
+                                    i_schema_name => l_chunk_schema,
+                                    i_table_name => l_chunk_table,
                                     i_table_alias => l_effective_alias,
                                     i_start_block => l_start_values[1]::bigint,
                                     i_end_block => l_end_values[1]::bigint);
                         ELSE
                             l_chunk_sql := dml_utils_lib.render_prepared_chunk_sql(
                                     i_template => l_render_prepared.o_template,
-                                    i_schema_name => l_effective_schema_name,
-                                    i_table_name => l_effective_table_name,
+                                    i_schema_name => l_chunk_schema,
+                                    i_table_name => l_chunk_table,
                                     i_table_alias => l_effective_alias,
                                     i_column_names => l_render_prepared.o_column_names,
                                     i_key_kinds => l_key_kinds,
@@ -484,4 +597,9 @@ COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
         'by another coordinator (P0C01) is treated as benign. A run cancelled with '
         'dml_utils.cancel_migration_run stops launching, cancels the in-flight '
         'workers, marks the run and its remaining boundaries cancelled and '
-        'returns; a cancelled run is terminal.';
+        'returns; a cancelled run is terminal. With i_partition_wise the parent is '
+        'declarative partitioned: a new or partially calculated run first finishes '
+        'one-leaf-per-transaction boundary calculation, finalizes, then processes '
+        'each chunk against its boundary''s leaf. The live tree is compared with the '
+        'manifest before calculation and processing, and any change fails closed '
+        'with object_not_in_prerequisite_state (55000).';

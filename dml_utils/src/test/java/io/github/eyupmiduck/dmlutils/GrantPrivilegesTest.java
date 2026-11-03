@@ -23,6 +23,7 @@ class GrantPrivilegesTest extends PostgresTestBase {
             new String[]{"dml_utils_data", "non_null_text"},
             new String[]{"dml_utils_data", "positive_integer"},
             new String[]{"dml_utils_data", "non_negative_integer"},
+            new String[]{"dml_utils_data", "non_null_boolean"},
             new String[]{"dml_utils_data", "chunking_strategy"});
     private static final String CALLER = "dml_utils_caller";
 

@@ -40,6 +40,10 @@ BEGIN
                 pg_catalog.format('%I.%I', l_schema_name, l_name))
             INTO l_block_count;
 
+        IF l_block_count = 0 THEN
+            RETURN NULL;
+        END IF;
+
         RETURN ROW (ARRAY [l_block_count]::bigint[], NULL::text[], NULL::uuid[],
             NULL::timestamptz[])::dml_utils_data.migration_key;
     END IF;
@@ -72,9 +76,7 @@ BEGIN
         INTO l_bigint_values, l_text_values, l_uuid_values, l_timestamptz_values;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'leaf %.% is empty, so it has no terminal boundary',
-            l_schema_name, l_name
-            USING ERRCODE = '55000';
+        RETURN NULL;
     END IF;
 
     RETURN ROW (l_bigint_values, l_text_values, l_uuid_values,

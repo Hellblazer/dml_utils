@@ -552,7 +552,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertSqlState("22023", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .populateMigrationBoundaries(dsl.configuration(),
                         TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null));
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null, false));
     }
 
     private long populateOrderedKey() {
@@ -564,7 +564,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .populateMigrationBoundaries(
                         dsl.configuration(), table.getSchema().getName(), table.getName(),
-                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index);
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index, false);
     }
 
     private MigrationRunRecord run(long runId) {
@@ -603,7 +603,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     private long populate(Table<?> table, String label, int chunkSize, int threads) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), table.getSchema().getName(), table.getName(), label, SQL_TEXT,
-                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null);
+                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null, false);
     }
 
     private void assertBoundaries(long runId, long[][] expected) {

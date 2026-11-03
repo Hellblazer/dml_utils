@@ -69,3 +69,14 @@
     allowed in a non-volatile function"), so the routine must be VOLATILE even
     though it only plans. plpgsql_check's suggestion is not applicable; see
     explain_query_plan.sql.
+- schema: dml_utils_lib
+  function: populate_migration_boundaries
+  level: performance
+  statement: SQL statement
+  message: target type is different type than source type
+  reason: >-
+    The run INSERT assigns the ordered-key descriptor locals (name[], name[],
+    text[]) to the matching name[]/text[] columns. plpgsql_check reports a type
+    difference for the name[] column although both sides are the same catalog
+    type; the run's ordered-key constraint and the ordered-key tests cover the
+    assignment.

@@ -65,7 +65,8 @@ The manifest row stores:
   is detectable);
 - `relation_filepath` for a `blocks` run (per-leaf heap identity);
 - `state` (`pending`, `calculating`, `calculated`, `failed`);
-- `boundary_count`, `calculated_at`, and error fields.
+- `boundary_count`, `terminal_boundary_id` (the leaf's high-water key captured
+  when its starts were calculated), `calculated_at`, and error fields.
 
 The leaf list is snapshotted into the manifest **before** any leaf boundaries
 are calculated. Later enumerations are compared with the snapshot for
@@ -118,8 +119,8 @@ workers; each worker commits its own transaction.
    first `pending` or `failed` leaf, re-checks that the leaf still matches the
    manifest (identity, bound, and filepath for `blocks`), computes that leaf's
    chunk **starts** (not a per-leaf terminal), inserts them at
-   `max(boundary_no) + 1`, marks the leaf `calculated` with its boundary count,
-   and commits. It stops at the first failure; earlier leaves stay committed.
+   `max(boundary_no) + 1`, snapshots the leaf's high-water key on the manifest,
+   marks the leaf `calculated` with its boundary count, and commits. It stops at the first failure; earlier leaves stay committed.
 3. **Finalize.** After every leaf is `calculated`, one worker inserts the single
    terminal high-water boundary from the last non-empty leaf, sets
    `boundaries_calculated_at` and `total_chunks`, and commits. Finalization is
@@ -136,6 +137,12 @@ error fields) and stops; a later call retries the first failed leaf. A crashed
 coordinator leaves the leaf `pending`; a `calculating` row from a crash is also
 treated as retryable (the claim and the calculation share one transaction, so
 normally it cannot persist). A `calculated` leaf is never recalculated.
+
+A chunk at the end of a leaf is bounded by that leaf's stored high-water
+snapshot (inclusive), not by the next leaf's first key: manifest order need not
+match key order, and a later delete must not regress the bound. The stored
+snapshot is the calculation-time maximum, so rows inserted after calculation stay
+outside the run, matching the single-relation terminal semantics.
 
 The per-leaf boundary numbering is append-only and sequential, so the sequence
 stays contiguous across commits. Parallel **processing** is unchanged; parallel **calculation** is deliberately not used

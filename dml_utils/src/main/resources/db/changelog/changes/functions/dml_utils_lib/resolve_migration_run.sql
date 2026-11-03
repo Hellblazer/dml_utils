@@ -13,6 +13,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.resolve_migration_run(
     -- ordered_key run; ignored with a notice when resuming an existing run, where
     -- the stored strategy and index win.
     i_boundary_key_index name DEFAULT NULL,
+    -- When true, the driving table is a declarative partitioned parent and the
+    -- run's boundaries are calculated leaf by leaf. The stored flag wins on resume.
+    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE,
     OUT o_run_id bigint,
     OUT o_already_completed boolean,
     OUT o_effective_sql_text text,
@@ -22,6 +25,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.resolve_migration_run(
     OUT o_effective_threads integer,
     OUT o_effective_sleep_ms integer,
     OUT o_chunk_by dml_utils_data.chunking_strategy,
+    OUT o_partition_wise boolean,
     OUT o_key_columns name[],
     OUT o_key_kinds text[]
 )
@@ -35,6 +39,7 @@ DECLARE
     l_stored_sql_text            text;
     l_stored_chunk_size          integer;
     l_stored_chunk_by            dml_utils_data.chunking_strategy;
+    l_stored_partition_wise      boolean;
     l_stored_threads             integer;
     l_stored_sleep_ms            integer;
     l_stored_schema_name         text;
@@ -60,6 +65,7 @@ BEGIN
            sql_text,
            chunk_size,
            chunk_by,
+           partition_wise,
            threads::integer,
            sleep_ms::integer,
            driving_table_schema_name::text,
@@ -70,7 +76,8 @@ BEGIN
            ordered_key_columns,
            ordered_key_kinds
     INTO o_run_id, l_completed_at, l_stored_sql_text, l_stored_chunk_size,
-        l_stored_chunk_by, l_stored_threads, l_stored_sleep_ms, l_stored_schema_name,
+        l_stored_chunk_by, l_stored_partition_wise, l_stored_threads, l_stored_sleep_ms,
+        l_stored_schema_name,
         l_stored_table_name, l_stored_alias, l_stored_filepath,
         l_stored_ordered_key_index, l_stored_ordered_key_columns,
         l_stored_ordered_key_kinds
@@ -110,9 +117,14 @@ BEGIN
         o_effective_table_name := l_stored_table_name;
         o_effective_alias := l_stored_alias;
         o_chunk_by := l_stored_chunk_by;
+        o_partition_wise := l_stored_partition_wise;
         IF l_stored_chunk_by IS DISTINCT FROM i_chunk_by THEN
             RAISE NOTICE 'run for label % already exists; using the stored chunk_by %',
                 i_label, l_stored_chunk_by;
+        END IF;
+        IF l_stored_partition_wise IS DISTINCT FROM i_partition_wise::boolean THEN
+            RAISE NOTICE 'run for label % already exists; using the stored partition_wise %',
+                i_label, l_stored_partition_wise;
         END IF;
         -- The stored strategy and descriptor win on resume, like the other stored
         -- inputs. The boundaries were built from the stored index, so fail closed
@@ -204,6 +216,7 @@ BEGIN
         o_effective_table_name := i_driving_table_name;
         o_effective_alias := i_driving_table_alias;
         o_chunk_by := i_chunk_by;
+        o_partition_wise := i_partition_wise::boolean;
 
         -- Match the run-table constraint: an ordered_key run needs the index and
         -- the other strategies must not carry one. Reject locally so the error
@@ -213,7 +226,7 @@ BEGIN
                 i_boundary_key_index => i_boundary_key_index);
 
         l_handle := public.pg_background_launch(pg_catalog.format(
-                'SELECT dml_utils_lib.populate_migration_boundaries(%L, %L, %L, %L, %s, %s, %L, %L, %s, %L) AS run_id',
+                'SELECT dml_utils_lib.populate_migration_boundaries(%L, %L, %L, %L, %s, %s, %L, %L, %s, %L, %L) AS run_id',
                 i_driving_table_schema_name,
                 i_driving_table_name,
                 i_label,
@@ -223,7 +236,8 @@ BEGIN
                 i_chunk_by::text,
                 i_driving_table_alias,
                 i_sleep_ms,
-                i_boundary_key_index));
+                i_boundary_key_index,
+                i_partition_wise::boolean));
         PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
 
         -- result() is one-time consumption and auto-detaches; it re-raises the
@@ -272,9 +286,10 @@ COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run IS
     'Resolves or creates the active run for the label and returns the inputs the '
         'coordinator should use: the run id, whether it was already complete, the '
         'effective sql_text/schema/table/alias/threads/sleep_ms and chunking '
-        'strategy (stored values for a resumed run), and the boundary key columns '
-        'and kinds (the stored ordered-key descriptor for ordered_key, the real '
-        'primary key for primary_key, or a single bigint block number for blocks). '
+        'strategy (stored values for a resumed run), whether the run is '
+        'partition-wise, and the boundary key columns and kinds (the stored '
+        'ordered-key descriptor for ordered_key, the real primary key for '
+        'primary_key, or a single bigint block number for blocks). '
         'A new run is created by populating its boundaries in a pg_background '
         'worker; a resumed run fails closed if the driving table''s physical '
         'filepath changed, and a resumed ordered-key run re-validates its stored '

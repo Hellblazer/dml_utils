@@ -100,7 +100,7 @@ COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
     bigint,
     integer
     ) IS
-    'Raises invalid_transaction_initiation (55000) when a partition-wise run''s '
+    'Raises object_not_in_prerequisite_state (55000) when a partition-wise run''s '
         'manifest leaf no longer matches the live relation: missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '
         'plain table, or (for blocks) a rewritten heap. Used before calculating a '
