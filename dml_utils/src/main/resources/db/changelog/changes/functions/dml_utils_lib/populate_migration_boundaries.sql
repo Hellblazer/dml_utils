@@ -35,6 +35,7 @@ DECLARE
     l_ordered_key_index   name;
     l_ordered_key_columns name[];
     l_ordered_key_kinds   text[];
+    l_parent_index        oid;
 BEGIN
     -- The index selects the ordered key, so it is required for that strategy and
     -- rejected for the others; the shared helper owns that rule.
@@ -90,18 +91,40 @@ BEGIN
                     i_table_name => i_table_name);
         END IF;
     ELSIF i_chunk_by = 'ordered_key' THEN
-        PERFORM dml_utils_lib.assert_usable_ordered_key(
-                i_schema_name => i_schema_name,
-                i_table_name => i_table_name,
-                i_index_name => i_boundary_key_index);
-        l_key_columns := dml_utils_lib.ordered_key_columns(
-                i_schema_name => i_schema_name,
-                i_table_name => i_table_name,
-                i_index_name => i_boundary_key_index);
-        l_key_kinds := dml_utils_lib.ordered_key_kinds(
-                i_schema_name => i_schema_name,
-                i_table_name => i_table_name,
-                i_index_name => i_boundary_key_index);
+        IF i_partition_wise::boolean THEN
+            -- Validate the parent index shape and take its descriptor now. The
+            -- leaf child indexes are checked against the manifest after it is
+            -- inserted, so the validated set is exactly the stored set.
+            l_parent_index := pg_catalog.to_regclass(
+                    pg_catalog.format('%I.%I', i_schema_name, i_boundary_key_index));
+            IF l_parent_index IS NULL THEN
+                RAISE EXCEPTION 'index %.% does not exist on table %.%',
+                    i_schema_name, i_boundary_key_index, i_schema_name, i_table_name
+                    USING ERRCODE = '42704';
+            END IF;
+
+            SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                   pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+            INTO l_key_columns, l_key_kinds
+            FROM dml_utils_lib.ordered_key_attributes_for_index(
+                         i_index_oid => l_parent_index,
+                         i_schema_name => i_schema_name,
+                         i_table_name => i_table_name,
+                         i_index_name => i_boundary_key_index) AS a;
+        ELSE
+            PERFORM dml_utils_lib.assert_usable_ordered_key(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name,
+                    i_index_name => i_boundary_key_index);
+            l_key_columns := dml_utils_lib.ordered_key_columns(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name,
+                    i_index_name => i_boundary_key_index);
+            l_key_kinds := dml_utils_lib.ordered_key_kinds(
+                    i_schema_name => i_schema_name,
+                    i_table_name => i_table_name,
+                    i_index_name => i_boundary_key_index);
+        END IF;
     ELSE
         l_key_columns := dml_utils_lib.primary_key_columns(
                 i_schema_name => i_schema_name,
@@ -169,6 +192,15 @@ BEGIN
                      i_schema_name => i_schema_name,
                      i_table_name => i_table_name,
                      i_chunk_by => i_chunk_by) AS live;
+
+        -- The manifest is now the exact leaf set; validate each stored leaf's
+        -- ordered-key child index (a leaf attached between the descriptor read
+        -- and the insert is not in this set, so it cannot slip through).
+        IF i_chunk_by = 'ordered_key' THEN
+            PERFORM dml_utils_lib.assert_partitioned_ordered_key_leaves(
+                    i_run_id => l_run_id,
+                    i_index_name => i_boundary_key_index);
+        END IF;
 
         SELECT leaf.leaf_schema_name, leaf.leaf_name
         INTO l_leaf_schema, l_leaf_name

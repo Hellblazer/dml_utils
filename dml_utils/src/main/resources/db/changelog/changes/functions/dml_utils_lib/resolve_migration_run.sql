@@ -51,6 +51,8 @@ DECLARE
     l_stored_ordered_key_kinds   text[];
     l_handle                     public.pg_background_handle;
     l_worker_run_id              bigint;
+    l_live_columns               name[];
+    l_live_kinds                 text[];
 BEGIN
     IF i_chunk_by IS NULL THEN
         RAISE EXCEPTION 'i_chunk_by must not be NULL'
@@ -138,37 +140,51 @@ BEGIN
             END IF;
 
             BEGIN
-                PERFORM dml_utils_lib.assert_usable_ordered_key(
-                        i_schema_name => o_effective_schema_name,
-                        i_table_name => o_effective_table_name,
-                        i_index_name => l_stored_ordered_key_index);
+                -- One traversal validates the stored index (and, for a
+                -- partition-wise run, every leaf child index) and yields the live
+                -- descriptor, which must equal the stored one.
+                IF l_stored_partition_wise THEN
+                    SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                           pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+                    INTO l_live_columns, l_live_kinds
+                    FROM dml_utils_lib.partitioned_ordered_key_attributes(
+                                 i_schema_name => o_effective_schema_name,
+                                 i_table_name => o_effective_table_name,
+                                 i_index_name => l_stored_ordered_key_index) AS a;
+                ELSE
+                    l_live_columns := dml_utils_lib.ordered_key_columns(
+                            i_schema_name => o_effective_schema_name,
+                            i_table_name => o_effective_table_name,
+                            i_index_name => l_stored_ordered_key_index);
+                    l_live_kinds := dml_utils_lib.ordered_key_kinds(
+                            i_schema_name => o_effective_schema_name,
+                            i_table_name => o_effective_table_name,
+                            i_index_name => l_stored_ordered_key_index);
+                END IF;
+
+                IF l_live_columns IS DISTINCT FROM l_stored_ordered_key_columns
+                    OR l_live_kinds IS DISTINCT FROM l_stored_ordered_key_kinds
+                THEN
+                    RAISE EXCEPTION 'ordered-key index %.% no longer matches the stored key descriptor',
+                        o_effective_schema_name, l_stored_ordered_key_index
+                        USING ERRCODE = '55000';
+                END IF;
             EXCEPTION
                 WHEN undefined_object
                     OR feature_not_supported
+                    OR wrong_object_type
                     OR invalid_parameter_value
                     OR undefined_table
                     OR invalid_schema_name THEN
                     -- The resolver's specific code is useful for a new run, but a
                     -- resume must fail with one stable code: the stored index is
-                    -- no longer usable for these boundaries.
+                    -- no longer usable for these boundaries. A lost leaf privilege
+                    -- (42501) is intentionally not normalized: the operator needs
+                    -- the privilege error.
                     RAISE EXCEPTION 'ordered-key index %.% is no longer usable for run %: %',
                         o_effective_schema_name, l_stored_ordered_key_index, o_run_id, SQLERRM
                         USING ERRCODE = '55000';
             END;
-
-            IF dml_utils_lib.ordered_key_columns(
-                       i_schema_name => o_effective_schema_name,
-                       i_table_name => o_effective_table_name,
-                       i_index_name => l_stored_ordered_key_index) IS DISTINCT FROM l_stored_ordered_key_columns
-                OR dml_utils_lib.ordered_key_kinds(
-                       i_schema_name => o_effective_schema_name,
-                       i_table_name => o_effective_table_name,
-                       i_index_name => l_stored_ordered_key_index) IS DISTINCT FROM l_stored_ordered_key_kinds
-            THEN
-                RAISE EXCEPTION 'ordered-key index %.% no longer matches the stored key descriptor',
-                    o_effective_schema_name, l_stored_ordered_key_index
-                    USING ERRCODE = '55000';
-            END IF;
 
             o_key_columns := l_stored_ordered_key_columns;
             o_key_kinds := l_stored_ordered_key_kinds;

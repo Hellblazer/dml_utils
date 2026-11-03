@@ -583,6 +583,15 @@ CREATE TABLE dml_utils_fixtures.test_partitioned_multi_high
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_high IS
     'Fixture: the high range leaf, not sub-partitioned.';
 
+-- A parent index for the multi-level partition-wise ordered-key test; the child
+-- indexes follow the sub-partition tree, so resolving each storage leaf's index
+-- exercises the recursive index walk.
+CREATE UNIQUE INDEX test_partitioned_multi_ordered_key_idx
+    ON dml_utils_fixtures.test_partitioned_multi (id, bucket);
+
+COMMENT ON INDEX dml_utils_fixtures.test_partitioned_multi_ordered_key_idx IS
+    'Fixture: a two-level partitioned unique index for partition-wise ordered keys.';
+
 CREATE TABLE dml_utils_fixtures.test_partitioned_list
 (
     id      integer NOT NULL,

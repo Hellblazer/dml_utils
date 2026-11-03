@@ -144,6 +144,66 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.ordered_key_leaf_indexes" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/ordered_key_leaf_indexes.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/ordered_key_leaf_indexes-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.ordered_key_attributes_for_index" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/ordered_key_attributes_for_index.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/ordered_key_attributes_for_index-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.partitioned_ordered_key_attributes" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/partitioned_ordered_key_attributes.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/partitioned_ordered_key_attributes-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.partitioned_ordered_key_columns" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/partitioned_ordered_key_columns.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/partitioned_ordered_key_columns-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.partitioned_ordered_key_kinds" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/partitioned_ordered_key_kinds.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/partitioned_ordered_key_kinds-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.assert_partitioned_ordered_key_leaves" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_partitioned_ordered_key_leaves.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_partitioned_ordered_key_leaves-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.ordered_key_attributes" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/ordered_key_attributes.sql"

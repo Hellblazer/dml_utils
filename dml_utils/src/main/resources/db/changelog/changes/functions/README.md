@@ -691,6 +691,99 @@ should read `ordered_key_attributes` once instead of calling this wrapper and
 then `ordered_key_columns`/`ordered_key_kinds`, which would repeat the catalog
 read and validation.
 
+### `dml_utils_lib.ordered_key_leaf_indexes(i_parent_index_oid)`
+
+```sql
+i_parent_index_oid oid
+RETURNS TABLE (leaf_oid oid, child_index_oid oid, child_index_name text)
+```
+
+`STABLE`, `SECURITY INVOKER`. Walks a partitioned index's inheritance tree once
+and returns one row per storage leaf with its matching descendant index. Index
+inheritance mirrors the table tree, so a multi-level partition's leaf index is
+not a direct child of the root; both partition-wise ordered-key validators use
+this helper.
+
+### `dml_utils_lib.ordered_key_attributes_for_index(i_index_oid, i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_index_oid   oid
+i_schema_name text
+i_table_name  text
+i_index_name  text
+RETURNS TABLE
+(ordinality integer, column_name name, column_oid oid,
+    column_type regtype, key_kind text)
+```
+
+`STABLE`, `SECURITY INVOKER`. The shared ordered-key shape validator: it takes an
+index OID and returns its key columns after applying the same checks as
+`ordered_key_attributes` (btree, unique, valid, non-partial, 1–3 simple
+ascending `NOT NULL` columns with default opclass and the column collation). The
+names are used only in error messages. It lets the partition-wise path validate
+a parent index and each leaf's child index without duplicating the rules.
+
+### `dml_utils_lib.partitioned_ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS TABLE
+(ordinality integer, column_name name, column_oid oid,
+    column_type regtype, key_kind text)
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Validates a partition-wise ordered key: the
+driving table must be declarative partitioned, every storage leaf must have the
+matching descendant child index (walking multi-level index inheritance) that is
+itself usable, and the parent index must satisfy the ordered-key contract.
+Returns the parent index's key columns and kinds. Raises `42704` for a missing
+index, `0A000` for a non-partitioned parent or a leaf without a matching child
+index, and `0A000`/`55000` for an unusable parent or child index. It is
+`VOLATILE` because `leaf_partitions` calls the volatile `pg_partition_tree`.
+
+### `dml_utils_lib.partitioned_ordered_key_columns(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS name[]
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Returns a partition-wise ordered key's columns in
+key order, delegating validation to `partitioned_ordered_key_attributes`.
+
+### `dml_utils_lib.partitioned_ordered_key_kinds(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS text[]
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Returns a partition-wise ordered key's boundary
+kinds in key order, delegating validation to
+`partitioned_ordered_key_attributes`.
+
+### `dml_utils_lib.assert_partitioned_ordered_key_leaves(i_run_id, i_index_name)`
+
+```sql
+i_run_id     bigint
+i_index_name dml_utils_data.non_null_text
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Validates the ordered-key child index of every
+leaf already snapshotted in a partition-wise run's manifest, walking the
+multi-level index inheritance tree once. Because it uses the manifest rather
+than a fresh enumeration, a leaf attached between the descriptor read and the
+manifest insert cannot be stored without its child index being validated. Raises
+`42704` for a missing parent index, `0A000` for a leaf without a matching child
+index, and `0A000`/`55000` for an unusable child index.
+
 ### `dml_utils_lib.assert_boundary_key_index(i_chunk_by, i_boundary_key_index)`
 
 ```sql
