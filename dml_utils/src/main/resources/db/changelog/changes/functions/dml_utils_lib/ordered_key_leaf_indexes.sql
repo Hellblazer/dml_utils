@@ -27,7 +27,12 @@ SELECT ci.indrelid,
        ic.relname::text
 FROM index_tree AS tree
          JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = tree.inhrelid
-         JOIN pg_catalog.pg_class AS ic ON ic.oid = tree.inhrelid;
+         JOIN pg_catalog.pg_class AS ic ON ic.oid = tree.inhrelid
+         -- The inheritance tree also contains the index of a sub-partitioned
+         -- table; only an ordinary table is a storage leaf, and only its index
+         -- takes part in the chunk range.
+         JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
+WHERE tc.relkind = 'r';
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.ordered_key_leaf_indexes(oid) IS
