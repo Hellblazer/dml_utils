@@ -717,14 +717,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_hash.payload IS
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p0
     PARTITION OF dml_utils_fixtures.test_partitioned_hash
-    FOR VALUES WITH (MODULUS 2, REMAINDER 0);
+        FOR VALUES WITH (MODULUS 2, REMAINDER 0);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p0 IS
     'Fixture: hash leaf remainder 0.';
 
 CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p1
     PARTITION OF dml_utils_fixtures.test_partitioned_hash
-    FOR VALUES WITH (MODULUS 2, REMAINDER 1);
+        FOR VALUES WITH (MODULUS 2, REMAINDER 1);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p1 IS
     'Fixture: hash leaf remainder 1.';

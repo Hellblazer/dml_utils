@@ -57,7 +57,9 @@ A run chunks the driving table one of three ways, recorded in the run's `chunk_b
   type's default btree opclass and the column's collation, and be ascending with
   `NULLS LAST`. The resolved descriptor is stored with the run, so resume and
   explain use the same key; a resumed run re-validates the stored index and
-  fails closed if it no longer matches. The chunk SQL must not modify the key
+  fails closed if it no longer matches. For a partition-wise run the index is on
+  the partitioned parent and every leaf's matching child index is validated (see below). The chunk SQL must not modify
+  the key
   columns: this is a caller contract, not detected, because inspecting the
   template for writes to the key is unreliable. A run whose key is mutated
   should be archived and restarted after the data is corrected.
@@ -70,7 +72,8 @@ A run chunks the driving table one of three ways, recorded in the run's `chunk_b
 Prefer `primary_key` unless an ordered key or block chunking is specifically
 wanted. The block
 strategy is only valid for a **quiescent, read-only driving table on a plain
-heap**, and it has hard limitations:
+heap** (or on each plain-heap leaf of a partition-wise run), and it has hard
+limitations:
 
 - **ctid is not stable.** A non-HOT `UPDATE` changes a tuple's ctid and may move
   it to another block; HOT updates keep it on the page but cannot be relied on.
@@ -86,12 +89,60 @@ heap**, and it has hard limitations:
   blocks is not equal rows.
 - **A run is not resumable across a heap rewrite**, and ctid is not preserved by
   a logical `pg_dump`/restore.
-- **Plain heap tables only.** ctid is per-partition, so partitioned and foreign
-  tables cannot use the block strategy.
+- **Plain heap tables only.** ctid is per-partition, so a single-relation blocks
+  run cannot use a partitioned parent. A partition-wise blocks run applies the
+  strategy to each leaf, which must be a plain heap; a foreign-table leaf is
+  rejected.
 - **Read-only cannot be proven.** The routines execute caller-supplied SQL with
   the caller's privileges and cannot tell whether it (or another session)
   modifies the driving table, so a quiescent, read-only source is a caller
   contract, not an enforced property.
+
+### Partition-wise runs
+
+Set `i_partition_wise => true` on `run_migration_chunks`,
+`populate_migration_boundaries` or `resolve_migration_run` to apply `i_chunk_by`
+inside each leaf of a declarative partitioned parent. `i_partition_wise` is a
+modifier, not a fourth strategy: `primary_key`, `ordered_key` and `blocks` all
+work inside leaves. `i_partition_wise` is a `non_null_boolean`, so an explicit
+NULL is rejected (`23514`).
+
+- **Supported shapes:** range, list, hash and multi-level (sub-partitioned)
+  trees, found with `pg_partition_tree`. Every leaf must be an ordinary table (`relkind = 'r'`); a foreign-table leaf
+  raises `42809` from
+  `leaf_partitions`. The parent itself must be `relkind = 'p'` (`42809`
+  otherwise).
+- **Ordered keys:** the named unique btree index is on the parent; the parent
+  descriptor is stored and every storage leaf's matching child index is
+  validated (walking multi-level index inheritance). A missing, invalid or
+  differently shaped child index fails before the run row is written (`0A000`/`55000`); a missing index is `42704`.
+- **Manifest:** creating the run commits the run and one
+  `dml_utils_data.migration_run_leaf` row per leaf (deterministic ordinal,
+  schema/name/OID, partition bound, per-leaf block filepath, state, boundary
+  count, high-water snapshot). An empty leaf is a row with `boundary_count = 0`,
+  never an omission; an all-empty tree finalizes with `total_chunks = 0` and no
+  terminal boundary.
+- **Calculation:** one leaf per committed worker transaction, in ordinal order,
+  serialized by a run-keyed advisory lock (a concurrent calculation raises
+  `55000`). A failure records `state = 'failed'` with the SQLSTATE/message on the
+  leaf and keeps the earlier leaves; `boundaries_calculated_at` stays NULL.
+  Re-calling the same label resumes at the first `pending`/`failed` leaf and
+  never recalculates a `calculated` leaf.
+- **Changed tree:** before continuing calculation and before processing, the
+  live leaf set is compared with the manifest (ordinal, schema, name, OID,
+  partition bound, and per-leaf block filepath). Any difference raises `55000`;
+  earlier progress stays committed. Archive the run and start a new label
+  instead of reconciling.
+- **Cancellation:** cancelling while leaves are calculating stops launching new
+  leaves; calculated leaves keep their boundaries, the rest stay `pending`, and
+  the run is terminal. Archive it before reusing the label.
+- **Privileges:** the caller needs `SELECT` on every leaf for calculation (`42501` before a run row) and whatever the
+  template needs (`UPDATE` in the
+  usual case) when its chunks run. A privilege lost after creation surfaces when
+  that leaf's chunk runs, with earlier chunks committed; restore it and retry.
+- **Explain:** a rendered chunk targets its leaf; for a primary-key run the leaf
+  exposes the same key columns, so a plan check can pass the leaf to the
+  renderer/EXPLAIN helpers. `blocks` leaf chunks are ctid ranges on that heap.
 
 ### Workaround for idempotent transformations
 

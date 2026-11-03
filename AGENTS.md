@@ -146,6 +146,37 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   changeset. Routine comments use the short form (`schema.name`); include the
   argument types only when the routine name is overloaded.
 
+## Partition-wise chunking
+
+- `i_partition_wise` is a modifier on `run_migration_chunks`,
+  `populate_migration_boundaries` and `resolve_migration_run`, not a
+  `chunking_strategy` value: `primary_key`, `ordered_key` and `blocks` are
+  applied inside each leaf. Type it with `dml_utils_data.non_null_boolean`.
+- Supported parents are declarative partitioned tables (range, list, hash and
+  multi-level). Leaves must be ordinary tables; foreign-table leaves and
+  non-partitioned parents are rejected. A `blocks` run requires each leaf to be
+  a plain heap. An ordered key is the parent's unique btree index; every storage
+  leaf's matching child index is validated through multi-level index
+  inheritance.
+- The run's `dml_utils_data.migration_run_leaf` manifest is the contract: a
+  deterministic leaf order (partition bound, then schema, name, OID under
+  `COLLATE "C"`), identity snapshot, state, boundary count and high-water key.
+  It is committed before any boundaries. An empty leaf is a row with
+  `boundary_count = 0`.
+- Calculation is one leaf per committed worker transaction, serialized by the
+  run-keyed advisory lock; a failed leaf is marked `failed` with its SQLSTATE
+  and the earlier leaves stay. Re-running the same label resumes at the first
+  pending/failed leaf. Finalization writes the single terminal boundary and the
+  totals idempotently.
+- A changed leaf set, identity, bound, or per-leaf blocks filepath raises
+  `55000` before calculation/processing continues; do not reconcile or mix
+  trees, archive and start a new run. Detach/attach a partition only while no
+  partition-wise run is active.
+- The public `explain_*` calls are not partition-wise yet; the renderer accepts
+  a leaf, so plan checks pass the leaf's schema/name. `LiquibaseUpgradeTest`
+  stays suspended (`dml-b87.12`) until a release is cut from the new baseline;
+  restore it in `dml-b87.13`.
+
 ## PL/pgSQL
 
 - **Prefer stored functions over stored procedures.** Functions cannot

@@ -137,6 +137,11 @@ as `(created_at, id)`. `blocks` is a physical fallback with strong
 preconditions; see `dml_utils/src/main/resources/db/changelog/changes/functions/README.md`
 for its limitations.
 
+Any of the three strategies can also be applied **partition-wise** to a
+declarative partitioned parent by adding `i_partition_wise => true`: `i_chunk_by`
+then selects the strategy used *inside each leaf*, and every chunk is rendered
+against its leaf. See [Partition-wise chunking](#partition-wise-chunking).
+
 #### Ordered-key chunks
 
 An ordered key is a **unique btree index on the driving table**. Naming the
@@ -146,8 +151,9 @@ EXPLAIN use exactly the same key.
 
 The index must be:
 
-- a valid, live, unique btree index on a plain table (partitioned parents are not
-  supported yet);
+- a valid, live, unique btree index on a plain table, or for a partition-wise run
+  the matching unique btree index on the partitioned parent (every leaf's child
+  index is validated);
 - one to three **simple** key columns — no expressions, no partial index, no
   exclusion constraint — and every key column must be `NOT NULL`;
 - ascending with `NULLS LAST`, using the type's default btree operator class and
@@ -168,10 +174,11 @@ archive and restart the run if the key is mutated. A resumed ordered run
 re-validates the stored index and descriptor and fails with `55000` if the index
 was dropped, redefined or is no longer usable.
 
-Non-goals: hash/bucket chunking, partition-wise chunking, non-unique keys without
-a composite unique index, expression/partial/exclusion indexes, non-default
-operator classes, `DESC`/`NULLS FIRST`, `date`/`numeric` keys and
-`run_function_over_table`.
+Non-goals: chunking by hash value, non-unique keys without a composite unique
+index, expression/partial/exclusion indexes, non-default operator classes,
+`DESC`/`NULLS FIRST`, `date`/`numeric` keys and `run_function_over_table`.
+Partition-wise chunking supports range, list, hash and multi-level partitioned
+parents (see below).
 
 Example: a UUIDv4 primary key with a useful time/ID order:
 
@@ -204,6 +211,102 @@ strategies. To inspect the plan without running anything, pass the same
 `dml_utils.explain_migration_chunks`; for one real chunk, use
 `dml_utils.explain_migration_chunk` with the chunk's boundary values and the
 same key selection. See `docs/adr/0001-ordered-key-chunking.md` for the design.
+
+### Partition-wise chunking
+
+A normal run treats the driving table as one relation. For a declarative
+partitioned table, that means the parent plan touches every partition and the
+range predicate is not a partition-pruning constraint. Set
+`i_partition_wise => true` to enumerate the storage leaves, run the chosen
+`i_chunk_by` strategy inside each leaf, and render every chunk against its leaf:
+
+```sql
+CREATE TABLE app.events
+(
+    id         bigint      NOT NULL,
+    created_at timestamptz NOT NULL,
+    payload    jsonb,
+    PRIMARY KEY (created_at, id)
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE app.events_2026_01 PARTITION OF app.events
+    FOR VALUES FROM ('2026-01-01') TO ('2026-02-01');
+CREATE TABLE app.events_2026_02 PARTITION OF app.events
+    FOR VALUES FROM ('2026-02-01') TO ('2026-03-01');
+
+SELECT dml_utils.run_migration_chunks(
+               i_sql_text =>
+                   'UPDATE <driving_table> SET payload = payload WHERE <chunking_clause>',
+               i_driving_table_schema_name => 'app',
+               i_driving_table_name => 'events',
+               i_label => 'events-partition-backfill',
+               i_chunk_size => 10000,
+               i_threads => 4,
+               i_chunk_by => 'primary_key',
+               i_partition_wise => true);
+```
+
+`i_partition_wise` is a modifier, not a fourth `i_chunk_by` value: `primary_key`,
+`ordered_key` and `blocks` all work inside leaves. The parent must be a
+declarative partitioned table (`relkind = 'p'`); range, list, hash and
+multi-level (sub-partitioned) trees are supported. Leaves must be ordinary
+tables — a foreign-table partition is rejected — and a `blocks` run requires each
+leaf to be a plain heap. Ordered-key runs resolve the parent unique index and
+validate every leaf's matching child index before the run is created.
+
+The leaf order is deterministic: partition-bound expression, then schema, name
+and OID, compared byte-wise. That order is the manifest contract for boundary
+numbering, resume and EXPLAIN, so the same tree always produces the same leaf
+ordinals. An empty leaf is still a manifest row: it is calculated with zero
+boundaries rather than omitted. If every leaf is empty, the run has
+`total_chunks = 0` and no terminal boundary.
+
+**Manifest and resume.** Creating a partition-wise run first commits the run and
+one `dml_utils_data.migration_run_leaf` row per leaf (ordinal, schema/name/OID,
+partition bound, per-leaf block filepath, state). Boundaries are then calculated
+one leaf per worker transaction, in ordinal order; each leaf's starts are appended
+after the previous leaf's, and its high-water key is snapshotted. A failure
+leaves the earlier leaves committed and the failed leaf marked `failed` with its
+SQLSTATE and message; `boundaries_calculated_at` stays NULL. Re-running the same
+label resumes at the first `pending` or `failed` leaf instead of processing; a
+`calculated` leaf is never recalculated. Inspect progress with:
+
+```sql
+SELECT leaf_ordinal,
+       leaf_schema_name,
+       leaf_name,
+       state,
+       boundary_count,
+       calculated_at,
+       error_sqlstate,
+       error_message
+FROM dml_utils_data.migration_run_leaf
+WHERE run_id = 42
+ORDER BY leaf_ordinal;
+```
+
+**Changed tree.** Before continuing calculation and before processing, the live
+leaf set is compared with the manifest: ordinal, schema, name, OID, partition
+bound and (for `blocks`) the leaf's physical filepath. Any difference fails
+closed with `55000` and leaves existing progress committed; the stored ranges are
+stale, so archive the run and start a new one with a new label. Do not try to
+attach/detach or rebind a partition while a partition-wise run is calculating or
+processing.
+
+**Cancellation.** `cancel_migration_run` during calculation stops launching new
+leaves; leaves already calculated keep their boundaries and the remaining leaves
+stay `pending`. The run is terminal — archive it and start a new one rather than
+resuming it.
+
+**Explain.** A rendered chunk targets exactly its leaf (no parent `Append`). For
+a primary-key run the leaf has the same key columns, so
+`explain_migration_chunk` can be given the leaf's schema/name. Ordered-key and
+blocks leaf plans use the renderer/EXPLAIN helpers with the leaf; the public
+explain calls do not yet take a partition-wise selector. A `blocks` leaf chunk is
+a ctid range on that leaf's heap.
+
+`run_function_over_table` is not partition-wise in this version; use
+`run_migration_chunks` with an `UPDATE`/`DELETE` template for partitioned tables.
 
 ### Example: backfill a column
 
@@ -404,6 +507,12 @@ FROM dml_utils.explain_migration_chunk(
 For an ordered-key chunk, pass the same `i_chunk_by => 'ordered_key'` and
 `i_boundary_key_index` used by the run.
 
+For a partition-wise run, the query above shows chunk progress; the leaf
+manifest shows calculation progress. Re-calling `run_migration_chunks` with the
+same label resumes a partially calculated run at its first `pending`/`failed`
+leaf; a changed partition tree is rejected with `55000`, so archive the run and
+use a new label (see [Partition-wise chunking](#partition-wise-chunking)).
+
 `dml_utils.explain_function_over_table_chunk` is the equivalent for a
 `run_function_over_table` call. Neither has a `blocks` form: a block chunk is a
 ctid range, so the synthetic explain already shows the same shape.
@@ -481,6 +590,20 @@ be running.
 - One test: `./mvnw -pl dml_utils -am test -Dtest=DomainTest`
 - Skip SQLFluff: `./mvnw verify -Dskip.sqlfluff`
 - Skip the changelog linter: `./mvnw verify -Dskip.liquibase-linter`
+
+## Benchmark
+
+The thread-scaling benchmark is self-contained under `benchmark/`:
+
+```sh
+benchmark/setup.sh    # create the dedicated database and fixture
+benchmark/run.sh      # run the sweep configured in benchmark/config.env
+benchmark/report.sh   # summarise the accumulated results
+```
+
+`BENCH_CHUNK_BY` selects `primary_key`, `ordered_key` or `blocks`; see
+[`benchmark/README.md`](benchmark/README.md) for the parameters and a worked
+example. A partition-wise variant is tracked by `dml-sw6.10`.
 
 ## Local development database
 

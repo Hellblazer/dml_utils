@@ -120,7 +120,8 @@ workers; each worker commits its own transaction.
    manifest (identity, bound, and filepath for `blocks`), computes that leaf's
    chunk **starts** (not a per-leaf terminal), inserts them at
    `max(boundary_no) + 1`, snapshots the leaf's high-water key on the manifest,
-   marks the leaf `calculated` with its boundary count, and commits. It stops at the first failure; earlier leaves stay committed.
+   marks the leaf `calculated` with its boundary count, and commits. It stops at the first failure; earlier leaves stay
+   committed.
 3. **Finalize.** After every leaf is `calculated`, one worker inserts the single
    terminal high-water boundary from the last non-empty leaf, sets
    `boundaries_calculated_at` and `total_chunks`, and commits. Finalization is
