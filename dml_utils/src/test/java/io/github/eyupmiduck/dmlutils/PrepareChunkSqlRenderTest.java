@@ -11,29 +11,34 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Verifies {@code dml_utils_lib.prepare_chunk_sql_render}: it validates the
  * template and the key columns and kinds once and returns the
- * run-invariant render context — the template with the driving table
- * substituted and the chunking clause left as a sentinel, the alias-qualified
- * column names, and each text column's collation, position-aligned with the
- * columns.
+ * run-invariant render context — the template with the driving table and
+ * chunking clause left as sentinels, the alias-qualified column names, and each
+ * text column's collation, position-aligned with the columns.
  */
 class PrepareChunkSqlRenderTest extends PostgresTestBase {
 
+    /** Sentinel that prepare_chunk_sql_render leaves for <driving_table>. */
+    private static final char DRIVING_TABLE_SENTINEL = 1;
+    /** Sentinel that prepare_chunk_sql_render leaves for <chunking_clause>. */
+    private static final char CLAUSE_SENTINEL = 2;
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET processed = true WHERE <chunking_clause>";
 
     /**
-     * The prepared template has the driving table substituted and no longer
-     * contains the token, and the column names are the alias-qualified key
-     * columns in key order.
+     * The prepared template keeps a driving-table sentinel so one context can
+     * render the parent or any leaf, no longer contains the token, and the column
+     * names are the alias-qualified key columns in key order.
      */
     @Test
-    void substitutesTheDrivingTableAndQuotesTheColumnNames() {
+    void leavesTheDrivingTableAsASentinelAndQuotesTheColumnNames() {
         PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"a", "b"}, new String[]{"bigint", "text"});
 
-        assertTrue(prepared.getOTemplate().contains("public.src t"),
-                "the driving table should be substituted");
+        assertEquals("UPDATE " + DRIVING_TABLE_SENTINEL + " SET processed = true WHERE "
+                        + CLAUSE_SENTINEL,
+                prepared.getOTemplate(),
+                "the driving table and chunking clause should be left as sentinels");
         assertFalse(prepared.getOTemplate().contains("<driving_table>"),
                 "the driving-table token should be gone");
         assertArrayEquals(new String[]{"t.a", "t.b"}, prepared.getOColumnNames(),
@@ -92,7 +97,7 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
      */
     @Test
     void rejectsATemplateWithASentinelCharacter() {
-        String template = "UPDATE <driving_table> SET processed = '" + (char) 1
+        String template = "UPDATE <driving_table> SET processed = '" + DRIVING_TABLE_SENTINEL
                 + "' WHERE <chunking_clause>";
         assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
                 dsl.configuration(), template, "public", "src", "t",

@@ -103,8 +103,8 @@ For the default `primary_key` strategy, the driving table must have a **primary
 key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`,
 `uuid` or `timestamptz`; the column names are read from the catalog, so they need
 not be `id`.
-The predicate compares the key tuple to explicitly cast literals
-(`(t.id) >= ('1'::bigint)`, or `(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
+The predicate compares the key tuple to explicitly cast literals (`(t.id) >= ('1'::bigint)`, or
+`(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
 composite key) so the planner can use the primary-key index. Chunks are cut by
 row number over the primary-key order; rows inserted later with keys above the
 captured maximum are outside the final chunk and are not processed.
@@ -124,11 +124,11 @@ and a run that is already complete is a no-op. To change the SQL of an existing 
 
 `i_chunk_by` selects the order the rows are cut in:
 
-| `i_chunk_by` | Order | Key |
-|---|---|---|
-| `primary_key` (default) | primary-key order | the table's primary key |
-| `ordered_key` | a caller-selected unique index order | `i_boundary_key_index` |
-| `blocks` | physical heap order | `ctid` ranges |
+| `i_chunk_by`            | Order                                | Key                     |
+|-------------------------|--------------------------------------|-------------------------|
+| `primary_key` (default) | primary-key order                    | the table's primary key |
+| `ordered_key`           | a caller-selected unique index order | `i_boundary_key_index`  |
+| `blocks`                | physical heap order                  | `ctid` ranges           |
 
 Use `primary_key` when the primary key is a useful order (a sequence, a time, a
 natural key). Use `ordered_key` when the primary key is random — for example a
@@ -187,15 +187,15 @@ CREATE UNIQUE INDEX orders_created_at_id_key
     ON app.orders (created_at, id);
 
 SELECT dml_utils.run_migration_chunks(
-           i_sql_text =>
-               'UPDATE <driving_table> SET processed_at = now() WHERE <chunking_clause>',
-           i_driving_table_schema_name => 'app',
-           i_driving_table_name => 'orders',
-           i_label => 'orders-processed',
-           i_chunk_size => 10000,
-           i_threads => 4,
-           i_chunk_by => 'ordered_key',
-           i_boundary_key_index => 'orders_created_at_id_key');
+               i_sql_text =>
+                   'UPDATE <driving_table> SET processed_at = now() WHERE <chunking_clause>',
+               i_driving_table_schema_name => 'app',
+               i_driving_table_name => 'orders',
+               i_label => 'orders-processed',
+               i_chunk_size => 10000,
+               i_threads => 4,
+               i_chunk_by => 'ordered_key',
+               i_boundary_key_index => 'orders_created_at_id_key');
 ```
 
 `i_boundary_key_index` is required for `ordered_key` and rejected for the other

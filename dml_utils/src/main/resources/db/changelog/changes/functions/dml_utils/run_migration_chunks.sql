@@ -224,6 +224,9 @@ BEGIN
                         ELSE
                             l_chunk_sql := dml_utils_lib.render_prepared_chunk_sql(
                                     i_template => l_render_prepared.o_template,
+                                    i_schema_name => l_effective_schema_name,
+                                    i_table_name => l_effective_table_name,
+                                    i_table_alias => l_effective_alias,
                                     i_column_names => l_render_prepared.o_column_names,
                                     i_key_kinds => l_key_kinds,
                                     i_key_collations => l_render_prepared.o_key_collations,

@@ -32,6 +32,9 @@ BEGIN
 
     RETURN dml_utils_lib.render_prepared_chunk_sql(
             i_template => l_prepared.o_template,
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_table_alias => i_table_alias,
             i_column_names => l_prepared.o_column_names,
             i_key_kinds => i_key_kinds,
             i_key_collations => l_prepared.o_key_collations,

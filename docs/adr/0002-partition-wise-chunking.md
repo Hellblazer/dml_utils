@@ -46,9 +46,8 @@ This avoids a combinatorial enum (`partition_wise_primary_key`,
 `partition_wise_blocks`, ...), keeps the existing strategies and renderers
 intact, and lets validation say "partition-wise plus the chosen inner strategy".
 
-`partition_wise` requires a declarative partitioned parent
-(`relkind = 'p'`). For `blocks`, every leaf must be a plain heap
-(`relkind = 'r'`). For key strategies, the key is resolved once from the parent
+`partition_wise` requires a declarative partitioned parent (`relkind = 'p'`). For `blocks`, every leaf must be a plain
+heap (`relkind = 'r'`). For key strategies, the key is resolved once from the parent
 and applied to each leaf's key columns.
 
 ### 2. Leaves and identity
@@ -139,8 +138,8 @@ treated as retryable (the claim and the calculation share one transaction, so
 normally it cannot persist). A `calculated` leaf is never recalculated.
 
 The per-leaf boundary numbering is append-only and sequential, so the sequence
-stays contiguous across commits. Parallel **processing** is unchanged; parallel
-**calculation** is deliberately not used in v1.
+stays contiguous across commits. Parallel **processing** is unchanged; parallel **calculation** is deliberately not used
+in v1.
 
 ### 5. Resume and the processing gate
 
@@ -229,8 +228,8 @@ leaf is rejected.
 Nothing is deployed. Edit `006-create-migration-tables.sql`, the create/type
 scripts, routine files, grants and rollbacks in place; no compatibility
 changesets or backfills. Recreate local/dev/benchmark databases.
-`LiquibaseUpgradeTest` remains suspended (`dml-b87.12`); restoration
-(`dml-b87.13`) is gated on this epic plus the ordered-key work.
+`LiquibaseUpgradeTest` remains suspended (`dml-b87.12`); restoration (`dml-b87.13`) is gated on this epic plus the
+ordered-key work.
 
 ## Example
 
@@ -320,16 +319,16 @@ Negative / risks:
 
 ## Implementation map
 
-| Bead | Work |
-|---|---|
-| `dml-sw6.1` | This design |
-| `dml-sw6.2` | `partition_wise`, leaf manifest, boundary leaf identity, constraints, grants, jOOQ |
-| `dml-sw6.3` | Enumerate and snapshot leaves deterministically |
-| `dml-sw6.4` | Per-leaf boundary builder and coordinator/finalizer |
-| `dml-sw6.5` | Render and explain per leaf |
-| `dml-sw6.6` | Runner resume gate, calculation lock, cancellation |
-| `dml-sw6.7` | Eligibility, per-leaf privileges and invalid-leaf handling |
-| `dml-sw6.8` | Integration coverage, including mid-calculation failure and attach/detach |
-| `dml-sw6.9` | Documentation |
-| `dml-sw6.10` | Partitioned benchmark variant |
-| `dml-b87.13` | Restore the previous-release upgrade test after this epic |
+| Bead         | Work                                                                               |
+|--------------|------------------------------------------------------------------------------------|
+| `dml-sw6.1`  | This design                                                                        |
+| `dml-sw6.2`  | `partition_wise`, leaf manifest, boundary leaf identity, constraints, grants, jOOQ |
+| `dml-sw6.3`  | Enumerate and snapshot leaves deterministically                                    |
+| `dml-sw6.4`  | Per-leaf boundary builder and coordinator/finalizer                                |
+| `dml-sw6.5`  | Render and explain per leaf                                                        |
+| `dml-sw6.6`  | Runner resume gate, calculation lock, cancellation                                 |
+| `dml-sw6.7`  | Eligibility, per-leaf privileges and invalid-leaf handling                         |
+| `dml-sw6.8`  | Integration coverage, including mid-calculation failure and attach/detach          |
+| `dml-sw6.9`  | Documentation                                                                      |
+| `dml-sw6.10` | Partitioned benchmark variant                                                      |
+| `dml-b87.13` | Restore the previous-release upgrade test after this epic                          |

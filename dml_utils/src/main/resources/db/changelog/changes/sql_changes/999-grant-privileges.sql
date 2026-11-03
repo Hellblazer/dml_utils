@@ -276,6 +276,9 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
     text[],
     text[],
     text[],
@@ -285,6 +288,9 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
     text[],
     text[],
     text[],

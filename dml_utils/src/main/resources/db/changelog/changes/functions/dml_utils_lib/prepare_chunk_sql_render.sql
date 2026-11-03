@@ -16,13 +16,12 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.prepare_chunk_sql_render(
 AS
 $$
 DECLARE
-    -- Control-character sentinels that stand in for one token each. The template's
-    -- <driving_table> token is expanded here; <chunking_clause> is left as a
-    -- sentinel for render_prepared_chunk_sql to replace per chunk, so neither
-    -- substitution can be re-scanned by the other.
+    -- Control-character sentinels that stand in for one token each. Both the
+    -- <driving_table> and <chunking_clause> tokens become sentinels here;
+    -- render_prepared_chunk_sql expands the table per chunk and the clause per
+    -- range, so neither substitution can be re-scanned by the other.
     l_driving_table_sentinel   constant text := pg_catalog.chr(1);
     l_chunking_clause_sentinel constant text := pg_catalog.chr(2);
-    l_driving_table                     text;
     l_column_count                      integer;
     l_kind                              text;
     l_collation                         text;
@@ -100,41 +99,36 @@ BEGIN
             END IF;
         END LOOP;
 
-    -- The driving table is referenced as "<schema>.<table> <alias>" so the
-    -- template's column references can use the alias.
-    l_driving_table := pg_catalog.format('%I.%I %I',
-                                         i_schema_name, i_table_name, i_table_alias);
-
-    -- A quoted identifier or the caller's template could in principle contain a
-    -- sentinel character; reject that so the substitution below stays unambiguous.
-    IF pg_catalog.strpos(l_driving_table, l_driving_table_sentinel) > 0
-        OR pg_catalog.strpos(l_driving_table, l_chunking_clause_sentinel) > 0
-        OR pg_catalog.strpos(i_sql_text, l_driving_table_sentinel) > 0
+    -- The caller's template could in principle contain a sentinel character;
+    -- reject that so the substitutions stay unambiguous.
+    IF pg_catalog.strpos(i_sql_text, l_driving_table_sentinel) > 0
         OR pg_catalog.strpos(i_sql_text, l_chunking_clause_sentinel) > 0
     THEN
-        RAISE EXCEPTION 'template or identifier contains a reserved substitution character'
+        RAISE EXCEPTION 'template contains a reserved substitution character'
             USING ERRCODE = '22023';
     END IF;
 
-    -- Replace both tokens with sentinels first, then expand the driving-table
-    -- sentinel. The chunking-clause sentinel is left in place for the per-chunk
-    -- render; the substituted driving table is inserted last and is never
-    -- re-scanned, so a value that literally contains <chunking_clause> cannot
-    -- mangle the output.
+    -- Replace both tokens with sentinels. The driving table is deliberately left
+    -- as a sentinel: the prepared context is reused for every chunk of a run, and
+    -- a partition-wise run renders each chunk against its leaf. The caller passes
+    -- the concrete schema, table and alias to render_prepared_chunk_sql, so the
+    -- same context serves the parent or any of its leaves.
     o_template := pg_catalog.replace(i_sql_text, '<driving_table>', l_driving_table_sentinel);
     o_template := pg_catalog.replace(o_template, '<chunking_clause>', l_chunking_clause_sentinel);
-    o_template := pg_catalog.replace(o_template, l_driving_table_sentinel, l_driving_table);
 END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.prepare_chunk_sql_render IS
     'Validates a chunking template and its key columns and kinds once, and '
-        'returns the run-invariant render context: the template with <driving_table> '
-        'already substituted and <chunking_clause> replaced by an internal sentinel, '
-        'the alias-qualified quoted column names, and each text column''s collation '
-        '(NULL when the column is not in the catalog). The caller must pass the '
-        'kind resolved from the catalog for each column; the public wrappers derive '
-        'the columns and kinds together, so a direct lib caller is responsible for '
-        'keeping them consistent. render_prepared_chunk_sql consumes the context per '
-        'chunk, so the per-chunk call only builds the range predicate and substitutes '
-        'the chunking clause.';
+        'returns the run-invariant render context: the template with both '
+        '<driving_table> and <chunking_clause> replaced by internal sentinels, the '
+        'alias-qualified quoted column names, and each text column''s collation '
+        '(NULL when the column is not in the catalog). The column names are '
+        'qualified with i_table_alias, so every render from this context must pass '
+        'that same alias; render_prepared_chunk_sql rejects a different one. The '
+        'caller must pass the kind resolved from the catalog for each column; the '
+        'public wrappers derive the columns and kinds together, so a direct lib '
+        'caller is responsible for keeping them consistent. '
+        'render_prepared_chunk_sql consumes the context per chunk, selects the '
+        'concrete driving table (the parent or one leaf), and substitutes the '
+        'chunking clause.';

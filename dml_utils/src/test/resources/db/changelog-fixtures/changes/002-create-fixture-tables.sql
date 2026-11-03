@@ -666,3 +666,26 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_foreign.id IS
     'Fixture range key.';
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_foreign.payload IS
     'Fixture payload column.';
+
+-- A partitioned parent whose leaf name needs identifier quoting, to prove the
+-- per-leaf render quotes the schema, table and alias rather than interpolating
+-- them raw.
+CREATE TABLE dml_utils_fixtures.test_partitioned_quoted
+(
+    id      bigint NOT NULL,
+    payload text
+) PARTITION BY RANGE (id);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_quoted IS
+    'Fixture: a partitioned parent with an unusually named leaf.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_quoted.id IS
+    'Fixture range key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_quoted.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures."test partitioned ""odd"""
+    PARTITION OF dml_utils_fixtures.test_partitioned_quoted
+        FOR VALUES FROM (0) TO (100);
+
+COMMENT ON TABLE dml_utils_fixtures."test partitioned ""odd""" IS
+    'Fixture: a leaf whose name contains a space and a double quote.';

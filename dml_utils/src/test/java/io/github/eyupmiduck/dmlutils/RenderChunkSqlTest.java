@@ -654,7 +654,8 @@ class RenderChunkSqlTest extends PostgresTestBase {
 
         String viaPrepared = dsl.fetchOne(
                         "SELECT dml_utils_lib.render_prepared_chunk_sql("
-                                + " (r).o_template, (r).o_column_names, ARRAY['bigint', 'text'],"
+                                + " (r).o_template, 'public', 'src', 't',"
+                                + " (r).o_column_names, ARRAY['bigint', 'text'],"
                                 + " (r).o_key_collations, ARRAY['1', 'x'], ARRAY['2', 'y'], false)"
                                 + " FROM dml_utils_lib.prepare_chunk_sql_render("
                                 + " '" + TEMPLATE + "', 'public', 'src', 't',"

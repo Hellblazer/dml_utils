@@ -14,6 +14,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class RenderPreparedChunkSqlTest extends PostgresTestBase {
 
+    /** Sentinel that prepare_chunk_sql_render leaves for <driving_table>. */
+    private static final char DRIVING_TABLE_SENTINEL = 1;
+    /** Sentinel that prepare_chunk_sql_render leaves for <chunking_clause>. */
+    private static final char CLAUSE_SENTINEL = 2;
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET processed = true WHERE <chunking_clause>";
 
@@ -95,8 +99,58 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
     void rejectsATemplateWithoutTheClausePlaceholder() {
         assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
                 dsl.configuration(), "UPDATE public.src t SET processed = true",
+                "public", "src", "t",
                 new String[]{"t.a"}, new String[]{"bigint"}, new String[]{null},
                 new String[]{"1"}, new String[]{"2"}, false));
+    }
+
+    /**
+     * A prepared template with the clause sentinel but no driving-table sentinel is
+     * rejected: the chunk would render against whatever table the template
+     * hard-codes instead of the caller's.
+     */
+    @Test
+    void rejectsATemplateWithoutTheDrivingTablePlaceholder() {
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(),
+                "UPDATE public.src t SET processed = true WHERE " + CLAUSE_SENTINEL,
+                "public", "src", "t",
+                new String[]{"t.a"}, new String[]{"bigint"}, new String[]{null},
+                new String[]{"1"}, new String[]{"2"}, false));
+    }
+
+    /**
+     * The column names in the prepared context are qualified with the prepare-time
+     * alias, so rendering with a different alias is rejected rather than producing
+     * a predicate that no longer binds the driving table.
+     */
+    @Test
+    void rejectsADifferentAlias() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a"}, new String[]{"bigint"});
+
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "other",
+                prepared.getOColumnNames(), new String[]{"bigint"},
+                prepared.getOKeyCollations(), new String[]{"1"}, new String[]{"2"}, false));
+    }
+
+    /**
+     * A schema, table or alias containing a reserved substitution character is
+     * rejected before the substitution.
+     */
+    @Test
+    void rejectsAnIdentifierWithASentinelCharacter() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a"}, new String[]{"bigint"});
+
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public",
+                "src" + DRIVING_TABLE_SENTINEL, "t",
+                prepared.getOColumnNames(), new String[]{"bigint"},
+                prepared.getOKeyCollations(), new String[]{"1"}, new String[]{"2"}, false));
     }
 
     /**
@@ -131,6 +185,7 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
         return Routines.renderPreparedChunkSql(
                 dsl.configuration(),
                 prepared.getOTemplate(),
+                "public", "src", "t",
                 prepared.getOColumnNames(),
                 kinds,
                 prepared.getOKeyCollations(),

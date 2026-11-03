@@ -41,11 +41,11 @@ restored in `dml-b87.13`).
 
 Add `ordered_key` to `dml_utils_data.chunking_strategy`:
 
-| Value | Meaning |
-|---|---|
+| Value         | Meaning                                                  |
+|---------------|----------------------------------------------------------|
 | `primary_key` | Ordered ranges over the primary key (default, unchanged) |
-| `ordered_key` | Ordered ranges over a caller-selected unique index |
-| `blocks` | Physical heap block ranges (unchanged) |
+| `ordered_key` | Ordered ranges over a caller-selected unique index       |
+| `blocks`      | Physical heap block ranges (unchanged)                   |
 
 `primary_key` and `ordered_key` use the same boundary and rendering machinery.
 The split makes the run metadata truthful (a run is not "primary_key" when it
@@ -82,19 +82,19 @@ anyway.
 
 The index must satisfy all of:
 
-| Check | Rule |
-|---|---|
-| Kind | btree (exclusion constraints use gist/spgist, so the btree check rejects them) |
-| Uniqueness | `indisunique` |
-| Health | `indisvalid`, `indisready`, `indislive` |
-| Shape | `indpred IS NULL`, `indexprs IS NULL`, `indnkeyatts BETWEEN 1 AND 3` |
-| Columns | The first `indnkeyatts` `indkey` entries are non-zero simple columns; included columns are ignored |
-| Ordering | `indoption` is all zero (ASC, NULLS LAST); DESC / NULLS FIRST are rejected in v1 |
-| Opclass | the default btree opclass for each key column |
-| Collation | `indcollation` matches the column's `attcollation` |
-| Nullability | every key column is `attnotnull` |
-| Type | bigint (smallint/integer/bigint), text, uuid or timestamptz |
-| Table | `relkind = 'r'`; partitioned parents are rejected (the partition-wise epic owns them) |
+| Check       | Rule                                                                                               |
+|-------------|----------------------------------------------------------------------------------------------------|
+| Kind        | btree (exclusion constraints use gist/spgist, so the btree check rejects them)                     |
+| Uniqueness  | `indisunique`                                                                                      |
+| Health      | `indisvalid`, `indisready`, `indislive`                                                            |
+| Shape       | `indpred IS NULL`, `indexprs IS NULL`, `indnkeyatts BETWEEN 1 AND 3`                               |
+| Columns     | The first `indnkeyatts` `indkey` entries are non-zero simple columns; included columns are ignored |
+| Ordering    | `indoption` is all zero (ASC, NULLS LAST); DESC / NULLS FIRST are rejected in v1                   |
+| Opclass     | the default btree opclass for each key column                                                      |
+| Collation   | `indcollation` matches the column's `attcollation`                                                 |
+| Nullability | every key column is `attnotnull`                                                                   |
+| Type        | bigint (smallint/integer/bigint), text, uuid or timestamptz                                        |
+| Table       | `relkind = 'r'`; partitioned parents are rejected (the partition-wise epic owns them)              |
 
 A non-unique index plus a separate tiebreaker is **deferred**: the useful form
 is a composite unique index such as `(created_at, id)`, which this design
@@ -105,45 +105,45 @@ would not be fully index-ordered and adds predicate complexity for little gain.
 
 v1 supports the same collapsed kinds as the primary key plus timestamptz:
 
-| SQL type | Key kind | `migration_key` array |
-|---|---|---|
-| smallint, integer, bigint | `bigint` | `bigint_values` |
-| text | `text` | `text_values` |
-| uuid | `uuid` | `uuid_values` |
-| timestamptz | `timestamptz` | `timestamptz_values` (new) |
+| SQL type                  | Key kind      | `migration_key` array      |
+|---------------------------|---------------|----------------------------|
+| smallint, integer, bigint | `bigint`      | `bigint_values`            |
+| text                      | `text`        | `text_values`              |
+| uuid                      | `uuid`        | `uuid_values`              |
+| timestamptz               | `timestamptz` | `timestamptz_values` (new) |
 
-`date`, `numeric` and other orderable types are deferred. The integer family
-(smallint/integer/bigint) collapses to `bigint` and is supported as today.
+`date`, `numeric` and other orderable types are deferred. The integer family (smallint/integer/bigint) collapses to
+`bigint` and is supported as today.
 
 ### 5. Schema changes (edited in place)
 
 - `004-create-domains.sql`
-  - add the `ordered_key` enum label;
-  - add `timestamptz_values timestamptz[]` to `dml_utils_data.migration_key`;
-  - update the type and enum comments.
+    - add the `ordered_key` enum label;
+    - add `timestamptz_values timestamptz[]` to `dml_utils_data.migration_key`;
+    - update the type and enum comments.
 - `005-create-migration-key-check.sql`
-  - extend `migration_key_is_canonical` (arity, one-dimensional/1-based arrays,
-    exactly one non-NULL element per position) and its comment for the fourth
-    array;
-  - update `migration_key_values` and `migration_key_pair_values`.
+    - extend `migration_key_is_canonical` (arity, one-dimensional/1-based arrays,
+      exactly one non-NULL element per position) and its comment for the fourth
+      array;
+    - update `migration_key_values` and `migration_key_pair_values`.
 - `006-create-migration-tables.sql`
-  - add to `migration_run`:
-    ```sql
-    ordered_key_index   name,
-    ordered_key_columns name[],
-    ordered_key_kinds   text[],
-    ```
-  - constrain the combinations (all-or-nothing, so a non-ordered run cannot
-    carry a partly populated descriptor):
-    ```
-    num_nonnulls(ordered_key_index, ordered_key_columns, ordered_key_kinds)
-        = CASE WHEN chunk_by = 'ordered_key' THEN 3 ELSE 0 END
-    ```
-    and keep `ordered_key` runs without a `driving_table_relation_filepath`;
-  - update the `chunk_by` / `chunk_size` comments.
-  - The descriptor is stored so explain and resume use the exact key the
-    boundaries were built from. Invalid combinations fail with a clear error
-    from the resolver; the check constraint is the last line of defence.
+    - add to `migration_run`:
+      ```sql
+      ordered_key_index   name,
+      ordered_key_columns name[],
+      ordered_key_kinds   text[],
+      ```
+    - constrain the combinations (all-or-nothing, so a non-ordered run cannot
+      carry a partly populated descriptor):
+      ```
+      num_nonnulls(ordered_key_index, ordered_key_columns, ordered_key_kinds)
+          = CASE WHEN chunk_by = 'ordered_key' THEN 3 ELSE 0 END
+      ```
+      and keep `ordered_key` runs without a `driving_table_relation_filepath`;
+    - update the `chunk_by` / `chunk_size` comments.
+    - The descriptor is stored so explain and resume use the exact key the
+      boundaries were built from. Invalid combinations fail with a clear error
+      from the resolver; the check constraint is the last line of defence.
 
 The `migration_key` change regenerates `MigrationKeyRecord`, so every Java
 constructor call (tests and fixtures) gains the new array.
@@ -158,14 +158,14 @@ Add a catalog helper that resolves the index to:
 A single `assert_usable_ordered_key(schema, table, index)` performs the table
 checks above and is used by both the run path and resume. Reject with:
 
-| Situation | SQLSTATE |
-|---|---|
-| Missing index | `42704` (`undefined_object`) |
-| Missing table/schema | the existing `assert_table_exists`/`assert_schema_exists` codes |
-| Missing/invalid parameters, unsupported type, wrong arity | `22023` (`invalid_parameter_value`) |
-| Unsupported index shape/table/strategy combination | `0A000` (`feature_not_supported`) |
-| Index invalid/dropped on resume | `55000` (`object_not_in_prerequisite_state`) |
-| Missing privileges | `42501` (existing convention) |
+| Situation                                                 | SQLSTATE                                                        |
+|-----------------------------------------------------------|-----------------------------------------------------------------|
+| Missing index                                             | `42704` (`undefined_object`)                                    |
+| Missing table/schema                                      | the existing `assert_table_exists`/`assert_schema_exists` codes |
+| Missing/invalid parameters, unsupported type, wrong arity | `22023` (`invalid_parameter_value`)                             |
+| Unsupported index shape/table/strategy combination        | `0A000` (`feature_not_supported`)                               |
+| Index invalid/dropped on resume                           | `55000` (`object_not_in_prerequisite_state`)                    |
+| Missing privileges                                        | `42501` (existing convention)                                   |
 
 The existing `primary_key_attributes` reader is the base; generalise it (or add
 an index variant) so the primary-key path and the ordered-key path share the
@@ -216,8 +216,8 @@ The run stores the index, columns and kinds. On resume:
   boundaries are authoritative.
 
 The key columns must not be modified by the DML template. This is a caller
-contract, exactly as it is for `primary_key`; it is documented, not detected
-(runtime detection would require inspecting the template, which is not reliable).
+contract, exactly as it is for `primary_key`; it is documented, not detected (runtime detection would require inspecting
+the template, which is not reliable).
 A run whose key is mutated should be archived and restarted after the data is
 corrected.
 
@@ -253,8 +253,8 @@ SELECT dml_utils.run_migration_chunks(
 - **A JSONB descriptor or a separate descriptor table.** Rejected: three
   columns on `migration_run` are queryable, constrained and consistent with the
   existing style.
-- **Support partitioned parents now.** Deferred to the partition-wise epic
-  (`dml-sw6`), which owns leaf enumeration and per-leaf boundaries.
+- **Support partitioned parents now.** Deferred to the partition-wise epic (`dml-sw6`), which owns leaf enumeration and
+  per-leaf boundaries.
 - **Hash/bucket or snapshot key lists.** Separate strategies; not part of this
   decision.
 
@@ -294,18 +294,18 @@ Nothing is deployed, so:
 
 ## Implementation map
 
-| Bead | Work |
-|---|---|
-| `dml-b87.2` | `migration_key` + timestamptz key kind |
-| `dml-b87.3` | `migration_run` descriptor columns/constraints |
-| `dml-b87.4` | resolve and validate the index |
-| `dml-b87.5` | boundary population |
-| `dml-b87.6` | chunk clause rendering and explain |
-| `dml-b87.7` | API on run/populate |
-| `dml-b87.8` | eligibility and resume validation |
-| `dml-b87.9` | integration coverage |
-| `dml-b87.10` | docs |
-| `dml-b87.11` | benchmark variant |
+| Bead         | Work                                           |
+|--------------|------------------------------------------------|
+| `dml-b87.2`  | `migration_key` + timestamptz key kind         |
+| `dml-b87.3`  | `migration_run` descriptor columns/constraints |
+| `dml-b87.4`  | resolve and validate the index                 |
+| `dml-b87.5`  | boundary population                            |
+| `dml-b87.6`  | chunk clause rendering and explain             |
+| `dml-b87.7`  | API on run/populate                            |
+| `dml-b87.8`  | eligibility and resume validation              |
+| `dml-b87.9`  | integration coverage                           |
+| `dml-b87.10` | docs                                           |
+| `dml-b87.11` | benchmark variant                              |
 
 ## Non-goals
 

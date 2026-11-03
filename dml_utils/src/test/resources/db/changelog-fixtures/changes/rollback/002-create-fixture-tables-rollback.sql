@@ -27,4 +27,5 @@ DROP TABLE IF EXISTS
     dml_utils_fixtures.test_partitioned_list,
     dml_utils_fixtures.test_partitioned_empty,
     dml_utils_fixtures.test_partitioned_detach,
-    dml_utils_fixtures.test_partitioned_foreign;
+    dml_utils_fixtures.test_partitioned_foreign,
+    dml_utils_fixtures.test_partitioned_quoted;
