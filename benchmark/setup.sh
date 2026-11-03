@@ -6,8 +6,10 @@
 # creates the deterministic synthetic source table and the throwaway target
 # table. The bigint-keyed source is a plain heap, so it supports both the
 # primary_key and blocks chunking strategies; a second UUIDv4-keyed source with a
-# (created_at, id) unique index supports ordered_key. The default workload (an
-# INSERT into the target) leaves the source read-only, which blocks requires.
+# (created_at, id) unique index supports ordered_key, and a range-partitioned
+# copy of the bigint-keyed source supports the partition-wise variant. The
+# default workload (an INSERT into the target) leaves the source read-only, which
+# blocks requires.
 # Safe to re-run; pass --refresh to drop the container and its data volume first
 # (required after changing the server settings or the image).
 #
@@ -183,7 +185,15 @@ if [ "$pk_count" -lt 1 ] || [ "$pk_count" -gt 3 ]; then
     echo "BENCH_PK_COLUMNS must be 1, 2 or 3: $BENCH_PK_COLUMNS" >&2
     exit 2
 fi
+if [ "$BENCH_PARTITIONED_LEAVES" -lt 1 ]; then
+    echo "BENCH_PARTITIONED_LEAVES must be at least 1: $BENCH_PARTITIONED_LEAVES" >&2
+    exit 2
+fi
 pk_mod="$(awk -v n="$BENCH_ROWS" -v p="$pk_count" 'BEGIN { m = 1; while (m ^ p < n) m++; print m }')"
+if [ "$BENCH_PARTITIONED_LEAVES" -gt "$pk_mod" ]; then
+    echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) must not exceed the distinct k1 values ($pk_mod) produced for $BENCH_ROWS rows" >&2
+    exit 2
+fi
 pk_def=""
 pk_key=""
 pk_exprs=""
@@ -227,6 +237,25 @@ psql_stdin -v ON_ERROR_STOP=1 \
     -v target_table="$BENCH_ORDERED_TARGET_TABLE" \
     -f - < "$here/sql/create-ordered-target.sql"
 
+# The partition-wise variant: a range-partitioned copy of the bigint-keyed
+# source with BENCH_PARTITIONED_LEAVES leaves, and its throwaway target.
+echo "creating partition-wise benchmark tables ($BENCH_ROWS source rows, $BENCH_PARTITIONED_LEAVES leaves) ..." >&2
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v source_table="$BENCH_PARTITIONED_SOURCE_TABLE" \
+    -v rows="$BENCH_ROWS" \
+    -v pk_def="$pk_def" \
+    -v pk_key="$pk_key" \
+    -v pk_exprs="$pk_exprs" \
+    -v leaves="$BENCH_PARTITIONED_LEAVES" \
+    -v k1_max="$pk_mod" \
+    -f - < "$here/sql/create-partitioned-source.sql"
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v target_table="$BENCH_PARTITIONED_TARGET_TABLE" \
+    -v pk_def="$pk_def" \
+    -f - < "$here/sql/create-target.sql"
+
 # dml_utils_lib.populate_migration_boundaries is SECURITY DEFINER: it writes the
 # run metadata as the owner, and its boundary query scans the driving table in
 # that definer context. The fixture schema is created outside the
@@ -238,11 +267,30 @@ psql_stdin -q -v ON_ERROR_STOP=1 \
     -v schema="$BENCH_SCHEMA" \
     -v source_table="$BENCH_SOURCE_TABLE" \
     -v ordered_source="$BENCH_ORDERED_SOURCE_TABLE" \
+    -v partitioned_source="$BENCH_PARTITIONED_SOURCE_TABLE" \
     -v owner="$BENCH_OWNER_USER" \
     -f - <<'SQL'
 GRANT USAGE ON SCHEMA :"schema" TO :"owner";
 GRANT SELECT ON :"schema".:"source_table" TO :"owner";
 GRANT SELECT ON :"schema".:"ordered_source" TO :"owner";
+GRANT SELECT ON :"schema".:"partitioned_source" TO :"owner";
+SQL
+
+# A partition-wise boundary scan reads each leaf, and the definer needs SELECT on
+# every one of them.
+psql_stdin -q -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v partitioned_source="$BENCH_PARTITIONED_SOURCE_TABLE" \
+    -v owner="$BENCH_OWNER_USER" \
+    -f - <<'SQL'
+SELECT pg_catalog.format('GRANT SELECT ON %I.%I TO %I',
+                         n.nspname, c.relname, :'owner')
+FROM pg_catalog.pg_partition_tree(
+             (:'schema' || '.' || :'partitioned_source')::regclass) AS leaf
+         JOIN pg_catalog.pg_class c ON c.oid = leaf.relid
+         JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE leaf.isleaf
+\gexec
 SQL
 
 echo "benchmark database ready: $BENCH_CONTAINER / $BENCH_DB" >&2

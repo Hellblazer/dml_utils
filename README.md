@@ -601,9 +601,11 @@ benchmark/run.sh      # run the sweep configured in benchmark/config.env
 benchmark/report.sh   # summarise the accumulated results
 ```
 
-`BENCH_CHUNK_BY` selects `primary_key`, `ordered_key` or `blocks`; see
-[`benchmark/README.md`](benchmark/README.md) for the parameters and a worked
-example. A partition-wise variant is tracked by `dml-sw6.10`.
+`BENCH_CHUNK_BY` selects `primary_key`, `ordered_key` or `blocks`, and
+`BENCH_PARTITION_WISE=1` runs `primary_key` or `blocks` inside a range-partitioned
+fixture with `BENCH_PARTITIONED_LEAVES` leaves. See
+[`benchmark/README.md`](benchmark/README.md) for the parameters, the
+partition-wise variant and a worked example.
 
 ## Local development database
 

@@ -746,7 +746,8 @@ read and validation.
 
 ```sql
 i_parent_index_oid oid
-RETURNS TABLE (leaf_oid oid, child_index_oid oid, child_index_name text)
+RETURNS TABLE
+(leaf_oid oid, child_index_oid oid, child_index_name text)
 ```
 
 `STABLE`, `SECURITY INVOKER`. Walks a partitioned index's inheritance tree once

@@ -1,17 +1,18 @@
 # chart.awk - emit an SVG line chart of the benchmark means.
 #
 # Reads the results CSV
-# (strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns)
+# (strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,partition_wise)
 # on stdin and writes an SVG of the mean total time vs threads to stdout. Pass
-# -v strategy=..., -v chunk_size=N and -v pk_columns=k1+k2 to plot only that
-# group. Pure awk: no plotting library needed, so the benchmark keeps working
-# with nothing but Docker and the shell.
+# -v strategy=..., -v chunk_size=N, -v pk_columns=k1+k2 and
+# -v partition_wise=yes|no to plot only that group. Pure awk: no plotting library
+# needed, so the benchmark keeps working with nothing but Docker and the shell.
 
 BEGIN {
     FS = ","
     if (strategy == "") strategy = ""
     if (chunk_size == "") chunk_size = ""
     if (pk_columns == "") pk_columns = ""
+    if (partition_wise == "") partition_wise = "no"
 }
 
 NR == 1 { next }   # header
@@ -19,6 +20,8 @@ NR == 1 { next }   # header
 strategy != "" && $1 != strategy { next }
 chunk_size != "" && $3 != chunk_size { next }
 pk_columns != "" && $10 != pk_columns { next }
+row_pw = ($11 == "yes") ? "yes" : "no"
+row_pw != partition_wise { next }
 
 {
     t = $4 + 0

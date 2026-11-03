@@ -2,9 +2,10 @@
 # Run a small end-to-end smoke test of the benchmark harness.
 #
 # Creates an isolated benchmark database, runs one measured run per chunking
-# strategy (primary_key, blocks and ordered_key) with two threads, and removes the
-# database again. The dataset is tiny and deterministic, and config.local.env is
-# ignored, so the result does not depend on a developer's personal sweep.
+# strategy (primary_key, blocks and ordered_key) with two threads, then one
+# partition-wise run for primary_key and blocks, and removes the database again.
+# The dataset is tiny and deterministic, and config.local.env is ignored, so the
+# result does not depend on a developer's personal sweep.
 #
 # Intended for CI (see .github/workflows/benchmark-smoke.yml) and for checking a
 # changelog or benchmark change locally. Pass --keep to leave the database
@@ -40,9 +41,11 @@ BENCH_THREADS_FROM=1
 BENCH_THREADS_TO=2
 BENCH_RUNS=1
 BENCH_WARMUP_RUNS=0
+BENCH_PARTITIONED_LEAVES=3
 export BENCH_IGNORE_LOCAL_CONFIG BENCH_CONTAINER BENCH_VOLUME BENCH_NETWORK \
     BENCH_HOST_PORT BENCH_ROWS BENCH_PK_COLUMNS BENCH_CHUNK_SIZE \
-    BENCH_THREADS_FROM BENCH_THREADS_TO BENCH_RUNS BENCH_WARMUP_RUNS
+    BENCH_THREADS_FROM BENCH_THREADS_TO BENCH_RUNS BENCH_WARMUP_RUNS \
+    BENCH_PARTITIONED_LEAVES
 
 cleanup() {
     if [ "$keep" = 1 ]; then
@@ -59,6 +62,33 @@ for strategy in primary_key blocks ordered_key; do
     BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" "$here/run.sh"
 done
 
+# One run per partition-wise-capable strategy, inside the range-partitioned
+# fixture, so the leaf manifest, per-leaf calculation and leaf rendering are
+# exercised end to end too.
+for strategy in primary_key blocks; do
+    BENCH_PARTITION_WISE=1 BENCH_CHUNK_BY="$strategy" \
+        BENCH_CSV="smoke-partitioned-$strategy.csv" "$here/run.sh"
+done
+
+# The report must keep the partition-wise rows in their own group and keep every
+# thread value (the CSV grouping keys on the flag and the thread count).
+report_dir="$here/results/smoke-report"
+rm -rf "$report_dir"
+mkdir -p "$report_dir"
+{
+    head -n 1 "$here/results/smoke-primary_key.csv"
+    tail -n +2 "$here/results/smoke-primary_key.csv"
+    tail -n +2 "$here/results/smoke-partitioned-primary_key.csv"
+} > "$report_dir/combined.csv"
+BENCH_RESULTS_DIR=results/smoke-report BENCH_CSV=combined.csv \
+    "$here/report.sh" >/dev/null
+grep -q '^### strategy `primary_key`' "$report_dir/report.md"
+grep -q '(partition-wise)' "$report_dir/report.md"
+grep -q '^| 2 |' "$report_dir/report.md"
+rm -rf "$report_dir"
+
 rm -f "$here/results/smoke-primary_key.csv" "$here/results/smoke-blocks.csv" \
-    "$here/results/smoke-ordered_key.csv"
+    "$here/results/smoke-ordered_key.csv" \
+    "$here/results/smoke-partitioned-primary_key.csv" \
+    "$here/results/smoke-partitioned-blocks.csv"
 echo "benchmark smoke test passed" >&2

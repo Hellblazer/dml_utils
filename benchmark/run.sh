@@ -4,8 +4,10 @@
 # For each thread value from BENCH_THREADS_FROM to BENCH_THREADS_TO it runs
 # BENCH_WARMUP_RUNS unrecorded warm-ups, then BENCH_RUNS measured runs of
 # dml_utils.run_migration_chunks, and appends one CSV row per measured run to
-# results/<BENCH_CSV>. Results accumulate across invocations; pass --reset to
-# start a fresh CSV. Format it with report.sh.
+# results/<BENCH_CSV>. BENCH_CHUNK_BY selects the strategy; set
+# BENCH_PARTITION_WISE=1 to run primary_key or blocks inside the range-partitioned
+# fixture instead. Results accumulate across invocations; pass --reset to start a
+# fresh CSV. Format it with report.sh.
 #
 # Usage: benchmark/run.sh [--reset]
 
@@ -50,6 +52,32 @@ case "$BENCH_CHUNK_BY" in
         exit 2
         ;;
 esac
+
+# The partition-wise modifier runs the configured strategy inside each leaf of
+# the range-partitioned fixture. ordered_key keeps its dedicated single-relation
+# fixture, so it has no partitioned variant.
+partition_wise=0
+case "$BENCH_PARTITION_WISE" in
+    0|no|false) ;;
+    1|yes|true) partition_wise=1 ;;
+    *)
+        echo "BENCH_PARTITION_WISE must be 0/1 (or yes/no): $BENCH_PARTITION_WISE" >&2
+        exit 2
+        ;;
+esac
+partition_clause=""
+partition_flag="no"
+if [ "$partition_wise" = 1 ]; then
+    if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
+        echo "BENCH_PARTITION_WISE=1 supports primary_key and blocks; ordered_key uses its own fixture" >&2
+        exit 2
+    fi
+    run_table="$BENCH_PARTITIONED_SOURCE_TABLE"
+    run_target="$BENCH_PARTITIONED_TARGET_TABLE"
+    run_sql="$BENCH_PARTITIONED_SQL"
+    partition_clause=", i_partition_wise => true"
+    partition_flag="yes"
+fi
 
 # The key column names, joined by '+' so a report group key has no spaces.
 if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
@@ -98,7 +126,7 @@ results_dir="$here/$BENCH_RESULTS_DIR"
 csv="$results_dir/$BENCH_CSV"
 mkdir -p "$results_dir"
 if [ "$reset" = 1 ] || [ ! -f "$csv" ]; then
-    printf 'strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns\n' > "$csv"
+    printf 'strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,partition_wise\n' > "$csv"
 fi
 
 psql_run() {
@@ -138,6 +166,7 @@ run_once() {
         -v threads="$threads" \
         -v chunk_by="$BENCH_CHUNK_BY" \
         -v boundary_clause="$boundary_clause" \
+        -v partition_clause="$partition_clause" \
         -f - >/dev/null <<'SQL'
 SET pg_background.max_workers = :threads;
 SELECT dml_utils.run_migration_chunks(
@@ -147,7 +176,7 @@ SELECT dml_utils.run_migration_chunks(
     i_label => :'label',
     i_chunk_size => :'chunk',
     i_threads => :'threads',
-    i_chunk_by => :'chunk_by' :boundary_clause);
+    i_chunk_by => :'chunk_by' :boundary_clause :partition_clause);
 SQL
 
     # chunks, range_seconds, chunk_seconds, total_seconds. The chunk count is the
@@ -166,10 +195,10 @@ SQL
 )"
 
     if [ "$record" = 1 ]; then
-        printf '%s,%s,%s,%s,%s,%s,%s\n' "$BENCH_CHUNK_BY" "$chunk_unit" "$BENCH_CHUNK_SIZE" "$threads" "$run_no" "$row" "$pk_columns_csv" >> "$csv"
-        echo "strategy=$BENCH_CHUNK_BY threads=$threads run=$run_no chunks=$(printf '%s' "$row" | cut -d, -f1) range=$(printf '%s' "$row" | cut -d, -f2)s chunk=$(printf '%s' "$row" | cut -d, -f3)s total=$(printf '%s' "$row" | cut -d, -f4)s" >&2
+        printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "$BENCH_CHUNK_BY" "$chunk_unit" "$BENCH_CHUNK_SIZE" "$threads" "$run_no" "$row" "$pk_columns_csv" "$partition_flag" >> "$csv"
+        echo "strategy=$BENCH_CHUNK_BY partition_wise=$partition_flag threads=$threads run=$run_no chunks=$(printf '%s' "$row" | cut -d, -f1) range=$(printf '%s' "$row" | cut -d, -f2)s chunk=$(printf '%s' "$row" | cut -d, -f3)s total=$(printf '%s' "$row" | cut -d, -f4)s" >&2
     else
-        echo "strategy=$BENCH_CHUNK_BY threads=$threads warmup=$run_no done" >&2
+        echo "strategy=$BENCH_CHUNK_BY partition_wise=$partition_flag threads=$threads warmup=$run_no done" >&2
     fi
 }
 
@@ -180,7 +209,7 @@ if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
 else
     key_desc="${BENCH_PK_COLUMNS} pk column(s)"
 fi
-echo "sweep: strategy=${BENCH_CHUNK_BY} (${chunk_unit}), ${key_desc}, ${src_rows} rows, threads ${BENCH_THREADS_FROM}..${BENCH_THREADS_TO}, ${BENCH_RUNS} measured + ${BENCH_WARMUP_RUNS} warm-up run(s) each" >&2
+echo "sweep: strategy=${BENCH_CHUNK_BY} (${chunk_unit}), partition_wise=${partition_flag}, ${key_desc}, ${src_rows} rows, threads ${BENCH_THREADS_FROM}..${BENCH_THREADS_TO}, ${BENCH_RUNS} measured + ${BENCH_WARMUP_RUNS} warm-up run(s) each" >&2
 threads="$BENCH_THREADS_FROM"
 while [ "$threads" -le "$BENCH_THREADS_TO" ]; do
     warmup=1
