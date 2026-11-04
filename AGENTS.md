@@ -90,6 +90,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   with `contents` and `pull-requests` write); the default `GITHUB_TOKEN` is not
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
+- `LiquibaseUpgradeTest` must stay enabled. It resolves the most recent
+  published release below the current `<revision>` and upgrades it to the
+  current changelog. If a baseline change is unavoidable, cut a release from the
+  cleaned changelog first, then re-enable the test against that release; do not
+  leave it `@Disabled` or skip it in CI.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -173,9 +178,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   trees, archive and start a new run. Detach/attach a partition only while no
   partition-wise run is active.
 - The public `explain_*` calls are not partition-wise yet; the renderer accepts
-  a leaf, so plan checks pass the leaf's schema/name. `LiquibaseUpgradeTest`
-  stays suspended (`dml-b87.12`) until a release is cut from the new baseline;
-  restore it in `dml-b87.13`.
+  a leaf, so plan checks pass the leaf's schema/name.
 
 ## PL/pgSQL
 

@@ -236,8 +236,9 @@ leaf is rejected.
 Nothing is deployed. Edit `006-create-migration-tables.sql`, the create/type
 scripts, routine files, grants and rollbacks in place; no compatibility
 changesets or backfills. Recreate local/dev/benchmark databases.
-`LiquibaseUpgradeTest` remains suspended (`dml-b87.12`); restoration (`dml-b87.13`) is gated on this epic plus the
-ordered-key work.
+`LiquibaseUpgradeTest` was suspended while the baseline was edited in place
+(`dml-b87.12`) and was restored in `dml-b87.13` against v1.16.0, the first
+release cut from the cleaned changelog.
 
 ## Example
 
