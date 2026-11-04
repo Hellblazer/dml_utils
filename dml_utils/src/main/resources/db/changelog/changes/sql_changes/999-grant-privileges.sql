@@ -1003,3 +1003,61 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
     text[],
     bigint
     ) TO dml_utils_caller;
+
+-- Leaf calculation and finalization helpers.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.claim_next_migration_leaf(
+    bigint
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.claim_next_migration_leaf(
+    bigint
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
+    bigint
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
+    bigint
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.finalize_calculated_run(
+    bigint
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.finalize_calculated_run(
+    bigint
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.terminal_leaf_for_run(
+    bigint
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.terminal_leaf_for_run(
+    bigint
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.append_terminal_boundary(
+    bigint,
+    integer,
+    text,
+    text,
+    dml_utils_data.migration_key
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.append_terminal_boundary(
+    bigint,
+    integer,
+    text,
+    text,
+    dml_utils_data.migration_key
+    ) TO dml_utils_caller;
+
+-- Leaf calculation SQL builder.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
+    dml_utils_data.chunking_strategy,
+    integer,
+    text,
+    text,
+    bigint,
+    integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
+    dml_utils_data.chunking_strategy,
+    integer,
+    text,
+    text,
+    bigint,
+    integer
+    ) TO dml_utils_caller;

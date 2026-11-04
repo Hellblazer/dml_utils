@@ -8,18 +8,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_migration_boundaries(
 AS
 $$
 DECLARE
-    l_run                dml_utils_data.migration_run%ROWTYPE;
-    l_leaf_ordinal       integer;
-    l_leaf_schema        text;
-    l_leaf_name          text;
-    l_caller             name;
-    l_terminal_key       dml_utils_data.migration_key;
-    l_bigint_values      bigint[];
-    l_text_values        text[];
-    l_uuid_values        uuid[];
-    l_timestamptz_values timestamptz[];
-    l_boundary_no        bigint;
-    l_total_chunks       bigint;
+    l_run          dml_utils_data.migration_run%ROWTYPE;
+    l_terminal     record;
+    l_terminal_key dml_utils_data.migration_key;
+    l_total_chunks bigint;
 BEGIN
     IF i_run_id IS NULL THEN
         RAISE EXCEPTION 'run id must not be NULL'
@@ -57,64 +49,21 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    -- The terminal belongs to the last non-empty leaf in manifest order. An
-    -- empty leaf (boundary_count = 0) is calculated but has no chunk to end.
-    SELECT leaf.leaf_ordinal,
-           leaf.leaf_schema_name::text,
-           leaf.leaf_name::text,
-           (leaf.terminal_boundary_id).bigint_values,
-           (leaf.terminal_boundary_id).text_values,
-           (leaf.terminal_boundary_id).uuid_values,
-           (leaf.terminal_boundary_id).timestamptz_values
-    INTO l_leaf_ordinal, l_leaf_schema, l_leaf_name, l_bigint_values,
-        l_text_values, l_uuid_values, l_timestamptz_values
-    FROM dml_utils_data.migration_run_leaf AS leaf
-    WHERE leaf.run_id = i_run_id
-      AND leaf.boundary_count > 0
-    ORDER BY leaf.leaf_ordinal DESC
-    LIMIT 1;
+    SELECT *
+    INTO l_terminal
+    FROM dml_utils_lib.terminal_leaf_for_run(i_run_id => i_run_id);
 
-    IF FOUND THEN
-        l_terminal_key := ROW (l_bigint_values, l_text_values, l_uuid_values,
-            l_timestamptz_values)::dml_utils_data.migration_key;
+    IF l_terminal.o_leaf_ordinal IS NOT NULL THEN
+        l_terminal_key := ROW (l_terminal.o_bigint_values,
+            l_terminal.o_text_values, l_terminal.o_uuid_values,
+            l_terminal.o_timestamptz_values)::dml_utils_data.migration_key;
 
-        -- The terminal scan runs in the definer context, so the effective caller
-        -- must still be allowed to read the leaf, as for leaf calculation.
-        l_caller := COALESCE(NULLIF(pg_catalog.current_setting('role', true), 'none'),
-                             session_user)::name;
-        IF NOT pg_catalog.has_table_privilege(
-                l_caller,
-                pg_catalog.format('%I.%I', l_leaf_schema, l_leaf_name),
-                'SELECT')
-        THEN
-            RAISE EXCEPTION 'caller lacks SELECT privilege on leaf %.%',
-                l_leaf_schema, l_leaf_name
-                USING ERRCODE = '42501';
-        END IF;
-
-        -- Re-check the terminal leaf: the tree may have changed since its
-        -- calculation (or since the last leaf committed).
-        PERFORM dml_utils_lib.assert_migration_leaf_unchanged(
+        l_total_chunks := dml_utils_lib.append_terminal_boundary(
                 i_run_id => i_run_id,
-                i_leaf_ordinal => l_leaf_ordinal);
-
-        IF l_terminal_key IS NULL THEN
-            RAISE EXCEPTION 'leaf % of run % has no terminal snapshot',
-                l_leaf_ordinal, i_run_id
-                USING ERRCODE = '55000';
-        END IF;
-
-        SELECT coalesce(max(boundary.boundary_no), -1) + 1
-        INTO l_boundary_no
-        FROM dml_utils_data.migration_boundary AS boundary
-        WHERE boundary.run_id = i_run_id;
-
-        INSERT INTO dml_utils_data.migration_boundary
-            (run_id, boundary_no, boundary_id, leaf_ordinal, completed_at)
-        VALUES (i_run_id, l_boundary_no, l_terminal_key, l_leaf_ordinal, NULL);
-
-        -- The terminal is not a chunk, so the chunk count is its boundary_no.
-        l_total_chunks := l_boundary_no;
+                i_leaf_ordinal => l_terminal.o_leaf_ordinal,
+                i_leaf_schema_name => l_terminal.o_leaf_schema_name,
+                i_leaf_name => l_terminal.o_leaf_name,
+                i_terminal_key => l_terminal_key);
     ELSE
         -- Every leaf is empty: no terminal boundary and no chunks.
         l_total_chunks := 0;
@@ -130,7 +79,8 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries(bigint) IS
     'Writes the single terminal boundary from the last non-empty leaf and sets '
-        'boundaries_calculated_at and total_chunks, once. Idempotent (does nothing '
-        'for a finalized or cancelled run) and raises 55000 while any leaf is not '
-        'calculated. SECURITY DEFINER so the invoker-owned coordinator can write '
-        'metadata and read the terminal leaf.';
+        'boundaries_calculated_at and total_chunks, once. terminal_leaf_for_run '
+        'picks the leaf and append_terminal_boundary writes the boundary. '
+        'Idempotent (does nothing for a finalized or cancelled run) and raises '
+        '55000 while any leaf is not calculated. SECURITY DEFINER so the '
+        'invoker-owned coordinator can write metadata and read the terminal leaf.';

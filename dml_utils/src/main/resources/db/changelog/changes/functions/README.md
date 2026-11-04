@@ -1784,7 +1784,7 @@ i_table_name dml_utils_data.non_null_text
 i_table_alias dml_utils_data.non_null_text
 i_chunk_size bigint
 RETURNS TABLE
-(o_plan_kind text, o_sql_text text, o_plan json)
+    (o_plan_kind text, o_sql_text text, o_plan json)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Returns the EXPLAIN plans for a blocks run: the
@@ -1804,13 +1804,100 @@ i_key_columns name[]
 i_key_kinds   text[]
 i_chunk_size  bigint
 RETURNS TABLE
-(o_plan_kind text, o_sql_text text, o_plan json)
+    (o_plan_kind text, o_sql_text text, o_plan json)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Returns the EXPLAIN plans for a key-chunked run:
 the boundary insert and a representative non-final and final chunk rendered from
 synthetic ranges. No run or boundary is read or written. Shared by
 `explain_chunk_plans`.
+
+### `dml_utils_lib.claim_next_migration_leaf(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS TABLE
+(o_leaf_ordinal integer, o_leaf_schema_name text, o_leaf_name text,
+    o_chunk_by dml_utils_data.chunking_strategy, o_chunk_size integer)
+```
+
+`SECURITY DEFINER`. Locks the run and claims the first pending/failed/
+stale-calculating leaf in manifest order, verifies it still matches the manifest,
+checks the effective caller can SELECT it and marks it `calculating`. Returns the
+leaf identity plus the run's chunk strategy and size, or no row when the run is
+finalized, cancelled or fully calculated.
+
+###
+
+`dml_utils_lib.leaf_boundary_population_sql(i_chunk_by, i_chunk_size, i_leaf_schema_name, i_leaf_name, i_run_id, i_leaf_ordinal)`
+
+```sql
+i_chunk_by          dml_utils_data.chunking_strategy
+i_chunk_size        integer
+i_leaf_schema_name  text
+i_leaf_name         text
+i_run_id            bigint
+i_leaf_ordinal      integer
+RETURNS text
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the statement that appends one claimed
+leaf's chunk starts, using the blocks builder or the run's stored key descriptor.
+`calculate_migration_leaf` executes it.
+
+### `dml_utils_lib.calculate_next_leaf_in_worker(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS integer
+```
+
+`SECURITY INVOKER`. Runs one `calculate_migration_leaf` step in its own
+`pg_background` transaction and returns the calculated ordinal (NULL when no leaf
+is left). A failing leaf is recorded on the manifest in its own worker
+transaction before the worker error is re-raised.
+
+### `dml_utils_lib.finalize_calculated_run(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS void
+```
+
+`SECURITY INVOKER`. Finalizes a partition-wise run after every leaf is
+calculated: rejects a pending leaf with `55000`, re-checks the live tree against
+the manifest and writes the terminal boundary and totals in an autonomous worker
+transaction. A cancelled or already finalized run is left untouched.
+
+### `dml_utils_lib.terminal_leaf_for_run(i_run_id)`
+
+```sql
+i_run_id bigint
+RETURNS record
+    (o_leaf_ordinal integer, o_leaf_schema_name text, o_leaf_name text,
+     o_bigint_values bigint[], o_text_values text[], o_uuid_values uuid[],
+     o_timestamptz_values timestamptz[])
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the last non-empty manifest leaf of a
+partition-wise run with its stored high-water key arrays, or NULL fields when
+every leaf is empty.
+
+### `dml_utils_lib.append_terminal_boundary(i_run_id, i_leaf_ordinal, i_leaf_schema_name, i_leaf_name, i_terminal_key)`
+
+```sql
+i_run_id            bigint
+i_leaf_ordinal      integer
+i_leaf_schema_name  text
+i_leaf_name         text
+i_terminal_key      dml_utils_data.migration_key
+RETURNS bigint
+```
+
+`SECURITY DEFINER`. Appends the single terminal boundary after the last committed
+boundary, tagged with the terminal leaf, and returns its boundary number (the
+run's chunk count). Re-checks the caller's SELECT privilege and the terminal leaf
+identity, and rejects a missing snapshot with `55000`.
 
 ## `dml_utils_data`
 

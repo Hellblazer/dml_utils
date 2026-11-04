@@ -12,11 +12,7 @@ DECLARE
     l_cancelled_at   timestamptz;
     l_calculated_at  timestamptz;
     l_lock_key       bigint;
-    l_handle         public.pg_background_handle;
     l_ordinal        integer;
-    l_leaf_ordinal   integer;
-    l_error_sqlstate text;
-    l_error_message  text;
 BEGIN
     IF i_run_id IS NULL THEN
         RAISE EXCEPTION 'run id must not be NULL'
@@ -71,73 +67,12 @@ BEGIN
 
         EXIT WHEN l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL;
 
-        -- One leaf per worker transaction: calculate_migration_leaf claims the
-        -- first pending/failed leaf, appends its starts and marks it calculated.
-        -- A NULL result means there is no leaf left to calculate. The launch itself
-        -- is outside the handler: an infrastructure failure there did not attempt
-        -- the leaf, so it must not mark that leaf failed.
-        l_handle := public.pg_background_launch(pg_catalog.format(
-                'SELECT dml_utils_lib.calculate_migration_leaf(%s) AS ordinal',
-                i_run_id));
-
-        BEGIN
-            PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
-            SELECT ordinal
-            INTO l_ordinal
-            FROM public.pg_background_result(l_handle.pid, l_handle.cookie) AS (ordinal integer);
-        EXCEPTION
-            WHEN OTHERS THEN
-                -- The leaf transaction rolled back, so the leaf is still pending and
-                -- would be indistinguishable from one never attempted. Record the
-                -- failure on the manifest in its own worker transaction, then
-                -- re-raise the worker's error.
-                l_error_sqlstate := SQLSTATE;
-                l_error_message := SQLERRM;
-                -- Derive the failed leaf now, after the worker transaction rolled
-                -- back: the first non-calculated leaf is the one it claimed.
-                SELECT leaf.leaf_ordinal
-                INTO l_leaf_ordinal
-                FROM dml_utils_data.migration_run_leaf AS leaf
-                WHERE leaf.run_id = i_run_id
-                  AND leaf.state <> 'calculated'
-                ORDER BY leaf.leaf_ordinal
-                LIMIT 1;
-                IF FOUND THEN
-                    BEGIN
-                        PERFORM public.pg_background_run(pg_catalog.format(
-                                'SELECT dml_utils_lib.record_migration_leaf_error(%s, %s, %L, %L)',
-                                i_run_id, l_leaf_ordinal, l_error_sqlstate, l_error_message));
-                    EXCEPTION
-                        WHEN OTHERS THEN
-                            NULL;
-                    END;
-                END IF;
-                RAISE;
-        END;
-
+        l_ordinal := dml_utils_lib.calculate_next_leaf_in_worker(i_run_id => i_run_id);
         EXIT WHEN l_ordinal IS NULL;
     END LOOP;
 
-    SELECT run.cancelled_at, run.boundaries_calculated_at
-    INTO l_cancelled_at, l_calculated_at
-    FROM dml_utils_data.migration_run AS run
-    WHERE run.run_id = i_run_id;
-
-    -- Cancellation stops launching leaves: the run is terminal and keeps the
-    -- pending leaves for an operator to archive. A finalized run (for example by
-    -- another coordinator) is done.
-    IF l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL THEN
-        RETURN;
-    END IF;
-
-    -- Re-check the tree before writing the terminal boundary, so a change during
-    -- the loop cannot finalize stale ranges.
-    PERFORM dml_utils_lib.assert_migration_tree_unchanged(i_run_id => i_run_id);
-
-    -- Every leaf is calculated. Write the single terminal boundary and the run
-    -- totals in their own worker transaction, so they commit autonomously.
-    PERFORM public.pg_background_run(pg_catalog.format(
-            'SELECT dml_utils_lib.finalize_migration_boundaries(%s)', i_run_id));
+    -- Re-checks the run state and the tree, then finalizes in its own worker.
+    PERFORM dml_utils_lib.finalize_calculated_run(i_run_id => i_run_id);
 END;
 $$;
 
@@ -148,7 +83,7 @@ COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(bigint) IS
         'keyed by the run id, so a concurrent calculation fails closed with '
         'object_not_in_prerequisite_state (55000) instead of duplicating boundaries. '
         'The live tree is compared with the manifest before the loop and before '
-        'finalization, and the claimed leaf is re-checked by calculate_migration_leaf. '
-        'A failing leaf is recorded on the manifest (state = failed, SQLSTATE and '
-        'message) in its own worker transaction before the error is re-raised. A '
-        'cancelled run stops without finalizing, so its pending leaves stay untouched.';
+        'finalization, and the claimed leaf is re-checked by '
+        'claim_next_migration_leaf. A failing leaf is recorded on the manifest '
+        '(state = failed, SQLSTATE and message) in its own worker transaction '
+        'before the error is re-raised. A cancelled run stops without finalizing.';
