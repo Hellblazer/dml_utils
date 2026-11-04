@@ -15,19 +15,15 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
     private static final String SCHEMA = "dml_utils_fixtures";
     private static final String TABLE = "test_ordered_key";
 
-    private long indexOid(String index) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", SCHEMA + "." + index)
-                .get(0, Long.class);
-    }
 
     private void assertUsable(String table, String index) {
         assertDoesNotThrow(() -> Routines.assertOrderedKeyIndexUsable(
-                dsl.configuration(), indexOid(index), SCHEMA, table, index));
+                dsl.configuration(), relationOid(SCHEMA + "." + index), SCHEMA, table, index));
     }
 
     private void assertRejected(String expectedSqlState, String index) {
         assertSqlState(expectedSqlState, () -> Routines.assertOrderedKeyIndexUsable(
-                dsl.configuration(), indexOid(index), SCHEMA, TABLE, index));
+                dsl.configuration(), relationOid(SCHEMA + "." + index), SCHEMA, TABLE, index));
     }
 
     /**
@@ -65,7 +61,7 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
         assertSqlState("42704", () -> Routines.assertOrderedKeyIndexUsable(
                 dsl.configuration(), 0L, SCHEMA, TABLE, "no_such_index"));
         assertSqlState("42704", () -> Routines.assertOrderedKeyIndexUsable(
-                dsl.configuration(), indexOid("test_bigint_pkey"),
+                dsl.configuration(), relationOid(SCHEMA + "." + "test_bigint_pkey"),
                 SCHEMA, TABLE, "test_ordered_key_pkey"));
     }
 
@@ -80,7 +76,7 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
                 + SCHEMA + ".test_partitioned_range (id)");
         try {
             assertSqlState("55000", () -> Routines.assertOrderedKeyIndexUsable(
-                    dsl.configuration(), indexOid(index),
+                    dsl.configuration(), relationOid(SCHEMA + "." + index),
                     SCHEMA, "test_partitioned_range", index));
         } finally {
             executeAsOwner("DROP INDEX IF EXISTS " + SCHEMA + "." + index);

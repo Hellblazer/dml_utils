@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -41,11 +40,11 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     @Test
     void buildsAPrimaryKeyLeafStatement() {
         insertRangeRows(0L, 1L, 2L, 3L, 4L);
-        long runId = createRun(ChunkingStrategy.primary_key, 2, null);
+        long runId = populatePartitionWise("leaf-builder-wrapper-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
         execute(runId, ChunkingStrategy.primary_key, 2, 1);
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(runId);
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         assertEquals(3, boundaries.size());
         assertEquals(0L, boundaries.getFirst().getBoundaryId().getBigintValues()[0]);
         assertEquals(4L, boundaries.getLast().getBoundaryId().getBigintValues()[0]);
@@ -58,11 +57,11 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     @Test
     void buildsAnOrderedKeyLeafStatement() {
         insertRangeRows(0L, 1L, 2L, 3L, 4L);
-        long runId = createRun(ChunkingStrategy.ordered_key, 2, ORDERED_INDEX);
+        long runId = populatePartitionWise("leaf-builder-wrapper-ordered_key", TABLE, TEMPLATE, ChunkingStrategy.ordered_key, 2, ORDERED_INDEX);
 
         execute(runId, ChunkingStrategy.ordered_key, 2, 1);
 
-        assertEquals(3, runBoundaries(runId).size());
+        assertEquals(3, boundaries(runId).size());
     }
 
     /**
@@ -71,7 +70,7 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     @Test
     void buildsABlocksLeafStatement() {
         insertRangeRows(0L, 1L, 2L, 3L, 4L);
-        long runId = createRun(ChunkingStrategy.blocks, 1, null);
+        long runId = populatePartitionWise("leaf-builder-wrapper-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
         String sql = Routines.leafBoundaryPopulationSql(dsl.configuration(),
                 ChunkingStrategy.blocks, 1, PARTITION_SCHEMA,
@@ -79,36 +78,17 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertTrue(sql.contains("pg_relation_size"));
         dsl.execute(sql);
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(runId);
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         assertTrue(boundaries.size() >= 1);
         assertEquals(0L, boundaries.getFirst().getBoundaryId().getBigintValues()[0]);
         assertTrue(boundaries.stream().allMatch(b -> b.getLeafOrdinal() == 1));
     }
 
-    private long createRun(ChunkingStrategy chunkBy, int chunkSize, String index) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("leaf-builder-wrapper-" + chunkBy),
-                TEMPLATE, chunkSize, 1, chunkBy, "t", 0, index, true);
-    }
 
     private void execute(long runId, ChunkingStrategy chunkBy, int chunkSize, int ordinal) {
         dsl.execute(Routines.leafBoundaryPopulationSql(dsl.configuration(), chunkBy,
                 chunkSize, PARTITION_SCHEMA, "test_partitioned_range_low", runId, ordinal));
     }
 
-    private void insertRangeRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "payload-" + id)
-                    .execute();
-        }
-    }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 }

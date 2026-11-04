@@ -39,7 +39,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @Test
     void acceptsEveryManifestLeaf() {
-        long runId = createRun(ChunkingStrategy.primary_key, null);
+        long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
         for (int ordinal : leafOrdinals(runId)) {
             assertDoesNotThrow(() -> Routines.assertMigrationLeafUnchanged(
@@ -53,7 +53,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
-        long runId = createRun(ChunkingStrategy.primary_key, null);
+        long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
         assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
                 dsl.configuration(), -1L, 1));
@@ -66,7 +66,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @Test
     void rejectsADetachedLeafAndAcceptsItAfterReattach() throws Exception {
-        long runId = createRun(ChunkingStrategy.primary_key, null);
+        long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
         executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
@@ -88,7 +88,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @Test
     void rejectsAReplacedLeaf() throws Exception {
-        long runId = createRun(ChunkingStrategy.primary_key, null);
+        long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
         executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
@@ -117,7 +117,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @Test
     void rejectsAChangedLeafBound() throws Exception {
-        long runId = createRun(ChunkingStrategy.primary_key, null);
+        long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
         executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
@@ -140,7 +140,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
     @Test
     void rejectsARewrittenBlocksHeap() throws Exception {
         insertRangeRows(0L, 1L, 2L, 4L);
-        long runId = createRun(ChunkingStrategy.blocks, null);
+        long runId = populatePartitionWise("leaf-unchanged-blocks", PARENT, TEMPLATE, ChunkingStrategy.blocks, 2, null);
         int lowOrdinal = leafOrdinal(runId, "test_partitioned_range_low");
 
         executeAsOwner("VACUUM FULL " + PARTITION_SCHEMA + ".test_partitioned_range_low");
@@ -149,20 +149,6 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
                 dsl.configuration(), runId, lowOrdinal));
     }
 
-    private long createRun(ChunkingStrategy chunkBy, String index) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, PARENT, uniqueLabel("leaf-unchanged-" + chunkBy),
-                TEMPLATE, 2, 1, chunkBy, "t", 0, index, true);
-    }
-
-    private void insertRangeRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "payload-" + id)
-                    .execute();
-        }
-    }
 
     private List<Integer> leafOrdinals(long runId) {
         return dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
@@ -172,13 +158,6 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
                 .fetch(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
     }
 
-    private int leafOrdinal(long runId, String leafName) {
-        return dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .from(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName))
-                .fetchOne(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
-    }
 
     private void grantMid() throws Exception {
         executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "

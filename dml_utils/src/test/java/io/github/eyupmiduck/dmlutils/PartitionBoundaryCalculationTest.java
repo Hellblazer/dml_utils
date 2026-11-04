@@ -2,7 +2,6 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.LeafPartitionsRecord;
@@ -13,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
@@ -82,7 +80,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         assertEquals(5L, run.getTotalChunks());
         assertEquals(0L, run.getTotalChunksCompleted());
 
-        MigrationBoundaryRecord terminal = runBoundaries(runId).getLast();
+        MigrationBoundaryRecord terminal = boundaries(runId).getLast();
         assertEquals(5L, terminal.getBoundaryNo());
         assertEquals(202L, terminal.getBoundaryId().getBigintValues()[0],
                 "the terminal is the last key of the last non-empty leaf");
@@ -92,7 +90,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
 
         // Both entry points are idempotent once finalized.
         finalize(runId);
-        assertEquals(6, runBoundaries(runId).size());
+        assertEquals(6, boundaries(runId).size());
         assertEquals(5L, run(runId).getTotalChunks());
         assertNull(calculate(runId));
     }
@@ -109,11 +107,11 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         assertEquals(2, calculate(runId));
         assertEquals(3, calculate(runId));
         assertNull(calculate(runId));
-        assertTrue(runBoundaries(runId).isEmpty());
+        assertTrue(boundaries(runId).isEmpty());
 
         finalize(runId);
 
-        assertTrue(runBoundaries(runId).isEmpty(), "no chunk means no terminal boundary");
+        assertTrue(boundaries(runId).isEmpty(), "no chunk means no terminal boundary");
         assertNotNull(run(runId).getBoundariesCalculatedAt());
         assertEquals(0L, run(runId).getTotalChunks());
         for (int ordinal = 1; ordinal <= 3; ordinal++) {
@@ -139,7 +137,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         assertEquals(List.of(1, 2, 3, 3), runBoundaryLeaves(runId));
         assertEquals(3L, run(runId).getTotalChunks());
 
-        MigrationBoundaryRecord terminal = runBoundaries(runId).getLast();
+        MigrationBoundaryRecord terminal = boundaries(runId).getLast();
         assertEquals(1L, terminal.getBoundaryId().getBigintValues()[0],
                 "one row fits in one block, so the terminal is block 1");
     }
@@ -174,7 +172,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         insertRows(0L, 1L, 2L, 100L, 101L, 200L, 201L);
         long runId = createRun(ChunkingStrategy.primary_key, 2);
         assertEquals(1, calculate(runId));
-        long firstLeafBoundaries = runBoundaries(runId).size();
+        long firstLeafBoundaries = boundaries(runId).size();
 
         executeAsOwner("ALTER TABLE " + SCHEMA + ".test_partitioned_range"
                 + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
@@ -186,12 +184,12 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
                     + " FOR VALUES FROM (100) TO (200)");
         }
 
-        assertEquals(firstLeafBoundaries, runBoundaries(runId).size(),
+        assertEquals(firstLeafBoundaries, boundaries(runId).size(),
                 "a failed leaf must not disturb the committed boundary prefix");
         assertNull(run(runId).getBoundariesCalculatedAt());
 
         assertEquals(2, calculate(runId), "resume starts at the failed leaf");
-        assertEquals(firstLeafBoundaries + 1, runBoundaries(runId).size());
+        assertEquals(firstLeafBoundaries + 1, boundaries(runId).size());
         assertEquals(3, calculate(runId));
         finalize(runId);
         assertEquals(4L, run(runId).getTotalChunks());
@@ -206,7 +204,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         insertRows(0L, 1L, 100L, 101L, 200L, 201L);
         long runId = createRun(ChunkingStrategy.primary_key, 1);
         assertEquals(1, calculate(runId));
-        long firstLeafBoundaries = runBoundaries(runId).size();
+        long firstLeafBoundaries = boundaries(runId).size();
 
         executeAsOwner("REVOKE SELECT ON " + SCHEMA + ".test_partitioned_range_mid"
                 + " FROM " + TEST_USER + ", dml_utils_caller");
@@ -218,7 +216,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
                     + TEST_USER + ", dml_utils_caller");
         }
 
-        assertEquals(firstLeafBoundaries, runBoundaries(runId).size());
+        assertEquals(firstLeafBoundaries, boundaries(runId).size());
         assertEquals(2, calculate(runId));
         assertEquals(3, calculate(runId));
 
@@ -342,19 +340,13 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         Routines.finalizeMigrationBoundaries(dsl.configuration(), runId);
     }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 
     private List<Long> runBoundaryNumbers(long runId) {
-        return runBoundaries(runId).stream().map(MigrationBoundaryRecord::getBoundaryNo).toList();
+        return boundaries(runId).stream().map(MigrationBoundaryRecord::getBoundaryNo).toList();
     }
 
     private List<Integer> runBoundaryLeaves(long runId) {
-        return runBoundaries(runId).stream().map(MigrationBoundaryRecord::getLeafOrdinal).toList();
+        return boundaries(runId).stream().map(MigrationBoundaryRecord::getLeafOrdinal).toList();
     }
 
     private MigrationRunRecord run(long runId) {
@@ -363,11 +355,5 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
                 .fetchOne();
     }
 
-    private MigrationRunLeafRecord leaf(long runId, int ordinal) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(ordinal))
-                .fetchOne();
-    }
 
 }

@@ -1,8 +1,15 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 
 /**
  * Shared fixture support for the partition-wise tests: owner-side DDL, the
@@ -14,6 +21,79 @@ abstract class PartitionTestBase extends PostgresTestBase {
     static final String PARTITION_SCHEMA = "dml_utils_fixtures";
     static final String PARTITIONED_RANGE = "test_partitioned_range";
     static final String PARTITIONED_RANGE_MID = "test_partitioned_range_mid";
+
+    /**
+     * Creates a partition-wise run over the range fixture and returns its id.
+     *
+     * @param labelPrefix a short unique label prefix
+     * @param table       the partitioned parent name
+     * @param sqlText     the chunk SQL template
+     * @param chunkBy     the strategy applied inside each leaf
+     * @param chunkSize   the chunk size
+     * @param index       the ordered-key index, or null
+     * @return the run id
+     */
+    protected long populatePartitionWise(String labelPrefix, String table, String sqlText,
+                                         ChunkingStrategy chunkBy, int chunkSize,
+                                         String index) {
+        return Routines.populateMigrationBoundaries(dsl.configuration(),
+                PARTITION_SCHEMA, table, uniqueLabel(labelPrefix), sqlText, chunkSize, 1,
+                chunkBy, "t", 0, index, true);
+    }
+
+    /**
+     * Returns the manifest ordinal of a leaf in a partition-wise run.
+     *
+     * @param runId    the run id
+     * @param leafName the storage leaf name
+     * @return the leaf ordinal
+     */
+    protected int leafOrdinal(long runId, String leafName) {
+        return dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
+                .from(MIGRATION_RUN_LEAF)
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName))
+                .fetchOne(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
+    }
+
+    /**
+     * Returns one manifest leaf row.
+     *
+     * @param runId   the run id
+     * @param ordinal the leaf ordinal
+     * @return the leaf row
+     */
+    protected MigrationRunLeafRecord leaf(long runId, int ordinal) {
+        return dsl.selectFrom(MIGRATION_RUN_LEAF)
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(ordinal))
+                .fetchOne();
+    }
+
+    /**
+     * Returns one manifest leaf's state.
+     *
+     * @param runId   the run id
+     * @param ordinal the leaf ordinal
+     * @return the leaf state
+     */
+    protected String leafState(long runId, int ordinal) {
+        return leaf(runId, ordinal).getState();
+    }
+
+    /**
+     * Inserts rows into the range-partitioned fixture by primary key.
+     *
+     * @param ids the ids to insert
+     */
+    protected void insertRangeRows(Long... ids) {
+        for (Long id : ids) {
+            dsl.insertInto(TEST_PARTITIONED_RANGE,
+                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
+                    .values(id, "pending")
+                    .execute();
+        }
+    }
 
     /**
      * Executes one statement as the owner.

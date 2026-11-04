@@ -8,9 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,7 +44,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         insertManyRows(0, 100);
         long blockCount = leafBlocks(LOW);
         assertTrue(blockCount > 1, "the seeded leaf should span several blocks");
-        long runId = createRun(1);
+        long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
         String sql = Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, LOW, runId, 1L, 1);
@@ -56,7 +54,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
 
         dsl.execute(sql);
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(runId);
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         assertEquals(blockCount, boundaries.size(), "one start per block at chunk size one");
         for (int i = 0; i < boundaries.size(); i++) {
             assertEquals(i, boundaries.get(i).getBoundaryNo().intValue());
@@ -75,15 +73,15 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         insertManyRows(200, 50);
         long lowBlocks = leafBlocks(LOW);
         long highBlocks = leafBlocks(HIGH);
-        long runId = createRun(2);
-        int highOrdinal = leafOrdinal(HIGH);
+        long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 2, null);
+        int highOrdinal = leafOrdinal(runId, HIGH);
 
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, LOW, runId, 2L, 1));
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, HIGH, runId, 2L, highOrdinal));
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(runId);
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         long lowStarts = (lowBlocks + 1) / 2;
         long highStarts = (highBlocks + 1) / 2;
         assertEquals(lowStarts + highStarts, boundaries.size());
@@ -104,12 +102,12 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
      */
     @Test
     void insertsNothingForAnEmptyLeaf() {
-        long runId = createRun(1);
+        long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, LOW, runId, 1L, 1));
 
-        assertEquals(0, runBoundaries(runId).size());
+        assertEquals(0, boundaries(runId).size());
     }
 
     /**
@@ -118,7 +116,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
      */
     @Test
     void rejectsBadInputs() {
-        long runId = createRun(1);
+        long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
         assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, null, 1L, 1));
@@ -134,12 +132,6 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 1L, 0));
     }
 
-    private long createRun(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, "test_partitioned_range",
-                uniqueLabel("block-leaf-builder"), TEMPLATE, chunkSize, 1,
-                ChunkingStrategy.blocks, "t", 0, null, true);
-    }
 
     private void insertManyRows(int firstId, int count) {
         dsl.execute("INSERT INTO " + PARTITION_SCHEMA + ".test_partitioned_range"
@@ -156,17 +148,5 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
                 .get(0, Long.class);
     }
 
-    private int leafOrdinal(String leafName) {
-        return dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .from(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName))
-                .fetchOne(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
-    }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 }

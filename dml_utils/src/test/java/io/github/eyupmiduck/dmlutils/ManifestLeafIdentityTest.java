@@ -36,7 +36,7 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
      */
     @Test
     void returnsAKeyLeafIdentity() {
-        long runId = createRun(ChunkingStrategy.primary_key);
+        long runId = populatePartitionWise("manifest-identity-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
         ManifestLeafIdentity low = identity(runId, 1);
         assertEquals(ChunkingStrategy.primary_key, low.getOChunkBy());
@@ -52,7 +52,7 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
      */
     @Test
     void returnsABlocksLeafIdentity() {
-        long runId = createRun(ChunkingStrategy.blocks);
+        long runId = populatePartitionWise("manifest-identity-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 2, null);
 
         ManifestLeafIdentity low = identity(runId, 1);
         assertEquals(ChunkingStrategy.blocks, low.getOChunkBy());
@@ -67,16 +67,11 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
-        long runId = createRun(ChunkingStrategy.primary_key);
+        long runId = populatePartitionWise("manifest-identity-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         assertSqlState("55000", () -> identity(-1L, 1));
         assertSqlState("55000", () -> identity(runId, 999));
     }
 
-    private long createRun(ChunkingStrategy chunkBy) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("manifest-identity-" + chunkBy),
-                TEMPLATE, 2, 1, chunkBy, "t", 0, null, true);
-    }
 
     private ManifestLeafIdentity identity(long runId, int ordinal) {
         return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);

@@ -43,7 +43,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void claimsLeavesInManifestOrder() {
-        long runId = createRun(ChunkingStrategy.blocks, 4);
+        long runId = populatePartitionWise("claim-leaf-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 4, null);
 
         ClaimNextMigrationLeafRecord first = claim(runId).getFirst();
         assertEquals(1, first.getOLeafOrdinal());
@@ -62,14 +62,14 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void returnsNoLeafForFinalizedOrCancelledRuns() {
-        long runId = createRun(ChunkingStrategy.primary_key, 2);
+        long runId = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
         assertTrue(claim(runId).isEmpty());
 
-        long finalized = createRun(ChunkingStrategy.primary_key, 2);
+        long finalized = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(finalized))
@@ -95,7 +95,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void rejectsAnUnreadableLeaf() throws Exception {
-        long runId = createRun(ChunkingStrategy.primary_key, 2);
+        long runId = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         executeAsOwner("REVOKE SELECT ON " + PARTITION_SCHEMA
                 + ".test_partitioned_range_low FROM " + TEST_USER + ", dml_utils_caller");
         try {
@@ -109,23 +109,11 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
         }
     }
 
-    private long createRun(ChunkingStrategy chunkBy, int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("claim-leaf-" + chunkBy),
-                TEMPLATE, chunkSize, 1, chunkBy, "t", 0, null, true);
-    }
 
     private List<ClaimNextMigrationLeafRecord> claim(Long runId) {
         return Routines.claimNextMigrationLeaf(dsl.configuration(), runId);
     }
 
-    private String leafState(long runId, int ordinal) {
-        return dsl.select(MIGRATION_RUN_LEAF.STATE)
-                .from(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(ordinal))
-                .fetchOne(MIGRATION_RUN_LEAF.STATE);
-    }
 
     private void markCalculated(long runId, int ordinal) {
         dsl.update(MIGRATION_RUN_LEAF)

@@ -1,7 +1,6 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,7 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
@@ -172,7 +170,7 @@ class PartitionWiseGuardTest extends PartitionTestBase {
         assertNull(failed.getCalculatedAt());
         assertEquals(0L, failed.getBoundaryCount());
         assertNull(run(runId).getBoundariesCalculatedAt());
-        assertTrue(runBoundaries(runId).isEmpty());
+        assertTrue(boundaries(runId).isEmpty());
     }
 
     /**
@@ -190,7 +188,7 @@ class PartitionWiseGuardTest extends PartitionTestBase {
 
         assertNotNull(run(runId).getCancelledAt());
         assertNull(run(runId).getBoundariesCalculatedAt());
-        assertTrue(runBoundaries(runId).isEmpty());
+        assertTrue(boundaries(runId).isEmpty());
         for (MigrationRunLeafRecord leaf : leaves(runId)) {
             assertEquals("pending", leaf.getState());
         }
@@ -263,13 +261,13 @@ class PartitionWiseGuardTest extends PartitionTestBase {
                 ChunkingStrategy.primary_key, true);
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
-        int boundaryCount = runBoundaries(runId).size();
+        int boundaryCount = boundaries(runId).size();
         long total = run(runId).getTotalChunks();
         assertTrue(boundaryCount > 0);
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
-        assertEquals(boundaryCount, runBoundaries(runId).size());
+        assertEquals(boundaryCount, boundaries(runId).size());
         assertEquals(total, run(runId).getTotalChunks());
         assertNotNull(run(runId).getBoundariesCalculatedAt());
     }
@@ -313,11 +311,5 @@ class PartitionWiseGuardTest extends PartitionTestBase {
                 .fetch();
     }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 
 }

@@ -19,10 +19,6 @@ class ResolvePartitionedOrderedKeyIndexTest extends PartitionTestBase {
                 SCHEMA, table, index);
     }
 
-    private long indexOid(String index) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", SCHEMA + "." + index)
-                .get(0, Long.class);
-    }
 
     /**
      * A range, multi-level and single-leaf parent index each resolve to the
@@ -30,11 +26,11 @@ class ResolvePartitionedOrderedKeyIndexTest extends PartitionTestBase {
      */
     @Test
     void resolvesValidParentIndexes() {
-        assertEquals(indexOid("test_partitioned_range_ordered_key_idx"),
+        assertEquals(relationOid(SCHEMA + "." + "test_partitioned_range_ordered_key_idx"),
                 resolve("test_partitioned_range", "test_partitioned_range_ordered_key_idx"));
-        assertEquals(indexOid("test_partitioned_multi_ordered_key_idx"),
+        assertEquals(relationOid(SCHEMA + "." + "test_partitioned_multi_ordered_key_idx"),
                 resolve("test_partitioned_multi", "test_partitioned_multi_ordered_key_idx"));
-        assertEquals(indexOid("test_partitioned_id_idx"),
+        assertEquals(relationOid(SCHEMA + "." + "test_partitioned_id_idx"),
                 resolve("test_partitioned", "test_partitioned_id_idx"));
     }
 

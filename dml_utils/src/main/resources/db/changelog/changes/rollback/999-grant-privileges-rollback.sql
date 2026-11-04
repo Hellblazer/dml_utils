@@ -1141,3 +1141,63 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.create_migration_run(
     name,
     dml_utils_data.non_null_boolean
     ) TO public;
+
+-- Chunk-runner coordinator helpers.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
+    bigint,
+    dml_utils_data.non_null_text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
+    bigint,
+    dml_utils_data.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
+    bigint,
+    boolean,
+    text[],
+    bigint[],
+    text,
+    text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
+    bigint,
+    boolean,
+    text[],
+    bigint[],
+    text,
+    text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.record_migration_worker_failure(
+    bigint,
+    bigint,
+    text,
+    text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.record_migration_worker_failure(
+    bigint,
+    bigint,
+    text,
+    text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
+    bigint,
+    integer
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
+    bigint,
+    integer
+    ) TO public;
+
+-- Worker stop/drain helper.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
+    integer[],
+    bigint[],
+    boolean,
+    integer
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
+    integer[],
+    bigint[],
+    boolean,
+    integer
+    ) TO public;

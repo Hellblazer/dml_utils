@@ -35,11 +35,11 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
      */
     @Test
     void acceptsAMatchingLeaf() {
-        long keyRun = createRun(ChunkingStrategy.primary_key);
+        long keyRun = populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         ManifestLeafIdentity key = identity(keyRun);
         assertDoesNotThrow(() -> assertLeaf(key));
 
-        long blocksRun = createRun(ChunkingStrategy.blocks);
+        long blocksRun = populatePartitionWise("live-leaf-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 2, null);
         ManifestLeafIdentity blocks = identity(blocksRun);
         assertDoesNotThrow(() -> assertLeaf(blocks));
     }
@@ -49,7 +49,7 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
      */
     @Test
     void rejectsAReplacedReboundOrMissingLeaf() {
-        ManifestLeafIdentity leaf = identity(createRun(ChunkingStrategy.primary_key));
+        ManifestLeafIdentity leaf = identity(populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null));
 
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), leaf.getOChunkBy(), leaf.getOLeafSchemaName(),
@@ -71,13 +71,13 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
      */
     @Test
     void rejectsAChangedOrUnexpectedFilepath() {
-        ManifestLeafIdentity blocks = identity(createRun(ChunkingStrategy.blocks));
+        ManifestLeafIdentity blocks = identity(populatePartitionWise("live-leaf-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 2, null));
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), blocks.getOChunkBy(), blocks.getOLeafSchemaName(),
                 blocks.getOLeafName(), blocks.getOLeafOid(), blocks.getOLeafBound(),
                 "base/1/999"));
 
-        ManifestLeafIdentity key = identity(createRun(ChunkingStrategy.primary_key));
+        ManifestLeafIdentity key = identity(populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null));
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), key.getOChunkBy(), key.getOLeafSchemaName(),
                 key.getOLeafName(), key.getOLeafOid(), key.getOLeafBound(),
@@ -98,11 +98,6 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
                 PARTITION_SCHEMA, TABLE, parentOid, null, null));
     }
 
-    private long createRun(ChunkingStrategy chunkBy) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("live-leaf-" + chunkBy),
-                TEMPLATE, 2, 1, chunkBy, "t", 0, null, true);
-    }
 
     private ManifestLeafIdentity identity(long runId) {
         return Routines.manifestLeafIdentity(dsl.configuration(), runId, 1);

@@ -14,10 +14,6 @@ class AssertPartitionedOrderedKeyChildIndexesTest extends PartitionTestBase {
 
     private static final String SCHEMA = "dml_utils_fixtures";
 
-    private long indexOid(String index) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", SCHEMA + "." + index)
-                .get(0, Long.class);
-    }
 
     /**
      * A range parent's three leaves and a multi-level parent's three storage
@@ -26,10 +22,10 @@ class AssertPartitionedOrderedKeyChildIndexesTest extends PartitionTestBase {
     @Test
     void acceptsEveryStorageLeafWithAChildIndex() {
         assertDoesNotThrow(() -> Routines.assertPartitionedOrderedKeyChildIndexes(
-                dsl.configuration(), indexOid("test_partitioned_range_ordered_key_idx"),
+                dsl.configuration(), relationOid(SCHEMA + "." + "test_partitioned_range_ordered_key_idx"),
                 SCHEMA, "test_partitioned_range", "test_partitioned_range_ordered_key_idx"));
         assertDoesNotThrow(() -> Routines.assertPartitionedOrderedKeyChildIndexes(
-                dsl.configuration(), indexOid("test_partitioned_multi_ordered_key_idx"),
+                dsl.configuration(), relationOid(SCHEMA + "." + "test_partitioned_multi_ordered_key_idx"),
                 SCHEMA, "test_partitioned_multi", "test_partitioned_multi_ordered_key_idx"));
     }
 
@@ -40,7 +36,7 @@ class AssertPartitionedOrderedKeyChildIndexesTest extends PartitionTestBase {
     @Test
     void rejectsLeavesWithoutAMatchingChildIndex() {
         assertSqlState("0A000", () -> Routines.assertPartitionedOrderedKeyChildIndexes(
-                dsl.configuration(), indexOid("test_partitioned_range_ordered_key_idx"),
+                dsl.configuration(), relationOid(SCHEMA + "." + "test_partitioned_range_ordered_key_idx"),
                 SCHEMA, "test_partitioned_multi", "test_partitioned_multi_ordered_key_idx"));
         assertSqlState("0A000", () -> Routines.assertPartitionedOrderedKeyChildIndexes(
                 dsl.configuration(), 0L,

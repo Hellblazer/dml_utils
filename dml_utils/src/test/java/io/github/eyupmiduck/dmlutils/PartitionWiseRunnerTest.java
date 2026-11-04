@@ -12,7 +12,6 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
@@ -69,7 +68,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         assertEquals(1L, leaves.get(1).getBoundaryCount());
         assertEquals(2L, leaves.get(2).getBoundaryCount());
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(run.getRunId());
+        List<MigrationBoundaryRecord> boundaries = boundaries(run.getRunId());
         assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L),
                 boundaries.stream().map(MigrationBoundaryRecord::getBoundaryNo).toList());
         for (MigrationBoundaryRecord boundary : boundaries) {
@@ -147,7 +146,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                         TEST_PARTITIONED_RANGE.PAYLOAD.eq("done")),
                 "no chunk should run after cancellation");
-        for (MigrationBoundaryRecord boundary : runBoundaries(runId)) {
+        for (MigrationBoundaryRecord boundary : boundaries(runId)) {
             assertNull(boundary.getCompletedAt());
             assertNotNull(boundary.getCancelledAt(),
                     "the leaf's committed starts should be cancelled");
@@ -251,7 +250,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         assertEquals(firstLeafBoundaries, leaves(runId).getFirst().getBoundaryCount(),
                 "the already calculated leaf must not be recalculated");
         assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L),
-                runBoundaries(runId).stream()
+                boundaries(runId).stream()
                         .map(MigrationBoundaryRecord::getBoundaryNo).toList());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.ne("done")));
@@ -306,7 +305,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         }
 
         assertNull(run(label).getBoundariesCalculatedAt());
-        assertTrue(runBoundaries(runId).isEmpty());
+        assertTrue(boundaries(runId).isEmpty());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.eq("done")));
     }
@@ -330,7 +329,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         MigrationRunRecord run = run(label);
         assertNotNull(run.getCancelledAt());
         assertNull(run.getBoundariesCalculatedAt(), "a cancelled calculation is not finalized");
-        assertTrue(runBoundaries(runId).isEmpty());
+        assertTrue(boundaries(runId).isEmpty());
         for (MigrationRunLeafRecord leaf : leaves(runId)) {
             assertEquals("pending", leaf.getState());
         }
@@ -420,11 +419,5 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
                 .fetch();
     }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 
 }

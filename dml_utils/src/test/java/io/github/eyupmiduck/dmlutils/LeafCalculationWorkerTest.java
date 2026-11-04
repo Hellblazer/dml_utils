@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -41,7 +40,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
     @Test
     void calculatesEveryLeafThenFinalizes() {
         insertRangeRows(0L, 1L, 2L, 200L, 201L, 202L);
-        long runId = createRun(2);
+        long runId = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
         assertEquals(1, calculateNext(runId));
         assertEquals(2, calculateNext(runId));
@@ -66,7 +65,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
     @Test
     void recordsAFailingLeafAndReraises() throws Exception {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L);
-        long runId = createRun(1);
+        long runId = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         assertEquals(1, calculateNext(runId));
 
         executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()"
@@ -96,7 +95,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
      */
     @Test
     void finalizeIsANoOpForCancelledAndFinalizedRuns() {
-        long cancelled = createRun(1);
+        long cancelled = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
@@ -104,7 +103,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
         Routines.finalizeCalculatedRun(dsl.configuration(), cancelled);
         assertNull(run(cancelled).getBoundariesCalculatedAt());
 
-        long finalized = createRun(1);
+        long finalized = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         for (int i = 0; i < 3; i++) {
             calculateNext(finalized);
         }
@@ -119,41 +118,16 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
      */
     @Test
     void finalizeRejectsPendingLeaves() {
-        long runId = createRun(1);
+        long runId = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         assertSqlState("55000", () -> Routines.finalizeCalculatedRun(
                 dsl.configuration(), runId));
     }
 
-    private long createRun(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("leaf-worker"),
-                TEMPLATE, chunkSize, 1, ChunkingStrategy.primary_key, "t", 0, null, true);
-    }
 
     private Integer calculateNext(long runId) {
         return Routines.calculateNextLeafInWorker(dsl.configuration(), runId);
     }
 
-    private void insertRangeRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "payload-" + id)
-                    .execute();
-        }
-    }
-
-    private String leafState(long runId, int ordinal) {
-        return leaf(runId, ordinal).getState();
-    }
-
-    private io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord leaf(
-            long runId, int ordinal) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(ordinal))
-                .fetchOne();
-    }
 
     private MigrationRunRecord run(long runId) {
         return dsl.selectFrom(MIGRATION_RUN)

@@ -445,6 +445,17 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Resolves a schema-qualified relation name to its OID.
+     *
+     * @param qualifiedName the schema-qualified relation name
+     * @return the relation OID
+     */
+    protected long relationOid(String qualifiedName) {
+        return dsl.fetchOne("SELECT ?::regclass::oid", qualifiedName)
+                .get(0, Long.class);
+    }
+
+    /**
      * Returns the run's boundaries in boundary order.
      *
      * @param runId the run id

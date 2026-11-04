@@ -1911,6 +1911,7 @@ RETURNS void
 SELECT the relation, before a definer-backed scan reads it.
 
 ###
+
 `dml_utils_lib.resolve_migration_creation_key(i_schema_name, i_table_name, i_chunk_by, i_boundary_key_index, i_partition_wise)`
 
 ```sql
@@ -1930,6 +1931,7 @@ stores: the primary key, the ordered descriptor, or the single-relation blocks
 filepath. Partition-wise blocks leaves the run-level filepath NULL.
 
 ###
+
 `dml_utils_lib.snapshot_partition_leaf_manifest(i_run_id, i_schema_name, i_table_name, i_chunk_by, i_boundary_key_index)`
 
 ```sql
@@ -1946,6 +1948,7 @@ identity, bound and blocks filepath, validates every ordered-key child index and
 requires the effective caller to SELECT every stored leaf (`42501`).
 
 ###
+
 `dml_utils_lib.populate_single_relation_boundaries(i_run_id, i_schema_name, i_table_name, i_chunk_by, i_key_columns, i_key_kinds, i_chunk_size)`
 
 ```sql
@@ -1975,6 +1978,7 @@ RETURNS SETOF dml_utils_data.migration_run
 or no row.
 
 ###
+
 `dml_utils_lib.resume_migration_run(i_run, i_driving_table_schema_name, i_driving_table_name, i_sql_text, i_chunk_size, i_threads, i_driving_table_alias, i_chunk_by, i_sleep_ms, i_boundary_key_index, i_partition_wise)`
 
 ```sql
@@ -2002,6 +2006,7 @@ ordered-key descriptor (failing closed with `55000`) and asserts the stored
 blocks relation filepath.
 
 ###
+
 `dml_utils_lib.create_migration_run(i_schema_name, i_table_name, i_label, i_sql_text, i_chunk_size, i_threads, i_chunk_by, i_driving_table_alias, i_sleep_ms, i_boundary_key_index, i_partition_wise)`
 
 ```sql
@@ -2022,6 +2027,82 @@ RETURNS bigint
 `SECURITY INVOKER`. Creates a new run by calling `populate_migration_boundaries`
 in a `pg_background` worker, so the run and its boundaries commit autonomously,
 and returns the run id.
+
+### `dml_utils_lib.prepare_partition_wise_execution(i_run_id, i_label)`
+
+```sql
+i_run_id bigint
+i_label  dml_utils_data.non_null_text
+RETURNS boolean
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Prepares a partition-wise run for processing:
+finishes any pending one-leaf-per-transaction calculation, returns false after
+marking a run cancelled during calculation, and compares the live tree with the
+manifest. Returns true when the run is ready.
+
+###
+
+`dml_utils_lib.next_migration_chunk(i_run_id, i_partition_wise, i_key_kinds, i_in_flight_boundaries, i_default_schema_name, i_default_table_name)`
+
+```sql
+i_run_id                  bigint
+i_partition_wise          boolean
+i_key_kinds               text[]
+i_in_flight_boundaries    bigint[]
+i_default_schema_name     text
+i_default_table_name      text
+RETURNS record
+    (o_boundary_no bigint, o_chunk_schema_name text, o_chunk_table_name text,
+     o_start_values text[], o_end_values text[], o_is_final boolean)
+```
+
+`STABLE`, `SECURITY INVOKER`. Selects the next unclaimed boundary (not in
+flight), extracts its start/end keys and, for a partition-wise run, ends the
+last chunk of each leaf at the manifest high-water snapshot with an inclusive
+bound. Returns no boundary number when nothing is left.
+
+### `dml_utils_lib.record_migration_worker_failure(i_run_id, i_boundary_no, i_sqlstate, i_error_message)`
+
+```sql
+i_run_id        bigint
+i_boundary_no   bigint
+i_sqlstate      text
+i_error_message text
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Records a failed chunk in
+`dml_utils_data.migration_error` through an autonomous `pg_background`
+transaction, swallowing a recording failure so the caller can still re-raise
+the worker error.
+
+### `dml_utils_lib.sleep_between_migration_chunks(i_run_id, i_sleep_ms)`
+
+```sql
+i_run_id  bigint
+i_sleep_ms integer
+RETURNS timestamptz
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Sleeps the run's per-chunk delay in 100ms slices
+and returns the run's `cancelled_at` if cancellation was noticed, so the
+coordinator can stop launching promptly.
+
+### `dml_utils_lib.stop_migration_workers(i_pids, i_cookies, i_cancel, i_wait_ms)`
+
+```sql
+i_pids    integer[]
+i_cookies bigint[]
+i_cancel  boolean
+i_wait_ms integer
+RETURNS void
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Cancels (when requested) and waits for/detaches a
+set of `pg_background` worker handles given as parallel pid/cookie arrays. A NULL
+wait timeout waits indefinitely; per-worker errors are swallowed so the
+coordinator can finish its own error path.
 
 ## `dml_utils_data`
 

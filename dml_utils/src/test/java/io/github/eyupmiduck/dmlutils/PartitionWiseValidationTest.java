@@ -260,14 +260,6 @@ class PartitionWiseValidationTest extends PartitionTestBase {
         assertTrue(runId > 0, "populateMigrationBoundaries should return the new run id");
     }
 
-    private void insertRangeRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "pending")
-                    .execute();
-        }
-    }
 
     private long populateOrdered(String label, String index) {
         return Routines.populateMigrationBoundaries(dsl.configuration(), PARTITION_SCHEMA,

@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedHash.TEST_PARTITIONED_HASH;
@@ -193,7 +192,7 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         assertEquals(21L, run.getTotalChunksCompleted());
         assertEquals(List.of(0L, 1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L, 11L,
                         12L, 13L, 14L, 15L, 16L, 17L, 18L, 19L, 20L, 21L),
-                runBoundaries(run.getRunId()).stream()
+                boundaries(run.getRunId()).stream()
                         .map(MigrationBoundaryRecord::getBoundaryNo).toList());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.ne("done")));
@@ -302,7 +301,7 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         long runId = populate(PARTITIONED_RANGE, label, 1);
         Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(runId);
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         MigrationBoundaryRecord first = boundaries.getFirst();
         MigrationBoundaryRecord next = boundaries.get(1);
         String leafName = leaves(runId).get(first.getLeafOrdinal() - 1).getLeafName();
@@ -325,7 +324,7 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
     }
 
     private void assertBoundariesCoverTheRun(MigrationRunRecord run) {
-        List<MigrationBoundaryRecord> boundaries = runBoundaries(run.getRunId());
+        List<MigrationBoundaryRecord> boundaries = boundaries(run.getRunId());
         assertEquals(run.getTotalChunks() + 1, boundaries.size());
         for (int index = 0; index < boundaries.size(); index++) {
             assertEquals(index, boundaries.get(index).getBoundaryNo());
@@ -363,10 +362,4 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
                 .fetch();
     }
 
-    private List<MigrationBoundaryRecord> runBoundaries(long runId) {
-        return dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
-    }
 }

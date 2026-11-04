@@ -41,7 +41,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     @Test
     void returnsTheLastNonEmptyLeaf() {
         insertRangeRows(0L, 1L, 2L, 200L, 201L, 202L);
-        long runId = createRun(2);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         calculateAll(runId);
 
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
@@ -58,7 +58,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
      */
     @Test
     void returnsNoLeafWhenEveryLeafIsEmpty() {
-        long runId = createRun(1);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         calculateAll(runId);
 
         assertNull(Routines.terminalLeafForRun(dsl.configuration(), runId)
@@ -72,7 +72,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     @Test
     void appendsTheTerminalBoundary() {
         insertRangeRows(0L, 1L, 2L, 200L, 201L, 202L);
-        long runId = createRun(2);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         calculateAll(runId);
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
                 dsl.configuration(), runId);
@@ -100,7 +100,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     @Test
     void rejectsMissingSnapshotLeafAndPrivilege() throws Exception {
         insertRangeRows(0L, 200L);
-        long runId = createRun(1);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         calculateAll(runId);
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
                 dsl.configuration(), runId);
@@ -127,11 +127,6 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         }
     }
 
-    private long createRun(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("terminal-helpers"),
-                TEMPLATE, chunkSize, 1, ChunkingStrategy.primary_key, "t", 0, null, true);
-    }
 
     private void calculateAll(long runId) {
         while (Routines.calculateNextLeafInWorker(dsl.configuration(), runId) != null) {
@@ -139,12 +134,4 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         }
     }
 
-    private void insertRangeRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "payload-" + id)
-                    .execute();
-        }
-    }
 }

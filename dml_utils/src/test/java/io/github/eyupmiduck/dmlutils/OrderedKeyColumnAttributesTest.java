@@ -19,14 +19,10 @@ class OrderedKeyColumnAttributesTest extends PostgresTestBase {
     private static final String SCHEMA = "dml_utils_fixtures";
     private static final String TABLE = "test_ordered_key";
 
-    private long indexOid(String index) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", SCHEMA + "." + index)
-                .get(0, Long.class);
-    }
 
     private List<OrderedKeyColumnAttributesRecord> columns(String table, String index) {
         return Routines.orderedKeyColumnAttributes(dsl.configuration(),
-                indexOid(index), SCHEMA, table, index);
+                relationOid(SCHEMA + "." + index), SCHEMA, table, index);
     }
 
     private void assertRejected(String expectedSqlState, String index) {
