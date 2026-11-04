@@ -1564,6 +1564,7 @@ catalog). `prepare_chunk_sql_render` uses it to build the run-invariant render
 context.
 
 ###
+
 `dml_utils_lib.build_chunk_boundary_literals(i_column_names, i_key_kinds, i_key_collations, i_start_values, i_end_values)`
 
 ```sql
@@ -1584,6 +1585,7 @@ its kind or a malformed array raises `22023`. Shared by
 `render_prepared_chunk_sql`.
 
 ###
+
 `dml_utils_lib.build_chunk_range_boxes(i_column_names, i_start_literals, i_end_literals, i_first_difference_position, i_is_final)`
 
 ```sql
@@ -1613,6 +1615,7 @@ position-aligned array. Unsupported or NULL kinds and a malformed array raise
 `22023`. Shared by `boundary_key_descriptor_sql`.
 
 ###
+
 `dml_utils_lib.format_boundary_population_sql(i_select_list, i_order_by, i_schema_name, i_table_name, i_id_list, i_pack_expression, i_order_by_desc, i_run_id, i_chunk_size)`
 
 ```sql
@@ -1633,6 +1636,124 @@ statement from the key descriptor fragments: it streams the boundary key in
 index order, materialises only the chunk starts and takes the terminal boundary
 from a backward index scan. Shared by `build_boundary_population_sql` so the
 runner and the explain path use the identical SQL.
+
+### `dml_utils_lib.assert_ordered_key_index_usable(i_index_oid, i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_index_oid  oid
+i_schema_name text
+i_table_name  text
+i_index_name  text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Validates the index-level ordered-key contract: the
+OID exists and belongs to the named table, is a unique valid/ready/live btree,
+is not partial or expression-based, has one to three key columns and is
+ascending with NULLS LAST. A missing or mismatched OID is `42704`, an unsafe
+shape is `0A000`/`22023`, and an unusable index is `55000`.
+
+### `dml_utils_lib.ordered_key_column_attributes(i_index_oid, i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_index_oid  oid
+i_schema_name text
+i_table_name  text
+i_index_name  text
+RETURNS TABLE
+    (ordinality integer, column_name name, column_oid oid,
+     column_type regtype, key_kind text)
+```
+
+`STABLE`, `SECURITY INVOKER`. Resolves the key columns of an index already
+accepted by `assert_ordered_key_index_usable`: each column must collapse to a
+supported kind, be NOT NULL, use its default btree operator class and keep its
+column collation. Returns the key columns in index order.
+
+### `dml_utils_lib.resolve_partitioned_ordered_key_index(i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS oid
+```
+
+`STABLE`, `SECURITY INVOKER`. Resolves the named unique index on a declarative
+partitioned parent, checks the parent relkind and validates the parent index
+shape, returning its OID for the leaf walk. Missing index `42704`,
+non-partitioned parent `0A000`, unusable parent `0A000`/`55000`.
+
+### `dml_utils_lib.assert_partitioned_ordered_key_child_indexes(i_index_oid, i_schema_name, i_table_name, i_index_name)`
+
+```sql
+i_index_oid  oid
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_index_name  dml_utils_data.non_null_text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Walks the storage leaves of a partition-wise
+ordered-key run and requires each leaf's matching descendant child index to
+exist and satisfy the ordered-key contract. A missing child is `0A000`; an
+unusable child is `0A000`/`55000`.
+
+### `dml_utils_lib.assert_partitioned_leaf_relations(i_parent)`
+
+```sql
+i_parent oid
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `42809` when any storage leaf of the
+partitioned parent is not an ordinary table, so a foreign-table leaf is
+rejected before a run or manifest row exists.
+
+### `dml_utils_lib.assert_partitioned_leaf_privileges(i_parent)`
+
+```sql
+i_parent oid
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `42501` when the caller cannot SELECT any
+storage leaf of the partitioned parent, so a partition-wise run fails before
+creating a manifest row.
+
+### `dml_utils_lib.manifest_leaf_identity(i_run_id, i_leaf_ordinal)`
+
+```sql
+i_run_id      bigint
+i_leaf_ordinal integer
+RETURNS record
+    (o_chunk_by dml_utils_data.chunking_strategy, o_leaf_schema_name text,
+     o_leaf_name text, o_leaf_oid oid, o_leaf_bound text,
+     o_relation_filepath text)
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the stored identity of one partition-wise
+manifest leaf: chunk strategy, schema, name, OID, partition bound and blocks
+filepath. A missing run/leaf is `55000`.
+
+###
+
+`dml_utils_lib.assert_live_leaf_matches_manifest(i_chunk_by, i_leaf_schema_name, i_leaf_name, i_leaf_oid, i_leaf_bound, i_relation_filepath)`
+
+```sql
+i_chunk_by           dml_utils_data.chunking_strategy
+i_leaf_schema_name   text
+i_leaf_name          text
+i_leaf_oid           oid
+i_leaf_bound         text
+i_relation_filepath  text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
+relation and raises `55000` when it is missing, replaced (different OID),
+detached or rebound (different partition bound), not a plain table, or (for
+blocks) a rewritten heap.
 
 ## `dml_utils_data`
 

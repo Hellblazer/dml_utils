@@ -17,10 +17,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.leaf_partitions(
 AS
 $$
 DECLARE
-    l_parent       oid;
-    l_leaf_schema  text;
-    l_leaf_name    text;
-    l_leaf_relkind text;
+    l_parent oid;
 BEGIN
     PERFORM dml_utils_lib.assert_schema_exists(i_schema_name => i_schema_name);
     PERFORM dml_utils_lib.assert_partitioned_table(
@@ -34,46 +31,8 @@ BEGIN
     WHERE n.nspname = i_schema_name
       AND c.relname = i_table_name;
 
-    -- pg_partition_tree expands a sub-partitioned table to its storage leaves.
-    -- A leaf that is not an ordinary table (typically a foreign table) has no
-    -- heap, so it cannot be chunked or addressed like one.
-    SELECT n.nspname::text, c.relname::text, c.relkind::text
-    INTO l_leaf_schema, l_leaf_name, l_leaf_relkind
-    FROM pg_catalog.pg_partition_tree(l_parent) AS tree
-             JOIN pg_catalog.pg_class AS c ON c.oid = tree.relid
-             JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE tree.isleaf
-      AND c.relkind <> 'r'
-    ORDER BY n.nspname::text COLLATE pg_catalog."C",
-             c.relname::text COLLATE pg_catalog."C",
-             c.oid
-    LIMIT 1;
-
-    IF FOUND THEN
-        RAISE EXCEPTION 'leaf %.% has relkind %, not an ordinary table',
-            l_leaf_schema, l_leaf_name, l_leaf_relkind
-            USING ERRCODE = '42809';
-    END IF;
-
-    -- The caller addresses each leaf directly, so a missing per-leaf privilege
-    -- must fail before a run or manifest row exists, not halfway through
-    -- calculation.
-    SELECT n.nspname::text, c.relname::text
-    INTO l_leaf_schema, l_leaf_name
-    FROM pg_catalog.pg_partition_tree(l_parent) AS tree
-             JOIN pg_catalog.pg_class AS c ON c.oid = tree.relid
-             JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE tree.isleaf
-      AND NOT pg_catalog.has_table_privilege(c.oid, 'SELECT')
-    ORDER BY n.nspname::text COLLATE pg_catalog."C",
-             c.relname::text COLLATE pg_catalog."C",
-             c.oid
-    LIMIT 1;
-
-    IF FOUND THEN
-        RAISE EXCEPTION 'permission denied for leaf %.%', l_leaf_schema, l_leaf_name
-            USING ERRCODE = '42501';
-    END IF;
+    PERFORM dml_utils_lib.assert_partitioned_leaf_relations(i_parent => l_parent);
+    PERFORM dml_utils_lib.assert_partitioned_leaf_privileges(i_parent => l_parent);
 
     -- The order is the manifest contract: partition bound, then schema, name and
     -- OID, all byte-wise, so every enumeration of the same tree yields the same
@@ -109,6 +68,7 @@ COMMENT ON FUNCTION dml_utils_lib.leaf_partitions(
     'Lists the storage leaves of a partitioned table in the deterministic '
         'manifest order (partition bound, schema, name, OID, byte-wise), with '
         'their OIDs, partition-bound expressions and, for chunk_by = blocks, '
-        'physical relation filepaths. Rejects a non-partitioned parent (42809), '
-        'a non-table leaf (42809) and a leaf the caller cannot read (42501). '
-        'Every leaf is returned, including one with no rows.';
+        'physical relation filepaths. assert_partitioned_leaf_relations rejects a '
+        'non-table leaf (42809) and assert_partitioned_leaf_privileges rejects a '
+        'leaf the caller cannot read (42501). Every leaf is returned, including '
+        'one with no rows.';

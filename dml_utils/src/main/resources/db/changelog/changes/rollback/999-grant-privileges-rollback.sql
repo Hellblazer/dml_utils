@@ -839,3 +839,87 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.format_boundary_population_sql(
 GRANT EXECUTE ON FUNCTION dml_utils_lib.format_boundary_population_sql(
     text, text, text, text, text, text, text, bigint, bigint
     ) TO public;
+
+-- Ordered-key and partition introspection helpers.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
+    oid,
+    text,
+    text,
+    text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
+    oid,
+    text,
+    text,
+    text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.ordered_key_column_attributes(
+    oid,
+    text,
+    text,
+    text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.ordered_key_column_attributes(
+    oid,
+    text,
+    text,
+    text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.resolve_partitioned_ordered_key_index(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.resolve_partitioned_ordered_key_index(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
+    oid,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
+    oid,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_leaf_relations(
+    oid
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_leaf_relations(
+    oid
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges(
+    oid
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges(
+    oid
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.manifest_leaf_identity(
+    bigint,
+    integer
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.manifest_leaf_identity(
+    bigint,
+    integer
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
+    dml_utils_data.chunking_strategy,
+    text,
+    text,
+    oid,
+    text,
+    text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
+    dml_utils_data.chunking_strategy,
+    text,
+    text,
+    oid,
+    text,
+    text
+    ) TO public;
