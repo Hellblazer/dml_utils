@@ -33,7 +33,7 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertEquals("k1", row.getOOrderBy());
         assertEquals("id1 DESC", row.getOOrderByDesc());
         assertEquals("ROW(ARRAY[id1::bigint]::bigint[], NULL::text[], NULL::uuid[],"
-                + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
                 row.getOPackExpression());
     }
 

@@ -16,16 +16,11 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
 AS
 $$
 DECLARE
-    l_key_select_list   text;
-    l_key_id_list       text;
-    l_order_by          text;
-    l_order_by_desc     text;
-    l_bigint_terms      text[];
-    l_text_terms        text[];
-    l_uuid_terms        text[];
-    l_timestamptz_terms text[];
-    l_pack_expression   text;
-    l_kind              text;
+    l_key_select_list text;
+    l_key_id_list     text;
+    l_order_by        text;
+    l_order_by_desc   text;
+    l_pack_expression text;
 BEGIN
     -- The boundary-key columns and kinds must be one-dimensional, 1-based and
     -- the same non-empty length of one to three. A different lower bound, a
@@ -43,30 +38,17 @@ BEGIN
     END IF;
 
     -- Build, position by position: the SELECT list that aliases each key column
-    -- as id1, id2, ..., the matching id list, the ORDER BY, and the pack
-    -- expression. All identifiers are catalog names quoted with %I/quote_ident;
-    -- every kind comes from the resolver whitelist (primary_key_kinds or
-    -- ordered_key_kinds), so interpolating the result is safe.
-    l_bigint_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
-    l_text_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
-    l_uuid_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
-    l_timestamptz_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
+    -- as id1, id2, ..., the matching id list and the ORDER BY. All identifiers
+    -- are catalog names quoted with %I/quote_ident.
     l_key_select_list := '';
     l_key_id_list := '';
     l_order_by := '';
     l_order_by_desc := '';
     FOR l_position IN 1..pg_catalog.array_length(i_key_kinds, 1)
         LOOP
-            l_kind := i_key_kinds[l_position];
-
-            -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
-            -- not true) and a NULL or empty column name would render a
-            -- degenerate %I token; reject both before building the statement.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
-                    USING ERRCODE = '22023';
-            END IF;
-
+        -- A NULL or empty column name would render a degenerate %I token;
+        -- reject it before building the statement. The kind itself is
+        -- validated by boundary_key_pack_expression below.
             IF i_key_columns[l_position] IS NULL
                 OR i_key_columns[l_position] = ''
             THEN
@@ -95,44 +77,10 @@ BEGIN
             l_order_by_desc := l_order_by_desc || pg_catalog.format('%sid%s DESC',
                                                                     CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
                                                                     l_position);
-
-            IF l_kind = 'bigint' THEN
-                l_bigint_terms[l_position] := pg_catalog.format('id%s::bigint', l_position);
-            ELSIF l_kind = 'text' THEN
-                l_text_terms[l_position] := pg_catalog.format('id%s::text', l_position);
-            ELSIF l_kind = 'uuid' THEN
-                l_uuid_terms[l_position] := pg_catalog.format('id%s::uuid', l_position);
-            ELSE
-                l_timestamptz_terms[l_position] := pg_catalog.format('id%s::timestamptz', l_position);
-            END IF;
         END LOOP;
 
-    l_pack_expression := pg_catalog.format(
-            'ROW(%s, %s, %s, %s)::dml_utils_data.migration_key',
-            CASE
-                WHEN 'bigint' = ANY (i_key_kinds)
-                    THEN pg_catalog.format('ARRAY[%s]::bigint[]',
-                                           pg_catalog.array_to_string(l_bigint_terms, ', '))
-                ELSE 'NULL::bigint[]'
-                END,
-            CASE
-                WHEN 'text' = ANY (i_key_kinds)
-                    THEN pg_catalog.format('ARRAY[%s]::text[]',
-                                           pg_catalog.array_to_string(l_text_terms, ', '))
-                ELSE 'NULL::text[]'
-                END,
-            CASE
-                WHEN 'uuid' = ANY (i_key_kinds)
-                    THEN pg_catalog.format('ARRAY[%s]::uuid[]',
-                                           pg_catalog.array_to_string(l_uuid_terms, ', '))
-                ELSE 'NULL::uuid[]'
-                END,
-            CASE
-                WHEN 'timestamptz' = ANY (i_key_kinds)
-                    THEN pg_catalog.format('ARRAY[%s]::timestamptz[]',
-                                           pg_catalog.array_to_string(l_timestamptz_terms, ', '))
-                ELSE 'NULL::timestamptz[]'
-                END);
+    l_pack_expression := dml_utils_lib.boundary_key_pack_expression(
+            i_key_kinds => i_key_kinds);
 
     RETURN QUERY
         SELECT l_key_select_list,
@@ -149,6 +97,6 @@ COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
     ) IS
     'Validates a one-to-three-column boundary key and returns the SQL fragments '
         'that read, order and pack it (idN aliases, ascending ORDER BY, descending '
-        'ORDER BY and the migration_key row expression). Shared by the '
-        'single-relation and per-leaf boundary builders so both render the same '
-        'key logic.';
+        'ORDER BY and the migration_key row expression from '
+        'boundary_key_pack_expression). Shared by the single-relation and per-leaf '
+        'boundary builders so both render the same key logic.';

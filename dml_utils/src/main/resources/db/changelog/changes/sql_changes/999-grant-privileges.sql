@@ -835,3 +835,41 @@ REVOKE EXECUTE ON FUNCTION dml_utils.migration_boundaries(
 GRANT EXECUTE ON FUNCTION dml_utils.migration_boundaries(
     bigint
     ) TO dml_utils_caller;
+
+-- Render/boundary-build helpers split out of the public engine routines.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_key_render_columns(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[]
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.build_key_render_columns(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[]
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
+    text[], text[], text[], text[], text[]
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
+    text[], text[], text[], text[], text[]
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
+    text[], text[], text[], integer, boolean
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
+    text[], text[], text[], integer, boolean
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[])
+    FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[])
+    TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.format_boundary_population_sql(
+    text, text, text, text, text, text, text, bigint, bigint
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.format_boundary_population_sql(
+    text, text, text, text, text, text, text, bigint, bigint
+    ) TO dml_utils_caller;

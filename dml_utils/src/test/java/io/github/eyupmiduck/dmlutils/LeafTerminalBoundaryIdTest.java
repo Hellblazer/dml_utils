@@ -177,8 +177,8 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
 
     private long leafBlocks(String leafName) {
         return dsl.fetchOne("SELECT pg_catalog.pg_relation_size(?::regclass)"
-                        + " / pg_catalog.current_setting('block_size')::bigint",
-                PARTITION_SCHEMA + "." + leafName)
+                                + " / pg_catalog.current_setting('block_size')::bigint",
+                        PARTITION_SCHEMA + "." + leafName)
                 .get(0, Long.class);
     }
 }

@@ -747,7 +747,7 @@ read and validation.
 ```sql
 i_parent_index_oid oid
 RETURNS TABLE
-(leaf_oid oid, child_index_oid oid, child_index_name text)
+    (leaf_oid oid, child_index_oid oid, child_index_name text)
 ```
 
 `STABLE`, `SECURITY INVOKER`. Walks a partitioned index's inheritance tree once
@@ -1237,7 +1237,8 @@ boundary). The key may be the primary key or a caller-selected ordered key.
 `populate_migration_boundaries` executes it and the explain path explains it, so
 both use the identical SQL; the run id and chunk size are inlined (both bigint).
 Identifiers are quoted with `%I` and every kind is checked against the
-`bigint`/`text`/`uuid`/`timestamptz` whitelist (`22023` otherwise).
+`bigint`/`text`/`uuid`/`timestamptz` whitelist (`22023` otherwise). The statement
+text itself lives in `format_boundary_population_sql`.
 
 ### `dml_utils_lib.synthetic_chunk_boundary_values(i_key_kinds, i_chunk_size)`
 
@@ -1543,6 +1544,95 @@ RETURNS void
 failed chunk worker. Intended to run inside a `pg_background` worker so the row
 commits autonomously; `run_migration_chunks` calls it that way before re-raising
 a chunk failure, so the error outlives the aborted caller transaction.
+
+### `dml_utils_lib.build_key_render_columns(i_table_alias, i_schema_name, i_table_name, i_key_columns, i_key_kinds)`
+
+```sql
+i_table_alias dml_utils_data.non_null_text
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_key_columns name[]
+i_key_kinds   text[]
+RETURNS record
+    (o_column_names text[], o_key_collations text[])
+```
+
+`STABLE`, `SECURITY INVOKER`. Validates the key columns and kinds once, returns the
+alias-qualified quoted column names and the collation to use for each text column (the quoted column collation,
+`"default"`, or NULL when the column is not in the
+catalog). `prepare_chunk_sql_render` uses it to build the run-invariant render
+context.
+
+###
+`dml_utils_lib.build_chunk_boundary_literals(i_column_names, i_key_kinds, i_key_collations, i_start_values, i_end_values)`
+
+```sql
+i_column_names   text[]
+i_key_kinds      text[]
+i_key_collations text[]
+i_start_values   text[]
+i_end_values     text[]
+RETURNS record
+    (o_start_literals text[], o_end_literals text[],
+     o_first_difference integer, o_first_difference_position integer)
+```
+
+`STABLE`, `SECURITY INVOKER`. Validates the start/end boundary values, renders
+their typed SQL literals and reports the first differing column with its
+direction (zero when all values are equal). A NULL value, an invalid literal for
+its kind or a malformed array raises `22023`. Shared by
+`render_prepared_chunk_sql`.
+
+###
+`dml_utils_lib.build_chunk_range_boxes(i_column_names, i_start_literals, i_end_literals, i_first_difference_position, i_is_final)`
+
+```sql
+i_column_names             text[]
+i_start_literals           text[]
+i_end_literals             text[]
+i_first_difference_position integer
+i_is_final                 boolean
+RETURNS text[]
+```
+
+`STABLE`, `SECURITY INVOKER`. Decomposes a lexicographic `[start, end)` range into
+the axis-aligned box disjunction the renderer emits. The position is the first
+column whose bounds differ (zero when all are equal); `i_is_final` makes the last
+column's upper bound inclusive. Shared by `render_prepared_chunk_sql`.
+
+### `dml_utils_lib.boundary_key_pack_expression(i_key_kinds)`
+
+```sql
+i_key_kinds text[]
+RETURNS text
+```
+
+`STABLE`, `SECURITY INVOKER`. Builds the `migration_key` row expression for a
+one-to-three-column boundary key, placing each kind's `idN` term in its
+position-aligned array. Unsupported or NULL kinds and a malformed array raise
+`22023`. Shared by `boundary_key_descriptor_sql`.
+
+###
+`dml_utils_lib.format_boundary_population_sql(i_select_list, i_order_by, i_schema_name, i_table_name, i_id_list, i_pack_expression, i_order_by_desc, i_run_id, i_chunk_size)`
+
+```sql
+i_select_list     text
+i_order_by        text
+i_schema_name     text
+i_table_name      text
+i_id_list         text
+i_pack_expression text
+i_order_by_desc   text
+i_run_id          bigint
+i_chunk_size      bigint
+RETURNS text
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the single-relation boundary-population
+statement from the key descriptor fragments: it streams the boundary key in
+index order, materialises only the chunk starts and takes the terminal boundary
+from a backward index scan. Shared by `build_boundary_population_sql` so the
+runner and the explain path use the identical SQL.
 
 ## `dml_utils_data`
 

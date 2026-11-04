@@ -111,7 +111,7 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
             holder.rollback();
             setTimeout(waiter, "5s");
             assertNotNull(Routines.claimMigrationBoundary(
-                    waiterDsl.configuration(), runId, 0L),
+                            waiterDsl.configuration(), runId, 0L),
                     "the waiter can claim after the holder releases the lock");
             waiter.rollback();
         }
