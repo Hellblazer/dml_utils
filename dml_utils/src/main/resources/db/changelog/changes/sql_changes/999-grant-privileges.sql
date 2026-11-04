@@ -1061,3 +1061,117 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
     bigint,
     integer
     ) TO dml_utils_caller;
+
+-- Run creation and resolution helpers.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_caller_can_select_relation(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_caller_can_select_relation(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.resolve_migration_creation_key(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name,
+    dml_utils_data.non_null_boolean
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.resolve_migration_creation_key(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name,
+    dml_utils_data.non_null_boolean
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
+    bigint,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
+    bigint,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
+    bigint,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name[],
+    text[],
+    dml_utils_data.positive_integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
+    bigint,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    name[],
+    text[],
+    dml_utils_data.positive_integer
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.find_active_migration_run(
+    dml_utils_data.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.find_active_migration_run(
+    dml_utils_data.non_null_text
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.resume_migration_run(
+    dml_utils_data.migration_run,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.resume_migration_run(
+    dml_utils_data.migration_run,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.create_migration_run(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.create_migration_run(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) TO dml_utils_caller;

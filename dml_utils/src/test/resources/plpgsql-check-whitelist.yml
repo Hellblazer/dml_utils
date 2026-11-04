@@ -16,17 +16,19 @@
     ids, and is SECURITY INVOKER, so a caller already holds the privileges the
     SQL would use. The dynamic SQL is deliberate; see process_migration_chunk.sql.
 - schema: dml_utils_lib
-  function: populate_migration_boundaries
+  function: populate_single_relation_boundaries
   level: security
   statement: EXECUTE
   message: text type variable is not sanitized
   reason: >-
     The routine executes the statement built by
-    dml_utils_lib.build_boundary_population_sql, which quotes every identifier
-    with %I/quote_ident, takes every kind from the primary_key_kinds whitelist,
-    and inlines only the run id and chunk size (both bigint). The routine is
-    SECURITY INVOKER, so a caller already holds the privileges the SQL would
-    use. The dynamic SQL is deliberate; see build_boundary_population_sql.sql.
+    dml_utils_lib.build_boundary_population_sql or its block companion, which
+    quote every identifier with %I/quote_ident, take every kind from the
+    primary_key_kinds whitelist, and inline only the run id and chunk size
+    (both bigint). The effective caller's SELECT privilege is checked first;
+    the routine is SECURITY INVOKER and is called from
+    populate_migration_boundaries' definer context. The dynamic SQL is
+    deliberate; see build_boundary_population_sql.sql.
 - schema: dml_utils_lib
   function: calculate_migration_leaf
   level: security
@@ -70,13 +72,12 @@
     though it only plans. plpgsql_check's suggestion is not applicable; see
     explain_query_plan.sql.
 - schema: dml_utils_lib
-  function: populate_migration_boundaries
+  function: snapshot_partition_leaf_manifest
   level: performance
   statement: SQL statement
   message: target type is different type than source type
   reason: >-
-    The run INSERT assigns the ordered-key descriptor locals (name[], name[],
-    text[]) to the matching name[]/text[] columns. plpgsql_check reports a type
-    difference for the name[] column although both sides are the same catalog
-    type; the run's ordered-key constraint and the ordered-key tests cover the
-    assignment.
+    The manifest INSERT assigns leaf_partitions' text schema/name values to the
+    non_null_text domain columns. plpgsql_check reports a type difference
+    although the domain is a NOT NULL text domain; the manifest CHECK
+    constraints and the partition-wise tests cover the assignment.

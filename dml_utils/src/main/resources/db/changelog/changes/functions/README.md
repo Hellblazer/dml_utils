@@ -1899,6 +1899,130 @@ boundary, tagged with the terminal leaf, and returns its boundary number (the
 run's chunk count). Re-checks the caller's SELECT privilege and the terminal leaf
 identity, and rejects a missing snapshot with `55000`.
 
+### `dml_utils_lib.assert_caller_can_select_relation(i_schema_name, i_table_name)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `42501` when the effective caller cannot
+SELECT the relation, before a definer-backed scan reads it.
+
+###
+`dml_utils_lib.resolve_migration_creation_key(i_schema_name, i_table_name, i_chunk_by, i_boundary_key_index, i_partition_wise)`
+
+```sql
+i_schema_name       dml_utils_data.non_null_text
+i_table_name        dml_utils_data.non_null_text
+i_chunk_by          dml_utils_data.chunking_strategy
+i_boundary_key_index name
+i_partition_wise    dml_utils_data.non_null_boolean
+RETURNS record
+    (o_key_columns name[], o_key_kinds text[], o_relation_filepath text,
+     o_ordered_key_index name, o_ordered_key_columns name[],
+     o_ordered_key_kinds text[])
+```
+
+`STABLE`, `SECURITY INVOKER`. Resolves the key descriptor and filepath a new run
+stores: the primary key, the ordered descriptor, or the single-relation blocks
+filepath. Partition-wise blocks leaves the run-level filepath NULL.
+
+###
+`dml_utils_lib.snapshot_partition_leaf_manifest(i_run_id, i_schema_name, i_table_name, i_chunk_by, i_boundary_key_index)`
+
+```sql
+i_run_id            bigint
+i_schema_name       dml_utils_data.non_null_text
+i_table_name        dml_utils_data.non_null_text
+i_chunk_by          dml_utils_data.chunking_strategy
+i_boundary_key_index name
+RETURNS void
+```
+
+`SECURITY DEFINER`. Snapshots one pending manifest row per storage leaf with its
+identity, bound and blocks filepath, validates every ordered-key child index and
+requires the effective caller to SELECT every stored leaf (`42501`).
+
+###
+`dml_utils_lib.populate_single_relation_boundaries(i_run_id, i_schema_name, i_table_name, i_chunk_by, i_key_columns, i_key_kinds, i_chunk_size)`
+
+```sql
+i_run_id      bigint
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_chunk_by    dml_utils_data.chunking_strategy
+i_key_columns name[]
+i_key_kinds   text[]
+i_chunk_size  dml_utils_data.positive_integer
+RETURNS void
+```
+
+`SECURITY INVOKER`. Inserts a single-relation run's contiguous `0..N`
+boundaries in one statement and records `boundaries_calculated_at` and
+`total_chunks`. Called from `populate_migration_boundaries`' definer context, so
+the metadata write runs as the owner.
+
+### `dml_utils_lib.find_active_migration_run(i_label)`
+
+```sql
+i_label dml_utils_data.non_null_text
+RETURNS SETOF dml_utils_data.migration_run
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the active (not archived) run for a label,
+or no row.
+
+###
+`dml_utils_lib.resume_migration_run(i_run, i_driving_table_schema_name, i_driving_table_name, i_sql_text, i_chunk_size, i_threads, i_driving_table_alias, i_chunk_by, i_sleep_ms, i_boundary_key_index, i_partition_wise)`
+
+```sql
+i_run                        dml_utils_data.migration_run
+i_driving_table_schema_name  dml_utils_data.non_null_text
+i_driving_table_name         dml_utils_data.non_null_text
+i_sql_text                   dml_utils_data.non_null_text
+i_chunk_size                 dml_utils_data.positive_integer
+i_threads                    dml_utils_data.positive_integer
+i_driving_table_alias        dml_utils_data.non_null_text
+i_chunk_by                   dml_utils_data.chunking_strategy
+i_sleep_ms                   dml_utils_data.non_negative_integer
+i_boundary_key_index         name
+i_partition_wise             dml_utils_data.non_null_boolean
+RETURNS record
+    (o_effective_sql_text text, o_effective_schema_name text,
+     o_effective_table_name text, o_effective_alias text,
+     o_effective_threads integer, o_effective_sleep_ms integer,
+     o_chunk_by dml_utils_data.chunking_strategy, o_partition_wise boolean)
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Resolves a resumed run's effective inputs from
+its stored row, emits notices for differing call inputs, re-validates a stored
+ordered-key descriptor (failing closed with `55000`) and asserts the stored
+blocks relation filepath.
+
+###
+`dml_utils_lib.create_migration_run(i_schema_name, i_table_name, i_label, i_sql_text, i_chunk_size, i_threads, i_chunk_by, i_driving_table_alias, i_sleep_ms, i_boundary_key_index, i_partition_wise)`
+
+```sql
+i_schema_name        dml_utils_data.non_null_text
+i_table_name         dml_utils_data.non_null_text
+i_label              dml_utils_data.non_null_text
+i_sql_text           dml_utils_data.non_null_text
+i_chunk_size         dml_utils_data.positive_integer
+i_threads            dml_utils_data.positive_integer
+i_chunk_by           dml_utils_data.chunking_strategy
+i_driving_table_alias dml_utils_data.non_null_text
+i_sleep_ms           dml_utils_data.non_negative_integer
+i_boundary_key_index name
+i_partition_wise     dml_utils_data.non_null_boolean
+RETURNS bigint
+```
+
+`SECURITY INVOKER`. Creates a new run by calling `populate_migration_boundaries`
+in a `pg_background` worker, so the run and its boundaries commit autonomously,
+and returns the run id.
+
 ## `dml_utils_data`
 
 ### `dml_utils_data.set_updated_at()`
