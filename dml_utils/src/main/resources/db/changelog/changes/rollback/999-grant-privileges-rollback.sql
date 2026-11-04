@@ -923,3 +923,49 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     text,
     text
     ) TO public;
+
+-- Function-template and explain helpers.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.resolve_function_chunk_target(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.resolve_function_chunk_target(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_block_chunk_plans(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    bigint
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_block_chunk_plans(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    bigint
+    ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[],
+    bigint
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    name[],
+    text[],
+    bigint
+    ) TO public;

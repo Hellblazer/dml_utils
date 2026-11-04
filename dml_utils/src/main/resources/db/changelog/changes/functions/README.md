@@ -1661,8 +1661,8 @@ i_schema_name text
 i_table_name  text
 i_index_name  text
 RETURNS TABLE
-    (ordinality integer, column_name name, column_oid oid,
-     column_type regtype, key_kind text)
+(ordinality integer, column_name name, column_oid oid,
+    column_type regtype, key_kind text)
 ```
 
 `STABLE`, `SECURITY INVOKER`. Resolves the key columns of an index already
@@ -1754,6 +1754,63 @@ RETURNS void
 relation and raises `55000` when it is missing, replaced (different OID),
 detached or rebound (different partition bound), not a plain table, or (for
 blocks) a rewritten heap.
+
+###
+
+`dml_utils_lib.resolve_function_chunk_target(i_table_schema_name, i_table_name, i_function_schema_name, i_function_name)`
+
+```sql
+i_table_schema_name    dml_utils_data.non_null_text
+i_table_name           dml_utils_data.non_null_text
+i_function_schema_name dml_utils_data.non_null_text
+i_function_name        dml_utils_data.non_null_text
+RETURNS record
+    (o_primary_key_columns name[], o_call_arguments text)
+```
+
+`STABLE`, `SECURITY INVOKER`. Resolves the per-row function target for
+`run_function_over_table`: returns the driving table's primary-key columns and
+the `t.<column>` call argument list after checking the function exists, is an
+ordinary function, returns void and takes exactly the primary-key column types in
+key order (`22023` otherwise). `build_function_chunk_template` owns the statement
+text.
+
+### `dml_utils_lib.explain_block_chunk_plans(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_chunk_size)`
+
+```sql
+i_sql_text   dml_utils_data.non_null_text
+i_schema_name dml_utils_data.non_null_text
+i_table_name dml_utils_data.non_null_text
+i_table_alias dml_utils_data.non_null_text
+i_chunk_size bigint
+RETURNS TABLE
+(o_plan_kind text, o_sql_text text, o_plan json)
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Returns the EXPLAIN plans for a blocks run: the
+boundary insert and two representative half-open ctid ranges. No run or boundary
+is read or written. Shared by `explain_chunk_plans`.
+
+###
+
+`dml_utils_lib.explain_key_chunk_plans(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds, i_chunk_size)`
+
+```sql
+i_sql_text   dml_utils_data.non_null_text
+i_schema_name dml_utils_data.non_null_text
+i_table_name dml_utils_data.non_null_text
+i_table_alias dml_utils_data.non_null_text
+i_key_columns name[]
+i_key_kinds   text[]
+i_chunk_size  bigint
+RETURNS TABLE
+(o_plan_kind text, o_sql_text text, o_plan json)
+```
+
+`VOLATILE`, `SECURITY INVOKER`. Returns the EXPLAIN plans for a key-chunked run:
+the boundary insert and a representative non-final and final chunk rendered from
+synthetic ranges. No run or boundary is read or written. Shared by
+`explain_chunk_plans`.
 
 ## `dml_utils_data`
 
