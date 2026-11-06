@@ -47,7 +47,30 @@ BEGIN
     -- Reuse the active run for the label when there is one; otherwise create it
     -- by running populate_migration_boundaries in a worker so it commits
     -- autonomously and the boundaries become visible to the processing workers.
-    SELECT *
+    SELECT run_id,
+           label,
+           sql_text,
+           chunk_size,
+           chunk_by,
+           partition_wise,
+           threads,
+           sleep_ms,
+           driving_table_schema_name,
+           driving_table_name,
+           driving_table_alias,
+           driving_table_relation_filepath,
+           ordered_key_index,
+           ordered_key_columns,
+           ordered_key_kinds,
+           created_at,
+           updated_at,
+           started_at,
+           boundaries_calculated_at,
+           total_chunks,
+           total_chunks_completed,
+           completed_at,
+           cancelled_at,
+           archived_at
     INTO l_run
     FROM dml_utils_lib.find_active_migration_run(i_label => i_label);
 
@@ -76,20 +99,27 @@ BEGIN
     END IF;
 
     IF FOUND THEN
-        SELECT *
+        SELECT effective.o_effective_sql_text,
+               effective.o_effective_schema_name,
+               effective.o_effective_table_name,
+               effective.o_effective_alias,
+               effective.o_effective_threads,
+               effective.o_effective_sleep_ms,
+               effective.o_chunk_by,
+               effective.o_partition_wise
         INTO l_effective
         FROM dml_utils_lib.resume_migration_run(
-                i_run => l_run,
-                i_driving_table_schema_name => i_driving_table_schema_name,
-                i_driving_table_name => i_driving_table_name,
-                i_sql_text => i_sql_text,
-                i_chunk_size => i_chunk_size,
-                i_threads => i_threads,
-                i_driving_table_alias => i_driving_table_alias,
-                i_chunk_by => i_chunk_by,
-                i_sleep_ms => i_sleep_ms,
-                i_boundary_key_index => i_boundary_key_index,
-                i_partition_wise => i_partition_wise);
+                     i_run => l_run,
+                     i_driving_table_schema_name => i_driving_table_schema_name,
+                     i_driving_table_name => i_driving_table_name,
+                     i_sql_text => i_sql_text,
+                     i_chunk_size => i_chunk_size,
+                     i_threads => i_threads,
+                     i_driving_table_alias => i_driving_table_alias,
+                     i_chunk_by => i_chunk_by,
+                     i_sleep_ms => i_sleep_ms,
+                     i_boundary_key_index => i_boundary_key_index,
+                     i_partition_wise => i_partition_wise) AS effective;
         o_run_id := l_run.run_id;
 
         o_effective_sql_text := l_effective.o_effective_sql_text;
@@ -131,9 +161,10 @@ BEGIN
         o_key_columns := ARRAY ['ctid']::name[];
         o_key_kinds := ARRAY ['bigint'];
     ELSE
-        SELECT *
+        SELECT key.o_key_columns,
+               key.o_key_kinds
         INTO l_key
-        FROM dml_utils_lib.migration_run_boundary_key(i_run_id => o_run_id);
+        FROM dml_utils_lib.migration_run_boundary_key(i_run_id => o_run_id) AS key;
 
         o_key_columns := l_key.o_key_columns;
         o_key_kinds := l_key.o_key_kinds;

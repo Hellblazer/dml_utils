@@ -56,7 +56,12 @@ BEGIN
                 i_table_name => i_table_name);
     END IF;
 
-    SELECT *
+    SELECT o_key_columns,
+           o_key_kinds,
+           o_relation_filepath,
+           o_ordered_key_index,
+           o_ordered_key_columns,
+           o_ordered_key_kinds
     INTO l_key
     FROM dml_utils_lib.resolve_migration_creation_key(
             i_schema_name => i_schema_name,

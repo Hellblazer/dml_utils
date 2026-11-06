@@ -11,7 +11,12 @@ $$
 DECLARE
     l_leaf record;
 BEGIN
-    SELECT *
+    SELECT o_chunk_by,
+           o_leaf_schema_name,
+           o_leaf_name,
+           o_leaf_oid,
+           o_leaf_bound,
+           o_relation_filepath
     INTO l_leaf
     FROM dml_utils_lib.manifest_leaf_identity(
             i_run_id => i_run_id,

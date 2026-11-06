@@ -12,7 +12,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
 AS
 $$
 DECLARE
-    l_run         dml_utils_data.migration_run%ROWTYPE;
+    l_run         record;
     l_caller      name;
     l_leaf_schema text;
     l_leaf_name   text;
@@ -25,7 +25,13 @@ BEGIN
     -- The run row is the authority for the driving table and strategy. A
     -- SECURITY DEFINER function must not let a caller attach another relation's
     -- leaves (or choose a different strategy) for an arbitrary run id.
-    SELECT *
+    SELECT run.partition_wise,
+           run.boundaries_calculated_at,
+           run.cancelled_at,
+           run.driving_table_schema_name,
+           run.driving_table_name,
+           run.chunk_by,
+           run.ordered_key_index
     INTO l_run
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id;

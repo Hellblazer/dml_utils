@@ -12,7 +12,11 @@ DECLARE
     l_boundary_count bigint;
     l_terminal_key   dml_utils_data.migration_key;
 BEGIN
-    SELECT *
+    SELECT o_leaf_ordinal,
+           o_leaf_schema_name,
+           o_leaf_name,
+           o_chunk_by,
+           o_chunk_size
     INTO l_leaf
     FROM dml_utils_lib.claim_next_migration_leaf(i_run_id => i_run_id);
 

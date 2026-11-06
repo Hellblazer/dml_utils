@@ -24,7 +24,8 @@ BEGIN
                 i_leaf_ordinal => i_leaf_ordinal);
     END IF;
 
-    SELECT *
+    SELECT o_key_columns,
+           o_key_kinds
     INTO l_descriptor
     FROM dml_utils_lib.migration_run_boundary_key(i_run_id => i_run_id);
 

@@ -26,7 +26,9 @@ BEGIN
 
     IF i_chunk_by = 'blocks' THEN
         RETURN QUERY
-            SELECT p.*
+            SELECT p.o_plan_kind,
+                   p.o_sql_text,
+                   p.o_plan
             FROM dml_utils_lib.explain_block_chunk_plans(
                          i_sql_text => i_sql_text,
                          i_schema_name => i_schema_name,
@@ -35,7 +37,9 @@ BEGIN
                          i_chunk_size => i_chunk_size) AS p;
     ELSE
         RETURN QUERY
-            SELECT p.*
+            SELECT p.o_plan_kind,
+                   p.o_sql_text,
+                   p.o_plan
             FROM dml_utils_lib.explain_key_chunk_plans(
                          i_sql_text => i_sql_text,
                          i_schema_name => i_schema_name,

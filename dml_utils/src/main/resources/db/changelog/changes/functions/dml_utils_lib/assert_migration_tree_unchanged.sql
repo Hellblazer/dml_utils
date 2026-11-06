@@ -41,7 +41,12 @@ BEGIN
                  i_schema_name => l_schema_name,
                  i_table_name => l_table_name,
                  i_chunk_by => l_chunk_by) AS live
-             FULL OUTER JOIN (SELECT manifest_row.*
+             FULL OUTER JOIN (SELECT manifest_row.leaf_ordinal,
+                                     manifest_row.leaf_schema_name,
+                                     manifest_row.leaf_name,
+                                     manifest_row.leaf_oid,
+                                     manifest_row.leaf_bound,
+                                     manifest_row.relation_filepath
                               FROM dml_utils_data.migration_run_leaf AS manifest_row
                               WHERE manifest_row.run_id = i_run_id) AS manifest
                              ON manifest.leaf_ordinal = live.leaf_ordinal

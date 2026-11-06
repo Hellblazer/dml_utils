@@ -15,8 +15,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.claim_next_migration_leaf(
 AS
 $$
 DECLARE
-    l_run    dml_utils_data.migration_run%ROWTYPE;
-    l_leaf   dml_utils_data.migration_run_leaf%ROWTYPE;
+    l_run    record;
+    l_leaf   record;
     l_caller name;
 BEGIN
     IF i_run_id IS NULL THEN
@@ -27,7 +27,11 @@ BEGIN
     -- The run row lock serializes leaf calculation for this run: a second worker
     -- waits here, then sees the committed leaf state instead of appending the
     -- same leaf twice. The coordinator also holds the run-level advisory lock.
-    SELECT *
+    SELECT run.partition_wise,
+           run.boundaries_calculated_at,
+           run.cancelled_at,
+           run.chunk_by,
+           run.chunk_size
     INTO l_run
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id
@@ -52,7 +56,9 @@ BEGIN
     -- The first leaf that is not calculated, in manifest order. pending,
     -- calculating (a crashed claim) and failed are all retryable; calculated is
     -- never recomputed.
-    SELECT *
+    SELECT leaf.leaf_ordinal,
+           leaf.leaf_schema_name,
+           leaf.leaf_name
     INTO l_leaf
     FROM dml_utils_data.migration_run_leaf AS leaf
     WHERE leaf.run_id = i_run_id

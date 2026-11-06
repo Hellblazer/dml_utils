@@ -53,11 +53,16 @@ BEGIN
     -- so the terminal is comparable with them. The packed key is selected as its
     -- four arrays because a composite result cannot be assigned to a composite
     -- variable directly.
-    SELECT *
+    SELECT o_key_columns,
+           o_key_kinds
     INTO l_run_key
     FROM dml_utils_lib.migration_run_boundary_key(i_run_id => i_run_id);
 
-    SELECT *
+    SELECT o_select_list,
+           o_id_list,
+           o_order_by,
+           o_order_by_desc,
+           o_pack_expression
     INTO l_descriptor
     FROM dml_utils_lib.boundary_key_descriptor_sql(
             i_key_columns => l_run_key.o_key_columns,

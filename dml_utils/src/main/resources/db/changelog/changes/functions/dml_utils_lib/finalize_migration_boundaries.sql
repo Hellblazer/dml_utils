@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_migration_boundaries(
 AS
 $$
 DECLARE
-    l_run          dml_utils_data.migration_run%ROWTYPE;
+    l_run          record;
     l_terminal     record;
     l_terminal_key dml_utils_data.migration_key;
     l_total_chunks bigint;
@@ -19,7 +19,9 @@ BEGIN
     END IF;
 
     -- Serialize finalization with leaf calculation on the run row.
-    SELECT *
+    SELECT run.partition_wise,
+           run.boundaries_calculated_at,
+           run.cancelled_at
     INTO l_run
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id
@@ -49,7 +51,13 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    SELECT *
+    SELECT o_leaf_ordinal,
+           o_leaf_schema_name,
+           o_leaf_name,
+           o_bigint_values,
+           o_text_values,
+           o_uuid_values,
+           o_timestamptz_values
     INTO l_terminal
     FROM dml_utils_lib.terminal_leaf_for_run(i_run_id => i_run_id);
 

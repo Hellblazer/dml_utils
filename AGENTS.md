@@ -190,6 +190,9 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - Prefix input arguments with `i_`, output arguments with `o_`, and local
   variables with `l_`. Use `snake_case` for object names, arguments, and
   variables.
+- Never select `*` in a routine (including `alias.*` and `table.*`). List every
+  column explicitly, for both `INTO` targets and `RETURN QUERY`; a schema change
+  must not silently change a routine's result or assignment.
 - When one routine calls another, pass arguments **by name**
   (`dml_utils_lib.some_helper(i_x => ..., ...)`) rather than positionally, so
   reordering or inserting a parameter cannot silently rebind values.

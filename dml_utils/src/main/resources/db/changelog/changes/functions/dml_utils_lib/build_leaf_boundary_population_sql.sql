@@ -29,7 +29,11 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    SELECT *
+    SELECT o_select_list,
+           o_id_list,
+           o_order_by,
+           o_order_by_desc,
+           o_pack_expression
     INTO l_descriptor
     FROM dml_utils_lib.boundary_key_descriptor_sql(
             i_key_columns => i_key_columns,

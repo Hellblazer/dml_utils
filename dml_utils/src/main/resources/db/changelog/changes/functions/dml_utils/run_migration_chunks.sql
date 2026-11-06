@@ -70,7 +70,7 @@ DECLARE
     -- functions explicitly so this routine resolves them regardless of the
     -- caller's (or Liquibase's) search_path.
     l_handle                public.pg_background_handle;
-    l_outcome               public.pg_background_outcome;
+    l_outcome               record;
 BEGIN
     -- Validate the template up front so a bad call fails before any run or
     -- worker exists.
@@ -197,7 +197,12 @@ BEGIN
             IF NOT l_aborting THEN
                 WHILE pg_catalog.cardinality(l_in_flight) < l_effective_threads
                     LOOP
-                        SELECT *
+                        SELECT o_boundary_no,
+                               o_chunk_schema_name,
+                               o_chunk_table_name,
+                               o_start_values,
+                               o_end_values,
+                               o_is_final
                         INTO l_chunk
                         FROM dml_utils_lib.next_migration_chunk(
                                 i_run_id => l_run_id,
@@ -289,9 +294,11 @@ BEGIN
             l_in_flight_boundaries := l_in_flight_boundaries[1:l_worker_index - 1]
                 || l_in_flight_boundaries[l_worker_index + 1:];
 
-            SELECT *
+            SELECT outcome.has_error,
+                   outcome.sqlstate,
+                   outcome.error_message
             INTO l_outcome
-            FROM public.pg_background_outcome(l_handle.pid, l_handle.cookie);
+            FROM public.pg_background_outcome(l_handle.pid, l_handle.cookie) AS outcome;
             PERFORM public.pg_background_detach(l_handle.pid, l_handle.cookie);
 
             IF l_outcome.has_error THEN

@@ -27,7 +27,11 @@ BEGIN
             i_index_name => i_index_name);
 
     RETURN QUERY
-        SELECT a.*
+        SELECT a.ordinality,
+               a.column_name,
+               a.column_oid,
+               a.column_type,
+               a.key_kind
         FROM dml_utils_lib.ordered_key_column_attributes(
                      i_index_oid => i_index_oid,
                      i_schema_name => i_schema_name,
