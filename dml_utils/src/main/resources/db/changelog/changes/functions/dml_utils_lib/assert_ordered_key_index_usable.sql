@@ -11,7 +11,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
 AS
 $$
 DECLARE
-    l_index record;
+    l_index           record;
+    l_table_oid       oid;
+    l_named_index_oid oid;
 BEGIN
     SELECT i.indrelid,
            i.indnkeyatts,
@@ -36,11 +38,25 @@ BEGIN
 
     -- The OID and the names must describe the same relation, so a caller cannot
     -- validate one index while the error messages name another table.
-    IF l_index.indrelid IS DISTINCT FROM pg_catalog.to_regclass(
-            pg_catalog.format('%I.%I', i_schema_name, i_table_name))
-    THEN
+    l_table_oid := pg_catalog.to_regclass(
+            pg_catalog.format('%I.%I', i_schema_name, i_table_name));
+    IF l_table_oid IS NULL THEN
+        RAISE EXCEPTION 'table %.% does not exist', i_schema_name, i_table_name
+            USING ERRCODE = '42P01';
+    END IF;
+    IF l_index.indrelid IS DISTINCT FROM l_table_oid THEN
         RAISE EXCEPTION 'index %.% does not belong to table %.%',
             i_schema_name, i_index_name, i_schema_name, i_table_name
+            USING ERRCODE = '42704';
+    END IF;
+
+    -- The index name must also resolve to the supplied OID, otherwise the
+    -- diagnostics can name an index that was never validated.
+    l_named_index_oid := pg_catalog.to_regclass(
+            pg_catalog.format('%I.%I', i_schema_name, i_index_name));
+    IF l_named_index_oid IS DISTINCT FROM i_index_oid THEN
+        RAISE EXCEPTION 'index %.% does not match the supplied oid %',
+            i_schema_name, i_index_name, i_index_oid
             USING ERRCODE = '42704';
     END IF;
 
@@ -104,7 +120,8 @@ COMMENT ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
     text,
     text
     ) IS
-    'Validates the index-level ordered-key contract: the OID exists and belongs '
-        'to the named table, is a unique valid/ready/live btree, is not partial or '
-        'expression-based, has one to three key columns and is ascending with NULLS '
-        'LAST. The per-column checks live in ordered_key_column_attributes.';
+    'Validates the index-level ordered-key contract: the named table exists, the '
+        'OID exists, the OID belongs to that table and is the index the name '
+        'resolves to, the index is a unique valid/ready/live btree, is not partial '
+        'or expression-based, has one to three key columns and is ascending with '
+        'NULLS LAST. The per-column checks live in ordered_key_column_attributes.';

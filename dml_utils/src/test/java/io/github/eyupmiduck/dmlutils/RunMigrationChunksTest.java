@@ -1087,6 +1087,29 @@ class RunMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
+     * A cancelled run is terminal, so the thread, sleep and SQL mutators report
+     * {@code P0002} instead of silently writing to a run that can never continue.
+     */
+    @Test
+    void cancelledRunRejectsMetadataAdjustments() {
+        createSource(1, 2, 3, 4);
+        String label = label("cancelled-adjust");
+        long runId = populate(TEST_BIGINT, label, TEMPLATE, 2);
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("P0002", () -> Routines.setMigrationRunThreads(
+                dsl.configuration(), label, 3));
+        assertSqlState("P0002", () -> Routines.setMigrationRunSleepMs(
+                dsl.configuration(), label, 5));
+        assertSqlState("P0002", () -> Routines.setMigrationRunSqlText(
+                dsl.configuration(), label, TEMPLATE));
+    }
+
+    /**
      * A non-positive thread count is rejected by the positive-integer domain.
      */
     @Test

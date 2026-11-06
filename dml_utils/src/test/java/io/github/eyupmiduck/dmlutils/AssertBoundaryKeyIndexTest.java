@@ -39,4 +39,14 @@ class AssertBoundaryKeyIndexTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.assertBoundaryKeyIndex(
                 dsl.configuration(), ChunkingStrategy.blocks, "some_index"));
     }
+
+    /**
+     * A blank index name is treated as invalid even when ordered_key is selected,
+     * rather than reaching the catalog lookup as a missing index.
+     */
+    @Test
+    void rejectsABlankIndexName() {
+        assertSqlState("22023", () -> Routines.assertBoundaryKeyIndex(
+                dsl.configuration(), ChunkingStrategy.ordered_key, "   "));
+    }
 }

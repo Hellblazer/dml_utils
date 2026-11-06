@@ -58,6 +58,9 @@ BEGIN
         RETURN;
     END IF;
 
+    -- A run that is not already complete is resumed or created below.
+    o_already_completed := false;
+
     -- The stored thread count wins for a resumed run. Each chunk is one
     -- background worker; max_worker_processes is a cluster-wide ceiling, not the
     -- free capacity for this call (other workers may hold slots), so this is a

@@ -2,6 +2,7 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveFunctionChunkTarget;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
@@ -16,6 +17,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * non-void or procedure target is rejected with {@code 22023}.
  */
 class ResolveFunctionChunkTargetTest extends PostgresTestBase {
+
+    /**
+     * Drops the functions each test creates, so a rerun of the class starts clean.
+     */
+    @AfterEach
+    void dropFunctions() {
+        for (String function : new String[]{"target_mark_mixed", "target_mark_bigint",
+                "target_mark_wrong", "target_mark_nonvoid", "target_mark_setof"}) {
+            dsl.execute("DROP FUNCTION IF EXISTS public." + function);
+        }
+        dsl.execute("DROP PROCEDURE IF EXISTS public.target_mark_proc");
+    }
 
     private ResolveFunctionChunkTarget resolve(String table, String function) {
         return Routines.resolveFunctionChunkTarget(dsl.configuration(),
@@ -80,5 +93,12 @@ class ResolveFunctionChunkTargetTest extends PostgresTestBase {
                 + " LANGUAGE plpgsql AS $$ BEGIN NULL; END $$");
         assertSqlState("22023", () -> resolve(name(TEST_COMPOSITE_MIXED),
                 "target_mark_proc"));
+
+        // RETURNS SETOF void has prorettype void but expands rows in the select
+        // list, so it does not satisfy the one-value-per-row contract.
+        dsl.execute("CREATE OR REPLACE FUNCTION public.target_mark_setof(a bigint, b text)"
+                + " RETURNS SETOF void LANGUAGE plpgsql AS $$ BEGIN RETURN; END $$");
+        assertSqlState("22023", () -> resolve(name(TEST_COMPOSITE_MIXED),
+                "target_mark_setof"));
     }
 }

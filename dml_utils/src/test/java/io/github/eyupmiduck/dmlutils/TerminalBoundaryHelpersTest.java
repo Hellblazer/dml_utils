@@ -66,6 +66,25 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * An unknown run raises {@code P0002}, while a run without a leaf manifest
+     * raises {@code 55000} instead of looking like an all-empty run.
+     */
+    @Test
+    void rejectsAnUnknownRunOrOneWithoutAManifest() {
+        assertSqlState("P0002", () -> Routines.terminalLeafForRun(
+                dsl.configuration(), -1L));
+
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT
+                        .getSchema().getName(),
+                io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT.getName(),
+                uniqueLabel("terminal-helpers-single"), "SELECT 1", 1, 1,
+                ChunkingStrategy.primary_key, "t", 0, null, false);
+        assertSqlState("55000", () -> Routines.terminalLeafForRun(
+                dsl.configuration(), runId));
+    }
+
+    /**
      * Appending the terminal writes one boundary after the starts and returns its
      * boundary number.
      */

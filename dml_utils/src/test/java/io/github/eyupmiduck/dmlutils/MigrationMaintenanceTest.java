@@ -56,6 +56,33 @@ class MigrationMaintenanceTest extends PostgresTestBase {
     }
 
     /**
+     * A non-terminal archived run is left in place, so a delete cannot remove a
+     * run that might still have an in-flight worker. (archive_migration_run
+     * normally prevents this state by cancelling first.)
+     */
+    @Test
+    void deleteSkipsANonTerminalArchivedRun() {
+        long runId = populateRun("maint-nonterminal", 2, 1, 2);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertEquals(0, Routines.deleteArchivedMigrationRuns2(
+                        dsl.configuration(), "maint-nonterminal"),
+                "a non-terminal archived run must not be deleted");
+        assertNotNull(runRow("maint-nonterminal"), "the run remains");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(1, Routines.deleteArchivedMigrationRuns2(
+                        dsl.configuration(), "maint-nonterminal"),
+                "once terminal, the archived run is deleted");
+    }
+
+    /**
      * Deleting archived runs for a label leaves other labels' archived runs.
      */
     @Test

@@ -131,8 +131,12 @@ abstract class PartitionTestBase extends PostgresTestBase {
                         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits AS i"
                                 + " JOIN pg_catalog.pg_class AS c ON c.oid = i.inhrelid"
                                 + " JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace"
-                                + " WHERE n.nspname = ? AND c.relname = ?)",
-                        PARTITION_SCHEMA, PARTITIONED_RANGE_MID)
+                                + " JOIN pg_catalog.pg_class AS p ON p.oid = i.inhparent"
+                                + " JOIN pg_catalog.pg_namespace AS pn ON pn.oid = p.relnamespace"
+                                + " WHERE n.nspname = ? AND c.relname = ?"
+                                + "   AND pn.nspname = ? AND p.relname = ?)",
+                        PARTITION_SCHEMA, PARTITIONED_RANGE_MID,
+                        PARTITION_SCHEMA, PARTITIONED_RANGE)
                 .get(0, Boolean.class));
     }
 

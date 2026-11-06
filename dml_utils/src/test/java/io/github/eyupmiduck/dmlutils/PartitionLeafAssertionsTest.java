@@ -39,11 +39,11 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
      */
     @Test
     void rejectsAForeignLeafRelation() throws Exception {
-        executeAsOwner("CREATE SERVER leaf_relation_foreign_server"
-                + " FOREIGN DATA WRAPPER postgres_fdw");
-        executeAsOwner("CREATE FOREIGN TABLE " + SCHEMA + ".test_partitioned_foreign_leaf"
-                + " (id integer NOT NULL, payload text) SERVER leaf_relation_foreign_server");
         try {
+            executeAsOwner("CREATE SERVER IF NOT EXISTS leaf_relation_foreign_server"
+                    + " FOREIGN DATA WRAPPER postgres_fdw");
+            executeAsOwner("CREATE FOREIGN TABLE " + SCHEMA + ".test_partitioned_foreign_leaf"
+                    + " (id integer NOT NULL, payload text) SERVER leaf_relation_foreign_server");
             executeAsOwner("ALTER TABLE " + SCHEMA + ".test_partitioned_foreign"
                     + " ATTACH PARTITION " + SCHEMA + ".test_partitioned_foreign_leaf"
                     + " FOR VALUES FROM (0) TO (100)");

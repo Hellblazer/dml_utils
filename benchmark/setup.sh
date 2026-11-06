@@ -40,6 +40,18 @@ for arg in "$@"; do
     esac
 done
 
+# Only ever remove resources in the benchmark namespace: the names come from
+# config.env/config.local.env, and a typo must not destroy an unrelated volume.
+for _name in "$BENCH_CONTAINER" "$BENCH_VOLUME" "$BENCH_NETWORK"; do
+    case "$_name" in
+        dml_utils_benchmark*) ;;
+        *)
+            echo "refusing to manage '$_name': not a benchmark resource" >&2
+            exit 1
+            ;;
+    esac
+done
+
 command -v docker >/dev/null 2>&1 || {
     echo "docker is required but was not found on PATH" >&2
     exit 1
@@ -180,15 +192,69 @@ fi
 # key tuple by base-mod digits: with p columns and modulus m = ceil(rows^(1/p)),
 # the i-th column is ((g - 1) / m^(p-i)) % m + 1, so m^p >= rows makes the tuples
 # unique.
+case "$BENCH_PK_COLUMNS" in
+    1|2|3) ;;
+    *)
+        echo "BENCH_PK_COLUMNS must be 1, 2 or 3: $BENCH_PK_COLUMNS" >&2
+        exit 2
+        ;;
+esac
+case "$BENCH_ROWS" in
+    ''|*[!0-9]*)
+        echo "BENCH_ROWS must be a positive integer: $BENCH_ROWS" >&2
+        exit 2
+        ;;
+esac
+[ "$BENCH_ROWS" -gt 0 ] || {
+    echo "BENCH_ROWS must be positive: $BENCH_ROWS" >&2
+    exit 2
+}
+case "$BENCH_PARTITIONED_LEAVES" in
+    ''|*[!0-9]*)
+        echo "BENCH_PARTITIONED_LEAVES must be a positive integer: $BENCH_PARTITIONED_LEAVES" >&2
+        exit 2
+        ;;
+esac
+[ "$BENCH_PARTITIONED_LEAVES" -gt 0 ] || {
+    echo "BENCH_PARTITIONED_LEAVES must be positive: $BENCH_PARTITIONED_LEAVES" >&2
+    exit 2
+}
+case "$BENCH_THREADS_TO" in
+    ''|*[!0-9]*)
+        echo "BENCH_THREADS_TO must be a non-negative integer: $BENCH_THREADS_TO" >&2
+        exit 2
+        ;;
+esac
+case "$BENCH_MAX_WORKER_PROCESSES" in
+    ''|*[!0-9]*)
+        echo "BENCH_MAX_WORKER_PROCESSES must be a non-negative integer: $BENCH_MAX_WORKER_PROCESSES" >&2
+        exit 2
+        ;;
+esac
+[ "$BENCH_MAX_WORKER_PROCESSES" -ge "$BENCH_THREADS_TO" ] || {
+    echo "BENCH_MAX_WORKER_PROCESSES ($BENCH_MAX_WORKER_PROCESSES) must be at least BENCH_THREADS_TO ($BENCH_THREADS_TO)" >&2
+    exit 2
+}
+case "$BENCH_SCHEMA" in
+    ''|public|pg_catalog|information_schema)
+        echo "refusing to create benchmark fixtures in schema '$BENCH_SCHEMA'" >&2
+        exit 2
+        ;;
+esac
+# A target that collides with any source would make create-target.sql drop the
+# freshly populated source and turn the benchmark into a self-insert.
+_sources=" $BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE "
+for _target in "$BENCH_TARGET_TABLE" "$BENCH_ORDERED_TARGET_TABLE" \
+    "$BENCH_PARTITIONED_TARGET_TABLE"; do
+    case "$_sources" in
+        *" $_target "*)
+            echo "benchmark target '$_target' collides with a source table" >&2
+            exit 2
+            ;;
+    esac
+done
+unset _sources _target
 pk_count="$BENCH_PK_COLUMNS"
-if [ "$pk_count" -lt 1 ] || [ "$pk_count" -gt 3 ]; then
-    echo "BENCH_PK_COLUMNS must be 1, 2 or 3: $BENCH_PK_COLUMNS" >&2
-    exit 2
-fi
-if [ "$BENCH_PARTITIONED_LEAVES" -lt 1 ]; then
-    echo "BENCH_PARTITIONED_LEAVES must be at least 1: $BENCH_PARTITIONED_LEAVES" >&2
-    exit 2
-fi
 pk_mod="$(awk -v n="$BENCH_ROWS" -v p="$pk_count" 'BEGIN { m = 1; while (m ^ p < n) m++; print m }')"
 if [ "$BENCH_PARTITIONED_LEAVES" -gt "$pk_mod" ]; then
     echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) must not exceed the distinct k1 values ($pk_mod) produced for $BENCH_ROWS rows" >&2

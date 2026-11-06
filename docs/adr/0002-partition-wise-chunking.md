@@ -83,7 +83,8 @@ terminal marker, not a chunk.
 
 ### 3. Schema
 
-Edit the pre-deployment baseline in place:
+The pre-deployment baseline was edited in place; after deployment these are new
+changesets:
 
 - `migration_run.partition_wise boolean NOT NULL DEFAULT false`.
 - `migration_run_leaf` (the manifest) with the fields above, keyed by
@@ -231,14 +232,18 @@ privilege SQLSTATE and earlier progress stays committed; the operator fixes the
 grant and retries. Leaves are addressed as `schema.leaf` (no `ONLY`); a foreign
 leaf is rejected.
 
-### 10. Baseline policy
+### 10. Baseline policy (pre-deployment, historical)
 
-Nothing is deployed. Edit `006-create-migration-tables.sql`, the create/type
-scripts, routine files, grants and rollbacks in place; no compatibility
-changesets or backfills. Recreate local/dev/benchmark databases.
-`LiquibaseUpgradeTest` was suspended while the baseline was edited in place
-(`dml-b87.12`) and was restored in `dml-b87.13` against v1.16.0, the first
+These changes were applied to the pre-deployment baseline:
+`006-create-migration-tables.sql`, the create/type scripts, routine files,
+grants and rollbacks were edited in place; no compatibility changesets or
+backfills were added, and local/dev/benchmark databases were recreated.
+`LiquibaseUpgradeTest` was suspended while the baseline was edited in place (`dml-b87.12`) and was restored in
+`dml-b87.13` against v1.16.0, the first
 release cut from the cleaned changelog.
+
+This policy no longer applies: the baseline is published, so further changes are
+new changesets and `LiquibaseUpgradeTest` stays enabled.
 
 ## Example
 
@@ -324,7 +329,7 @@ Negative / risks:
 - Parallel boundary calculation in v1.
 - Reconciling a changed partition tree.
 - Partition-wise `run_function_over_table` in v1.
-- Old runs or backfills; nothing is deployed.
+- Old runs or backfills from before the first deployment.
 
 ## Implementation map
 

@@ -31,4 +31,4 @@ COMMENT ON COLUMN :"schema".:"source_table".payload IS
 INSERT INTO :"schema".:"source_table" (:pk_key, payload)
 SELECT :pk_exprs,
        pg_catalog.md5(g::text)
-FROM pg_catalog.generate_series(1, :rows) AS g;
+FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;

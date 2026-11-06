@@ -486,9 +486,10 @@ i_label dml_utils_data.non_null_text
 RETURNS bigint
 ```
 
-`SECURITY INVOKER`. Sets `archived_at` on the active (not archived) run for the
+`SECURITY DEFINER`. Sets `archived_at` on the active (not archived) run for the
 label, if any, so the label can be reused; returns the archived `run_id`, or
-NULL when the label had no active run. Pair it with
+NULL when the label had no active run. An unfinished run is cancelled first, so
+every archived run is terminal (completed or cancelled). Pair it with
 `dml_utils_lib.populate_migration_boundaries` to rerun a label: populate,
 archive, populate again.
 
@@ -499,7 +500,7 @@ i_label dml_utils_data.non_null_text
 RETURNS bigint
 ```
 
-`SECURITY INVOKER`. Cancels the active (not archived, unfinished) migration run
+`SECURITY DEFINER`. Cancels the active (not archived, unfinished) migration run
 for the label, if any: sets its `cancelled_at`, marks the unclaimed pending
 boundaries `cancelled_at`, and returns the `run_id`, or NULL when there was no
 active unfinished run. Boundaries held by an in-flight worker are left for
@@ -516,9 +517,11 @@ i_label dml_utils_data.non_null_text
 RETURNS bigint
 ```
 
-`SECURITY INVOKER`. Deletes archived runs — every one, or only those for the
-label — and returns the number deleted. Deleting a run cascades to its
-`migration_boundary` and `migration_error` rows. The overloads share a
+`SECURITY DEFINER`. Deletes terminal (completed or cancelled) archived runs —
+every one, or only those for the label — and returns the number deleted. A
+non-terminal archived run is left in place; `archive_migration_run` cancels
+unfinished runs, so that state is normally unreachable. Deleting a run cascades
+to its `migration_boundary` and `migration_error` rows. The overloads share a
 changeset (`function-dml_utils.delete_archived_migration_runs`).
 
 ### `dml_utils.migration_run_summary(i_label)`

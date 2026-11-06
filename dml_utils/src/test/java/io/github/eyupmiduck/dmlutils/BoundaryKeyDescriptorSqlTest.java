@@ -92,6 +92,9 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertSqlState("22023", () -> describe(
                 new String[]{"k1", "k2", "k3", "k4"},
                 new String[]{"bigint", "bigint", "bigint", "bigint"}));
+        // A repeated column would render a non-unique boundary key.
+        assertSqlState("22023", () -> describe(
+                new String[]{"k1", "k1"}, new String[]{"bigint", "bigint"}));
     }
 
     /**

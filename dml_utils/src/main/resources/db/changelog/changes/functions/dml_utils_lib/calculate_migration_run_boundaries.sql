@@ -49,9 +49,25 @@ BEGIN
     -- releases on both success and failure; a second coordinator that cannot take
     -- it fails closed instead of appending duplicate boundaries.
     l_lock_key := dml_utils_lib.migration_run_calculation_lock_key(i_run_id => i_run_id);
-    IF NOT pg_catalog.pg_try_advisory_xact_lock(l_lock_key) THEN
+    -- IS NOT TRUE fails closed when the helper returns NULL, unlike NOT <NULL>.
+    IF pg_catalog.pg_try_advisory_xact_lock(l_lock_key) IS NOT TRUE THEN
         RAISE EXCEPTION 'boundary calculation for run % is already in progress', i_run_id
             USING ERRCODE = '55000';
+    END IF;
+
+    -- Re-check terminal state under the lock. A coordinator that finished
+    -- between the read above and the lock must not reach the tree assertion,
+    -- which would report a misleading 'tree changed' error for a complete run.
+    SELECT run.cancelled_at, run.boundaries_calculated_at
+    INTO l_cancelled_at, l_calculated_at
+    FROM dml_utils_data.migration_run AS run
+    WHERE run.run_id = i_run_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'migration run % does not exist', i_run_id
+            USING ERRCODE = 'P0002';
+    END IF;
+    IF l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL THEN
+        RETURN;
     END IF;
 
     -- Compare the live tree with the manifest once before starting. Each leaf is
@@ -64,6 +80,10 @@ BEGIN
         INTO l_cancelled_at, l_calculated_at
         FROM dml_utils_data.migration_run AS run
         WHERE run.run_id = i_run_id;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'migration run % does not exist', i_run_id
+                USING ERRCODE = 'P0002';
+        END IF;
 
         EXIT WHEN l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL;
 

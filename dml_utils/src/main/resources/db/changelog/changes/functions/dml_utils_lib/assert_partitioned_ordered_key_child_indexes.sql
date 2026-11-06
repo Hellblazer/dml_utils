@@ -13,6 +13,14 @@ $$
 DECLARE
     l_leaf record;
 BEGIN
+    -- Validate the parent index itself first, so a NULL/stale/wrong OID fails
+    -- with an accurate 42704 instead of "every leaf has no matching child index".
+    PERFORM dml_utils_lib.assert_ordered_key_index_usable(
+            i_index_oid => i_index_oid,
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_index_name => i_index_name);
+
     -- Pair each storage leaf with its descendant child index in one walk (the
     -- index tree mirrors the table tree, so a multi-level leaf's index is not a
     -- direct child of the root).
@@ -55,7 +63,8 @@ COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) IS
-    'Walks the storage leaves of a partition-wise ordered-key run and requires '
-        'each leaf''s matching descendant child index to exist and satisfy the '
-        'ordered-key contract. A missing child is 0A000; an unusable child is '
+    'Validates the supplied parent index, then walks the storage leaves of a '
+        'partition-wise ordered-key run and requires each leaf''s matching '
+        'descendant child index to exist and satisfy the ordered-key contract. A '
+        'missing child is 0A000; an unusable child is '
         '0A000/55000.';

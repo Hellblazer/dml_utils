@@ -436,6 +436,8 @@ class MigrationTablesTest extends PostgresTestBase {
         assertSqlState("22023", () -> updateLeaf(run, 1,
                 MIGRATION_RUN_LEAF.LEAF_OID, 100009L));
         assertSqlState("22023", () -> updateLeaf(run, 1,
+                MIGRATION_RUN_LEAF.CREATED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z")));
+        assertSqlState("22023", () -> updateLeaf(run, 1,
                 MIGRATION_RUN_LEAF.LEAF_BOUND,
                 "FOR VALUES FROM ('2026-02-01') TO ('2026-03-01')"));
         // A blocks leaf keeps a non-null filepath, so this reaches the identity
@@ -446,6 +448,30 @@ class MigrationTablesTest extends PostgresTestBase {
                 .set(MIGRATION_RUN.PARTITION_WISE, false)
                 .where(MIGRATION_RUN.RUN_ID.eq(run))
                 .execute());
+    }
+
+    /**
+     * A finalized or cancelled run is closed: adding a manifest leaf afterwards
+     * is rejected, because it could never be claimed and would stay pending.
+     */
+    @Test
+    void rejectsNewLeavesForFinalizedOrCancelledRuns() {
+        Long finalized = insertPartitionWiseRun(ChunkingStrategy.primary_key);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
+                        OffsetDateTime.parse("2020-01-01T00:00:01Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(finalized))
+                .execute();
+        assertSqlState("55000", () -> insertLeaf(finalized, 1, "pending", null, 100001L));
+
+        Long cancelled = insertPartitionWiseRun(ChunkingStrategy.primary_key);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.parse("2020-01-01T00:00:01Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
+                .execute();
+        assertSqlState("55000", () -> insertLeaf(cancelled, 1, "pending", null, 100001L));
     }
 
     /**
@@ -917,6 +943,18 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
 
+        // The milestone itself is frozen, so the total_chunks freeze cannot be
+        // bypassed by clearing it first.
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
+                        OffsetDateTime.parse("2020-01-01T00:00:02Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
         // total_chunks_completed remains mutable, up to total_chunks.
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, 2L)
@@ -969,8 +1007,8 @@ class MigrationTablesTest extends PostgresTestBase {
 
     /**
      * {@code run_id}, {@code boundary_no} and {@code boundary_id} are immutable:
-     * updating any of them is rejected, while updating the mutable
-     * {@code completed_at} is allowed.
+     * updating any of them is rejected. {@code completed_at} may be written once,
+     * but a later rewrite (including clearing it) is rejected.
      */
     @Test
     void rejectsUpdatesToImmutableBoundaryColumns() {
@@ -990,13 +1028,22 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute());
 
-        // The mutable started_at/completed_at columns can still be updated, in
-        // the order the time-order check requires.
+        // The first completed_at write is allowed, in the order the time-order
+        // check requires; it is then frozen.
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
     }
 
     /**

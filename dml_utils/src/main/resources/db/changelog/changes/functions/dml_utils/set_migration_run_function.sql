@@ -14,6 +14,7 @@ CREATE OR REPLACE FUNCTION dml_utils.set_migration_run_function(
 AS
 $$
 DECLARE
+    l_driving_table_alias     text;
     l_function_chunk_template text;
 BEGIN
     -- The run's driving table (immutable) decides which primary-key signature the
@@ -27,22 +28,34 @@ BEGIN
     -- set_migration_run_sql_text call below cannot be retargeted by a concurrent
     -- session that archives this run and creates a new one for the same label:
     -- archiving this row blocks on the lock until this transaction ends.
-    SELECT dml_utils_lib.build_function_chunk_template(
+    SELECT driving_table_alias::text,
+           dml_utils_lib.build_function_chunk_template(
                    i_table_schema_name => driving_table_schema_name,
                    i_table_name => driving_table_name,
                    i_function_schema_name => i_function_schema_name,
                    i_function_name => i_function_name,
                    i_filter => i_filter)
-    INTO l_function_chunk_template
+    INTO l_driving_table_alias, l_function_chunk_template
     FROM dml_utils_data.migration_run
     WHERE label = i_label
       AND archived_at IS NULL
       AND completed_at IS NULL
+      AND cancelled_at IS NULL
         FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'no unfinished migration run for label %', i_label
             USING ERRCODE = 'P0002';
+    END IF;
+
+    -- The generated template always references the engine's default alias t,
+    -- while render_prepared_chunk_sql uses the run's stored alias. A run created
+    -- with a non-default alias would therefore persist a template that cannot
+    -- resolve its driving table.
+    IF l_driving_table_alias <> 't' THEN
+        RAISE EXCEPTION 'set_migration_run_function requires the default driving-table alias t, but run % uses %',
+            i_label, l_driving_table_alias
+            USING ERRCODE = '0A000';
     END IF;
 
     -- Reuse the base mutator: it validates the template and only updates an

@@ -12,7 +12,30 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     SECURITY INVOKER
 AS
 $$
+DECLARE
+    l_updated integer;
 BEGIN
+    -- Only a fresh run can be populated. A repeat call against an empty source
+    -- would silently move boundaries_calculated_at forward; against a non-empty
+    -- source it would fail with a raw duplicate-key error from the boundary
+    -- INSERT. The run's state is checked here so both paths fail the same way.
+    IF NOT EXISTS (SELECT 1
+                   FROM dml_utils_data.migration_run AS run
+                   WHERE run.run_id = i_run_id)
+    THEN
+        RAISE EXCEPTION 'migration run % does not exist', i_run_id
+            USING ERRCODE = 'P0002';
+    END IF;
+    IF EXISTS (SELECT 1
+               FROM dml_utils_data.migration_run AS run
+               WHERE run.run_id = i_run_id
+                 AND (run.boundaries_calculated_at IS NOT NULL
+                   OR run.cancelled_at IS NOT NULL))
+    THEN
+        RAISE EXCEPTION 'run % is already calculated or cancelled', i_run_id
+            USING ERRCODE = '55000';
+    END IF;
+
     -- The boundary scan runs as the definer, so the effective caller must still
     -- be allowed to read the driving table.
     PERFORM dml_utils_lib.assert_caller_can_select_relation(
@@ -52,7 +75,14 @@ BEGIN
         total_chunks             = (SELECT greatest(pg_catalog.count(*) - 1, 0::bigint)
                                     FROM dml_utils_data.migration_boundary
                                     WHERE run_id = i_run_id)
-    WHERE run_id = i_run_id;
+    WHERE run_id = i_run_id
+      AND boundaries_calculated_at IS NULL;
+
+    GET DIAGNOSTICS l_updated = ROW_COUNT;
+    IF l_updated <> 1 THEN
+        RAISE EXCEPTION 'run % was calculated concurrently', i_run_id
+            USING ERRCODE = '55000';
+    END IF;
 END;
 $$;
 
@@ -66,7 +96,9 @@ COMMENT ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     dml_utils_data.positive_integer
     ) IS
     'Inserts a single-relation run''s contiguous 0..N boundaries in one '
-        'statement and records boundaries_calculated_at and total_chunks. Runs in '
-        'the caller''s context (inside populate_migration_boundaries'' definer '
-        'context), with an explicit effective-caller SELECT check on the driving '
-        'table.';
+        'statement and records boundaries_calculated_at and total_chunks. Only a '
+        'fresh, uncancelled run can be populated (P0002/55000 otherwise), so a '
+        'repeat call never moves the milestone or hits a raw duplicate-key error. '
+        'Runs in the caller''s context (inside populate_migration_boundaries'' '
+        'definer context), with an explicit effective-caller SELECT check on the '
+        'driving table.';

@@ -15,6 +15,28 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
 AS
 $$
 BEGIN
+    IF i_run_id IS NULL THEN
+        RAISE EXCEPTION 'i_run_id must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- Distinguish an unknown run and a run without a manifest from the
+    -- legitimate "every leaf is empty" result (all-NULL OUT fields).
+    IF NOT EXISTS (SELECT 1
+                   FROM dml_utils_data.migration_run AS run
+                   WHERE run.run_id = i_run_id)
+    THEN
+        RAISE EXCEPTION 'migration run % does not exist', i_run_id
+            USING ERRCODE = 'P0002';
+    END IF;
+    IF NOT EXISTS (SELECT 1
+                   FROM dml_utils_data.migration_run_leaf AS leaf
+                   WHERE leaf.run_id = i_run_id)
+    THEN
+        RAISE EXCEPTION 'run % has no leaf manifest', i_run_id
+            USING ERRCODE = '55000';
+    END IF;
+
     -- The terminal belongs to the last non-empty leaf in manifest order. An
     -- empty leaf (boundary_count = 0) is calculated but has no chunk to end.
     SELECT leaf.leaf_ordinal,
@@ -37,5 +59,6 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run(bigint) IS
     'Returns the last non-empty manifest leaf of a partition-wise run with its '
         'stored high-water key arrays, or NULL fields when every leaf is empty. '
-        'Used by finalize_migration_boundaries to choose the single terminal '
-        'boundary.';
+        'Raises P0002 for an unknown run and 55000 for a run with no leaf '
+        'manifest, so an empty run is not confused with a missing one. Used by '
+        'finalize_migration_boundaries to choose the single terminal boundary.';

@@ -48,7 +48,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         ResolveMigrationRun resolved = resolve(label, TEMPLATE, "t", 2, 1);
 
         assertNotNull(resolved.getORunId());
-        assertNotEquals(Boolean.TRUE, resolved.getOAlreadyCompleted(), "a new run is not complete");
+        assertEquals(Boolean.FALSE, resolved.getOAlreadyCompleted(), "a new run is not complete");
         assertEquals(TEMPLATE, resolved.getOEffectiveSqlText());
         assertEquals(schema(), resolved.getOEffectiveSchemaName());
         assertEquals(name(), resolved.getOEffectiveTableName());
@@ -75,7 +75,8 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                 "UPDATE <driving_table> SET payload = 'y' WHERE <chunking_clause>", "other", 99, 2);
 
         assertEquals(first.getORunId(), second.getORunId(), "the active run should be reused");
-        assertNotEquals(Boolean.TRUE, second.getOAlreadyCompleted());
+        assertEquals(Boolean.FALSE, second.getOAlreadyCompleted(),
+                "a resumed run is not complete");
         assertEquals(TEMPLATE, second.getOEffectiveSqlText(), "the stored sql_text wins");
         assertEquals("t", second.getOEffectiveAlias(), "the stored alias wins");
         assertEquals(1, second.getOEffectiveThreads(), "the stored threads win");

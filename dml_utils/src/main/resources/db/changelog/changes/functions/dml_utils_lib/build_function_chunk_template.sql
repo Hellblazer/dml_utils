@@ -17,6 +17,11 @@ DECLARE
     l_call_arguments          text;
     l_function_chunk_template text;
 BEGIN
+    IF i_filter IS NOT NULL AND pg_catalog.btrim(i_filter) = '' THEN
+        RAISE EXCEPTION 'i_filter must not be blank'
+            USING ERRCODE = '22023';
+    END IF;
+
     SELECT target.o_call_arguments
     INTO l_call_arguments
     FROM dml_utils_lib.resolve_function_chunk_target(

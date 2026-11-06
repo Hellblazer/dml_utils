@@ -112,6 +112,44 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
+     * A blank filter is rejected at the API boundary instead of being appended as
+     * an empty predicate and failing later with a syntax error.
+     */
+    @Test
+    void rejectsABlankFilter() {
+        createMixed();
+        createMarkMixed("done");
+
+        assertSqlState("22023", () -> Routines.runFunctionOverTable(dsl.configuration(),
+                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
+                "mark_mixed", 2, 1, null, "   ", ChunkingStrategy.primary_key, 1, 0));
+    }
+
+    /**
+     * The auto-derived label hashes the filter, so a filter far larger than the
+     * btree tuple limit still creates a run instead of failing with an opaque
+     * index-size error.
+     */
+    @Test
+    void boundsTheDerivedLabelForALongFilter() {
+        createMixed();
+        createMarkMixed("done");
+        String longFilter = "t.b = 'x' AND " + "1 = 1 AND ".repeat(500) + "1 = 1";
+
+        Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_COMPOSITE_MIXED),
+                name(TEST_COMPOSITE_MIXED), FN_SCHEMA, "mark_mixed", 2, 1, null,
+                longFilter, ChunkingStrategy.primary_key, 1, 0);
+
+        String label = dsl.select(MIGRATION_RUN.LABEL)
+                .from(MIGRATION_RUN)
+                .fetchOne(MIGRATION_RUN.LABEL);
+        assertTrue(label.startsWith("function:"), "the derived label keeps its prefix");
+        assertTrue(label.length() < 500,
+                "the filter is hashed, so the label stays far below the btree limit");
+        assertTrue(runCompleted(label), "the run should complete");
+    }
+
+    /**
      * The per-chunk sleep is passed through to the base run and stored.
      */
     @Test
@@ -212,6 +250,42 @@ class RunFunctionOverTableTest extends PostgresTestBase {
         createMarkMixed("done");
         assertSqlState("P0002", () -> Routines.setMigrationRunFunction(
                 dsl.configuration(), "no-such-label", FN_SCHEMA, "mark_mixed", null));
+    }
+
+    /**
+     * The generated function template always uses the default alias {@code t}, so
+     * a run created with a different driving-table alias is rejected instead of
+     * storing a template that cannot resolve its table.
+     */
+    @Test
+    void setMigrationRunFunctionRejectsANonDefaultAlias() {
+        createMixed();
+        createMarkMixed("done");
+        String label = functionTestLabel("setalias");
+
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
+                dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
+                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "x", 0, null, false);
+
+        assertSqlState("0A000", () -> Routines.setMigrationRunFunction(
+                dsl.configuration(), label, FN_SCHEMA, "mark_mixed", null));
+    }
+
+    /**
+     * A blank filter is rejected before it can be persisted into the run template.
+     */
+    @Test
+    void setMigrationRunFunctionRejectsABlankFilter() {
+        createMixed();
+        createMarkMixed("done");
+        String label = functionTestLabel("setblank");
+
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
+                dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
+                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+
+        assertSqlState("22023", () -> Routines.setMigrationRunFunction(
+                dsl.configuration(), label, FN_SCHEMA, "mark_mixed", "   "));
     }
 
     /**

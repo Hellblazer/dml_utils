@@ -23,14 +23,13 @@ class DdlUtilsInstallationTest extends PostgresTestBase {
              Statement statement = owner.createStatement()) {
             statement.execute("SELECT ddl_utils.add_column("
                     + "'dml_utils_fixtures', 'test_bigint', 'ddl_probe', 'text', true, NULL)");
-        }
-
-        assertTrue(hasColumn("dml_utils_fixtures", "test_bigint", "ddl_probe"),
-                "the ddl_utils add_column helper alters a dml_utils fixture table");
-
-        try (Connection owner = openOwnerConnection();
-             Statement statement = owner.createStatement()) {
-            statement.execute("ALTER TABLE dml_utils_fixtures.test_bigint DROP COLUMN ddl_probe");
+            try {
+                assertTrue(hasColumn("dml_utils_fixtures", "test_bigint", "ddl_probe"),
+                        "the ddl_utils add_column helper alters a dml_utils fixture table");
+            } finally {
+                statement.execute("ALTER TABLE dml_utils_fixtures.test_bigint"
+                        + " DROP COLUMN IF EXISTS ddl_probe");
+            }
         }
     }
 }

@@ -60,4 +60,15 @@ class RelationFilepathTest extends PostgresTestBase {
         assertSqlState("42P01", () -> Routines.relationFilepath(dsl.configuration(),
                 "dml_utils_fixtures", "no_such_table"));
     }
+
+    /**
+     * A relation without a heap of its own (a partitioned table) is rejected with
+     * {@code 42809} instead of returning the NULL filepath that would make the
+     * rewrite guard fail open.
+     */
+    @Test
+    void rejectsARelationWithoutItsOwnHeap() {
+        assertSqlState("42809", () -> Routines.relationFilepath(dsl.configuration(),
+                "dml_utils_fixtures", "test_partitioned_range"));
+    }
 }

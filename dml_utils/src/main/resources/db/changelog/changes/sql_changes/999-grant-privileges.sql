@@ -20,34 +20,38 @@ GRANT USAGE ON TYPE dml_utils_data.migration_key TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM public;
 GRANT USAGE ON TYPE dml_utils_data.chunking_strategy TO dml_utils_caller;
 
--- Same rule for objects created later: PostgreSQL grants EXECUTE on functions
--- and USAGE on types to PUBLIC by default, so revoke those defaults for the
--- owner. Every future routine/type then needs an explicit grant, like the ones
--- above, instead of silently becoming world-executable.
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils
-    REVOKE EXECUTE ON FUNCTIONS FROM public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_lib
-    REVOKE EXECUTE ON FUNCTIONS FROM public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_data
-    REVOKE EXECUTE ON FUNCTIONS FROM public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_data
-    REVOKE USAGE ON TYPES FROM public;
+-- The default ACLs for future objects are installed by 007-default-privileges,
+-- before the functions include, so every routine is created already protected
+-- instead of becoming world-executable until this changeset runs.
 
 -- The caller can read metadata but never write it directly. The invoker-owned
 -- coordinator and chunk worker delegate every metadata write to the owner-owned
--- SECURITY DEFINER helpers below.
+-- SECURITY DEFINER helpers below. REVOKE ALL also removes TRUNCATE, REFERENCES
+-- and TRIGGER, which would otherwise still satisfy a SELECT-only grant.
 REVOKE ALL ON dml_utils_data.migration_run FROM public;
-REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_run FROM dml_utils_caller;
+REVOKE ALL ON dml_utils_data.migration_run FROM dml_utils_caller;
 GRANT SELECT ON dml_utils_data.migration_run TO dml_utils_caller;
 REVOKE ALL ON dml_utils_data.migration_boundary FROM public;
-REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_boundary FROM dml_utils_caller;
+REVOKE ALL ON dml_utils_data.migration_boundary FROM dml_utils_caller;
 GRANT SELECT ON dml_utils_data.migration_boundary TO dml_utils_caller;
 REVOKE ALL ON dml_utils_data.migration_error FROM public;
-REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_error FROM dml_utils_caller;
+REVOKE ALL ON dml_utils_data.migration_error FROM dml_utils_caller;
 GRANT SELECT ON dml_utils_data.migration_error TO dml_utils_caller;
 REVOKE ALL ON dml_utils_data.migration_run_leaf FROM public;
-REVOKE INSERT, UPDATE, DELETE ON dml_utils_data.migration_run_leaf FROM dml_utils_caller;
+REVOKE ALL ON dml_utils_data.migration_run_leaf FROM dml_utils_caller;
 GRANT SELECT ON dml_utils_data.migration_run_leaf TO dml_utils_caller;
+
+-- Table row types are part of the public API (for example
+-- resume_migration_run(dml_utils_data.migration_run, ...)), so revoke their
+-- implicit PUBLIC USAGE and grant it explicitly like the other types.
+REVOKE USAGE ON TYPE dml_utils_data.migration_run FROM public;
+GRANT USAGE ON TYPE dml_utils_data.migration_run TO dml_utils_caller;
+REVOKE USAGE ON TYPE dml_utils_data.migration_boundary FROM public;
+GRANT USAGE ON TYPE dml_utils_data.migration_boundary TO dml_utils_caller;
+REVOKE USAGE ON TYPE dml_utils_data.migration_error FROM public;
+GRANT USAGE ON TYPE dml_utils_data.migration_error TO dml_utils_caller;
+REVOKE USAGE ON TYPE dml_utils_data.migration_run_leaf FROM public;
+GRANT USAGE ON TYPE dml_utils_data.migration_run_leaf TO dml_utils_caller;
 
 -- Metadata write helpers called by the invoker-owned coordinator/worker.
 -- Note: these are callable by the caller because the same role runs the

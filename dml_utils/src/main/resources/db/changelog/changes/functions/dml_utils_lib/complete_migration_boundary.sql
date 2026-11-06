@@ -10,11 +10,22 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.complete_migration_boundary(
 AS
 $$
 DECLARE
-    l_updated integer;
+    l_updated      integer;
+    l_completed_at timestamptz;
 BEGIN
+    IF i_started_at IS NULL THEN
+        RAISE EXCEPTION 'i_started_at must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- Use one timestamp for both columns and clamp a caller-supplied future
+    -- start, so a clock-skewed caller cannot violate
+    -- migration_boundary_time_order_check and abort an already-executed chunk.
+    l_completed_at := pg_catalog.clock_timestamp();
+
     UPDATE dml_utils_data.migration_boundary
-    SET started_at   = i_started_at,
-        completed_at = pg_catalog.clock_timestamp()
+    SET started_at   = LEAST(i_started_at, l_completed_at),
+        completed_at = l_completed_at
     WHERE run_id = i_run_id
       AND boundary_no = i_boundary_no
       AND completed_at IS NULL

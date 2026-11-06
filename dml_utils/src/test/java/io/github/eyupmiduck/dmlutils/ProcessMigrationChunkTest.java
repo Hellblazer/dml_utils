@@ -77,10 +77,13 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
         createSource(1, 2, 3, 4);
         long runId = populate(2);
 
-        // Update the chunk rows, then fail: the update must not survive.
-        String mutateThenFail = "UPDATE " + qualified(TEST_BIGINT)
-                + " SET payload = 'leaked' WHERE id >= 1 AND id < 3;"
-                + " SELECT 1 / 0";
+        // The routine runs the chunk text with plpgsql EXECUTE, which accepts a
+        // single statement. The data-modifying CTE updates the chunk rows first
+        // and the outer aggregate then divides by zero, so the whole statement
+        // (including the update) must roll back.
+        String mutateThenFail = "WITH mutated AS (UPDATE " + qualified(TEST_BIGINT)
+                + " SET payload = 'leaked' WHERE id >= 1 AND id < 3 RETURNING 1)"
+                + " SELECT 1 / sum(0) FROM mutated";
         assertSqlState("22012", () -> processChunk(runId, 0, mutateThenFail));
         assertFalse(boundaryStarted(runId, 0),
                 "a failed chunk must not leave the boundary started");

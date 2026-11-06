@@ -60,6 +60,17 @@
         </rollback>
     </changeSet>
 
+    <!-- Revoke PUBLIC's default EXECUTE/USAGE on future objects before any
+         routine or type is created, so a newly added object cannot be
+         world-executable even if it is omitted from 999-grant-privileges. -->
+    <changeSet id="007-default-privileges" author="lee.horner" dbms="postgresql">
+        <sqlFile path="sql_changes/007-default-privileges.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/007-default-privileges-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <!-- Stored routines: one changeset each, one file per routine. They run
          after the tables so routines may reference them. -->
     <include file="functions.xml" relativeToChangelogFile="true"/>

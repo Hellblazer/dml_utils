@@ -78,9 +78,14 @@ jobs:
       - name: Unpack the ddl_utils changelog
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: ./mvnw --batch-mode --no-transfer-progress -q -pl dml_utils -am initialize
+        run: >-
+          ./mvnw -s .github/scripts/settings.xml --batch-mode
+          --no-transfer-progress -q -pl dml_utils -am initialize
 
       - name: Run the benchmark smoke test
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # setup.sh can re-run the initialize goal; give it both Packages
+          # server entries (github and github-ddl-utils).
+          MAVEN_ARGS: -s .github/scripts/settings.xml
         run: benchmark/smoke.sh

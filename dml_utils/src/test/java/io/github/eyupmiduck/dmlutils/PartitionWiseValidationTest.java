@@ -131,9 +131,9 @@ class PartitionWiseValidationTest extends PartitionTestBase {
         Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
         String highLeaf = PARTITION_SCHEMA + ".test_partitioned_range_high";
 
-        executeAsOwner("REVOKE UPDATE ON " + highLeaf + " FROM "
-                + TEST_USER + ", dml_utils_caller");
         try {
+            executeAsOwner("REVOKE UPDATE ON " + highLeaf + " FROM "
+                    + TEST_USER + ", dml_utils_caller");
             assertSqlState("42501", () -> run(PARTITIONED_RANGE, label, 1,
                     ChunkingStrategy.primary_key, null));
         } finally {

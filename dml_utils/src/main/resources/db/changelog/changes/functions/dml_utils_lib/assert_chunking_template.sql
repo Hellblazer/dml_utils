@@ -27,12 +27,16 @@ BEGIN
 
     IF l_driving_table_count <> 1 THEN
         RAISE EXCEPTION 'i_sql_text must contain <driving_table> exactly once'
-            USING ERRCODE = '22023';
+            USING ERRCODE = '22023',
+                HINT =
+                        'the tokens are counted as raw substrings; they must appear in executable SQL, not inside a string literal, comment or a longer token';
     END IF;
 
     IF l_chunking_clause_count <> 1 THEN
         RAISE EXCEPTION 'i_sql_text must contain <chunking_clause> exactly once'
-            USING ERRCODE = '22023';
+            USING ERRCODE = '22023',
+                HINT =
+                        'the tokens are counted as raw substrings; they must appear in executable SQL, not inside a string literal, comment or a longer token';
     END IF;
 END;
 $$;

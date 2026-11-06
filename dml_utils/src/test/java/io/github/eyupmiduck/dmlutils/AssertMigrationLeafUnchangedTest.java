@@ -91,10 +91,10 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
         long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
-                + " DETACH PARTITION " + PARTITION_SCHEMA + "." + MID);
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + MID
-                + " RENAME TO " + MID + "_old");
+        // Drop rather than rename: PostgreSQL keeps the old index names when a
+        // table is renamed, so recreating the partition under the original name
+        // would fail with 42P07 on the retained _pkey/_ordered_key_idx names.
+        executeAsOwner("DROP TABLE " + PARTITION_SCHEMA + "." + MID);
         try {
             executeAsOwner("CREATE TABLE " + PARTITION_SCHEMA + "." + MID
                     + " PARTITION OF " + PARTITION_SCHEMA + "." + PARENT
@@ -105,8 +105,6 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
                     dsl.configuration(), runId, midOrdinal));
         } finally {
             executeAsOwner("DROP TABLE IF EXISTS " + PARTITION_SCHEMA + "." + MID);
-            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + MID + "_old"
-                    + " RENAME TO " + MID);
             restoreMidPartition();
         }
     }

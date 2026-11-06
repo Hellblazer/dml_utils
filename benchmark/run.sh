@@ -22,6 +22,42 @@ if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]
     . "$here/config.local.env"
 fi
 
+# Validate the sweep before doing any work, so an invalid bound cannot silently
+# skip the loops and still report success with an empty CSV.
+require_non_negative() {
+    case "$2" in
+        ''|*[!0-9]*)
+            echo "$1 must be a non-negative integer: $2" >&2
+            exit 2
+            ;;
+    esac
+}
+require_positive() {
+    require_non_negative "$1" "$2"
+    [ "$2" -gt 0 ] || { echo "$1 must be positive: $2" >&2; exit 2; }
+}
+require_non_negative BENCH_WARMUP_RUNS "$BENCH_WARMUP_RUNS"
+require_positive BENCH_RUNS "$BENCH_RUNS"
+require_positive BENCH_CHUNK_SIZE "$BENCH_CHUNK_SIZE"
+require_positive BENCH_THREADS_FROM "$BENCH_THREADS_FROM"
+require_non_negative BENCH_THREADS_TO "$BENCH_THREADS_TO"
+[ "$BENCH_THREADS_FROM" -le "$BENCH_THREADS_TO" ] || {
+    echo "BENCH_THREADS_FROM ($BENCH_THREADS_FROM) must not exceed BENCH_THREADS_TO ($BENCH_THREADS_TO)" >&2
+    exit 2
+}
+case "$BENCH_SCHEMA" in
+    ''|public|pg_catalog|information_schema)
+        echo "refusing to benchmark schema '$BENCH_SCHEMA'" >&2
+        exit 2
+        ;;
+esac
+case "$BENCH_ORDERED_INDEX" in
+    ''|*[!a-z0-9_]*)
+        echo "BENCH_ORDERED_INDEX must be a plain lowercase identifier: $BENCH_ORDERED_INDEX" >&2
+        exit 2
+        ;;
+esac
+
 # The chunk-size unit and source/target/workload are determined by the strategy.
 case "$BENCH_CHUNK_BY" in
     primary_key)
@@ -125,7 +161,7 @@ fi
 results_dir="$here/$BENCH_RESULTS_DIR"
 csv="$results_dir/$BENCH_CSV"
 mkdir -p "$results_dir"
-if [ "$reset" = 1 ] || [ ! -f "$csv" ]; then
+if [ "$reset" = 1 ] || [ ! -s "$csv" ]; then
     printf 'strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,partition_wise\n' > "$csv"
 fi
 
@@ -138,6 +174,27 @@ psql_stdin() {
     docker exec -i "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" "$@"
 }
 
+# A measurement is exactly four comma-separated numeric fields. A missing run
+# row, a duplicate label (several rows) or a NULL timing must fail loudly rather
+# than silently corrupting the CSV.
+validate_measurement() {
+    case "$1" in
+        *'
+'*) return 1 ;;
+    esac
+    old_ifs=$IFS
+    IFS=,
+    # shellcheck disable=SC2086
+    set -- $1
+    IFS=$old_ifs
+    [ "$#" -eq 4 ] || return 1
+    for field in "$@"; do
+        case "$field" in
+            ''|*[!0-9.eE+-]*) return 1 ;;
+        esac
+    done
+}
+
 # run_once <threads> <kind> <run_no> <record:0|1>
 run_once() {
     threads="$1"
@@ -145,7 +202,9 @@ run_once() {
     run_no="$3"
     record="$4"
 
-    label="bench-${threads}-${kind}-${run_no}-$(date +%s%N)"
+    # date +%s is POSIX; %N is GNU-only and degenerates to a literal N on BSD,
+    # which made repeated sweeps reuse labels. The PID separates invocations.
+    label="bench-${threads}-${kind}-${run_no}-$(date +%s)-$$"
 
     if [ "$BENCH_TRUNCATE_TARGET" = 1 ]; then
         psql_run -q -v ON_ERROR_STOP=1 \
@@ -193,6 +252,11 @@ FROM dml_utils_data.migration_run
 WHERE label = :'label';
 SQL
 )"
+
+    if ! validate_measurement "$row"; then
+        echo "measurement for label $label is not four numeric fields: $row" >&2
+        exit 1
+    fi
 
     if [ "$record" = 1 ]; then
         printf '%s,%s,%s,%s,%s,%s,%s,%s\n' "$BENCH_CHUNK_BY" "$chunk_unit" "$BENCH_CHUNK_SIZE" "$threads" "$run_no" "$row" "$pk_columns_csv" "$partition_flag" >> "$csv"

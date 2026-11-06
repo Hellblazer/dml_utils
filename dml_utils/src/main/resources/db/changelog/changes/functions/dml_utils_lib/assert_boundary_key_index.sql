@@ -19,6 +19,15 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- A blank name is not a usable index; treat it as absent here so the caller
+    -- gets the parameter error instead of a misleading 42704 on the next step.
+    IF i_boundary_key_index IS NOT NULL
+        AND pg_catalog.btrim(i_boundary_key_index::text) = ''
+    THEN
+        RAISE EXCEPTION 'i_boundary_key_index must not be blank'
+            USING ERRCODE = '22023';
+    END IF;
+
     IF i_chunk_by = 'ordered_key' AND i_boundary_key_index IS NULL THEN
         RAISE EXCEPTION 'i_boundary_key_index is required when i_chunk_by is ordered_key'
             USING ERRCODE = '22023';
@@ -33,6 +42,7 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_boundary_key_index IS
     'Raises invalid_parameter_value (22023) when i_chunk_by is NULL, when '
-        'ordered_key is selected without an index, or when an index is supplied '
-        'for primary_key or blocks. Shared by the new-run and explain paths; a '
-        'resumed run keeps its stored strategy and index.';
+        'i_boundary_key_index is blank, when ordered_key is selected without an '
+        'index, or when an index is supplied for primary_key or blocks. Shared by '
+        'the new-run and explain paths; a resumed run keeps its stored strategy '
+        'and index.';

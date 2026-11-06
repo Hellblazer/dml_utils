@@ -8,11 +8,22 @@
 
 \set ON_ERROR_STOP on
 
--- 1. A driving table with a supported primary key. Here the breed name (text)
---    is the key; a composite key of up to three columns works the same way.
-DROP TABLE IF EXISTS public.dogs;
+-- Stop and archive any previous run before replacing the driving table, so an
+-- in-flight pg_background worker cannot hold locks on the old relation.
+SELECT dml_utils.cancel_migration_run(i_label => 'dogs-status-backfill');
+SELECT dml_utils.archive_migration_run(i_label => 'dogs-status-backfill');
 
-CREATE TABLE public.dogs
+-- 1. A driving table with a supported primary key, in its own schema so the
+--    example can never clobber a real public.dogs table. Here the breed name
+--    (text) is the key; a composite key of up to three columns works the same
+--    way.
+CREATE SCHEMA IF NOT EXISTS dog_breeds;
+COMMENT ON SCHEMA dog_breeds IS
+    'Example schema for the dog-breeds chunked-migration demo.';
+
+DROP TABLE IF EXISTS dog_breeds.dogs;
+
+CREATE TABLE dog_breeds.dogs
 (
     breed    text PRIMARY KEY,
     origin   text,
@@ -21,13 +32,13 @@ CREATE TABLE public.dogs
     status   text
 );
 
-COMMENT ON TABLE public.dogs IS
+COMMENT ON TABLE dog_breeds.dogs IS
     'Example: dog breeds, keyed by breed name, for the chunked-migration demo.';
-COMMENT ON COLUMN public.dogs.status IS
+COMMENT ON COLUMN dog_breeds.dogs.status IS
     'Backfilled by the example migration.';
 
 -- 2. Seed with some famous breeds.
-INSERT INTO public.dogs (breed, origin, size, lifespan)
+INSERT INTO dog_breeds.dogs (breed, origin, size, lifespan)
 VALUES ('Affenpinscher', 'Germany', 'toy', 14),
        ('Afghan Hound', 'Afghanistan', 'large', 13),
        ('Airedale Terrier', 'United Kingdom', 'large', 12),
@@ -93,7 +104,7 @@ SELECT o_plan_kind,
        jsonb_pretty(o_plan::jsonb) AS plan
 FROM dml_utils.explain_migration_chunks(
         i_sql_text => 'UPDATE <driving_table> SET status = ''reviewed'' WHERE <chunking_clause>',
-        i_driving_table_schema_name => 'public',
+        i_driving_table_schema_name => 'dog_breeds',
         i_driving_table_name => 'dogs',
         i_chunk_size => 10);
 
@@ -102,14 +113,11 @@ FROM dml_utils.explain_migration_chunks(
 --    the call resumes at the first unprocessed chunk if it is interrupted.
 --
 --    The label identifies the run; re-running with the same label resumes it,
---    and an already-complete run is a no-op. Here we archive any previous run
---    with the label first so the example can be re-run from scratch;
---    archive_migration_run returns NULL when there is no active run.
-SELECT dml_utils.archive_migration_run(i_label => 'dogs-status-backfill');
-
+--    and an already-complete run is a no-op. The previous run was cancelled and
+--    archived at the top so the example can be re-run from scratch.
 SELECT dml_utils.run_migration_chunks(
                i_sql_text => 'UPDATE <driving_table> SET status = ''reviewed'' WHERE <chunking_clause>',
-               i_driving_table_schema_name => 'public',
+               i_driving_table_schema_name => 'dog_breeds',
                i_driving_table_name => 'dogs',
                i_label => 'dogs-status-backfill',
                i_chunk_size => 10,
@@ -124,8 +132,10 @@ SELECT run_id,
        boundary_count,
        completed_boundary_count,
        error_count,
-       completed_at IS NOT NULL AS completed
-FROM dml_utils.migration_run_summary(i_label => 'dogs-status-backfill');
+       completed_at IS NOT NULL AS completed,
+       archived_at
+FROM dml_utils.migration_run_summary(i_label => 'dogs-status-backfill')
+WHERE archived_at IS NULL;
 
 \echo '--- stored chunk boundaries (boundary_id as text values) ---'
 SELECT b.boundary_no,
@@ -136,12 +146,13 @@ FROM dml_utils_data.migration_run AS r
          JOIN dml_utils_data.migration_boundary AS b ON b.run_id = r.run_id
 -- noqa:enable=AM05,ST09
 WHERE r.label = 'dogs-status-backfill'
+  AND r.archived_at IS NULL
 ORDER BY b.boundary_no;
 
 \echo '--- rows by status ---'
 SELECT status,
        count(*) AS dogs
-FROM public.dogs
+FROM dog_breeds.dogs
 GROUP BY status
 ORDER BY status;
 
@@ -151,6 +162,6 @@ SELECT breed,
        size,
        lifespan,
        status
-FROM public.dogs
+FROM dog_breeds.dogs
 ORDER BY breed
 LIMIT 10;

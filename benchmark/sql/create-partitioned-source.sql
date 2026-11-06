@@ -38,12 +38,12 @@ SELECT pg_catalog.format(
                lo,
                coalesce(hi::text, 'MAXVALUE'))
 FROM (SELECT i,
-             1 + (i * :k1_max) / :leaves AS lo,
+             1 + (i::bigint * :'k1_max'::bigint) / :'leaves'::bigint AS lo,
              CASE
-                 WHEN i = :leaves - 1 THEN NULL
-                 ELSE 1 + ((i + 1) * :k1_max) / :leaves
+                 WHEN i = :'leaves'::integer - 1 THEN NULL
+                 ELSE 1 + ((i + 1)::bigint * :'k1_max'::bigint) / :'leaves'::bigint
                  END                     AS hi
-      FROM pg_catalog.generate_series(0, :leaves - 1) AS i) AS bounds
+      FROM pg_catalog.generate_series(0, :'leaves'::integer - 1) AS i) AS bounds
 ORDER BY i
 \gexec
 
@@ -51,9 +51,9 @@ ORDER BY i
 -- hand-written ones.
 SELECT pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',
                          :'schema', :'source_table' || '_p' || i,
-                         'Benchmark fixture: range leaf ' || i || ' of ' || :leaves
+                         'Benchmark fixture: range leaf ' || i || ' of ' || :'leaves'::text
                              || ' for the partition-wise variant.')
-FROM pg_catalog.generate_series(0, :leaves - 1) AS i
+FROM pg_catalog.generate_series(0, :'leaves'::integer - 1) AS i
 ORDER BY i
 \gexec
 
@@ -63,4 +63,4 @@ ORDER BY i
 INSERT INTO :"schema".:"source_table" (:pk_key, payload)
 SELECT :pk_exprs,
        pg_catalog.md5(g::text)
-FROM pg_catalog.generate_series(1, :rows) AS g;
+FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;

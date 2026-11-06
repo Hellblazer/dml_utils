@@ -27,12 +27,30 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class LiquibaseUpgradeTest extends UpgradeContract {
 
+    /**
+     * The current revision, injected by the surefire configuration.
+     *
+     * <p>There is deliberately no silent fallback: a run outside surefire (an IDE
+     * or a direct JUnit launch) must fail with an actionable message instead of
+     * resolving the non-existent {@code 0.0.0-SNAPSHOT} baseline.
+     *
+     * @return the current project revision
+     */
+    private static String currentVersion() {
+        String version = System.getProperty("upgrade.current.version");
+        if (version == null || version.isBlank() || "0.0.0-SNAPSHOT".equals(version)) {
+            throw new IllegalStateException(
+                    "upgrade.current.version must be set to the current <revision>; "
+                            + "run this test through Maven/surefire or set -Dupgrade.current.version");
+        }
+        return version;
+    }
+
     @Override
     protected PublishedRelease.Coordinates releaseCoordinates() {
         return new PublishedRelease.Coordinates(
                 "https://maven.pkg.github.com/eyupmiduck/dml_utils",
-                "io.github.eyupmiduck", "dml_utils",
-                System.getProperty("upgrade.current.version", "0.0.0-SNAPSHOT"));
+                "io.github.eyupmiduck", "dml_utils", currentVersion());
     }
 
     /**

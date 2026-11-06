@@ -51,8 +51,8 @@ Add `ordered_key` to `dml_utils_data.chunking_strategy`:
 The split makes the run metadata truthful (a run is not "primary_key" when it
 used a secondary index) and gives the eligibility checks a distinct branch.
 
-The enum is edited in `004-create-domains.sql` in place; no `ALTER TYPE ... ADD
-VALUE` follow-up is needed while nothing is deployed.
+The enum was added to `004-create-domains.sql` before the first deployment;
+after deployment, a new enum value needs `ALTER TYPE ... ADD VALUE`.
 
 ### 2. The caller names an index, not a column list
 
@@ -115,7 +115,10 @@ v1 supports the same collapsed kinds as the primary key plus timestamptz:
 `date`, `numeric` and other orderable types are deferred. The integer family (smallint/integer/bigint) collapses to
 `bigint` and is supported as today.
 
-### 5. Schema changes (edited in place)
+### 5. Schema changes (pre-deployment baseline)
+
+These were applied to the pre-deployment baseline. After the first deployment,
+schema changes go in new changesets.
 
 - `004-create-domains.sql`
     - add the `ordered_key` enum label;
@@ -201,9 +204,11 @@ and `primary_key` share this path.
   synthetic chunk can be rendered for an ordered key; the run-based explain
   reads the stored descriptor. `explain_function_over_table_chunk` is unchanged.
 
-Because this is a pre-deployment baseline edit, the function definitions and
-rollbacks are edited in place; no legacy overload or `DROP ... IF EXISTS` shim
-is kept. Grants in `999-grant-privileges.sql` are edited in place.
+Because this was a pre-deployment baseline edit, the function definitions and
+rollbacks were edited in place; no legacy overload or `DROP ... IF EXISTS` shim
+was kept, and grants in `999-grant-privileges.sql` were edited in place. After
+the first deployment, routine changes are new changesets (with an explicit
+`DROP FUNCTION IF EXISTS` when the signature changes).
 
 ### 9. Resume and the key contract
 
@@ -280,17 +285,20 @@ Negative / risks:
 - An index dropped or rebuilt with a different definition fails a resumed run
   by design; the run must be archived and restarted.
 
-## Baseline policy
+## Baseline policy (pre-deployment, historical)
 
-Nothing is deployed, so:
+These changes were applied to the pre-deployment baseline:
 
-- edit `004`, `005`, `006`, the routine files and `999-grant-privileges.sql` in
-  place;
+- `004`, `005`, `006`, the routine files and `999-grant-privileges.sql` were
+  edited in place;
 - no compatibility changesets, `ALTER TYPE`/`ALTER TABLE` follow-ups or
-  backfills;
-- recreate local/dev/benchmark databases instead of migrating them;
-- `LiquibaseUpgradeTest` is suspended in `dml-b87.12` and restored in
+  backfills were added;
+- local/dev/benchmark databases were recreated instead of migrated;
+- `LiquibaseUpgradeTest` was suspended in `dml-b87.12` and restored in
   `dml-b87.13` against a release cut from the cleaned changelog.
+
+This policy no longer applies: the baseline is published, so further changes are
+new changesets and `LiquibaseUpgradeTest` stays enabled.
 
 ## Implementation map
 

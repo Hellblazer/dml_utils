@@ -193,11 +193,13 @@ class LeafPartitionsTest extends PostgresTestBase {
      */
     @Test
     void rejectsAForeignLeaf() throws Exception {
-        executeAsOwner("CREATE SERVER leaf_partitions_foreign_server"
-                + " FOREIGN DATA WRAPPER postgres_fdw");
-        executeAsOwner("CREATE FOREIGN TABLE " + SCHEMA + ".test_partitioned_foreign_leaf"
-                + " (id integer NOT NULL, payload text) SERVER leaf_partitions_foreign_server");
         try {
+            // The server is cluster-scoped, so IF NOT EXISTS keeps a leaked
+            // server from an interrupted earlier run from failing this one.
+            executeAsOwner("CREATE SERVER IF NOT EXISTS leaf_partitions_foreign_server"
+                    + " FOREIGN DATA WRAPPER postgres_fdw");
+            executeAsOwner("CREATE FOREIGN TABLE " + SCHEMA + ".test_partitioned_foreign_leaf"
+                    + " (id integer NOT NULL, payload text) SERVER leaf_partitions_foreign_server");
             executeAsOwner("ALTER TABLE " + SCHEMA + ".test_partitioned_foreign"
                     + " ATTACH PARTITION " + SCHEMA + ".test_partitioned_foreign_leaf"
                     + " FOR VALUES FROM (0) TO (100)");

@@ -119,17 +119,21 @@ class CancelMigrationRunTest extends PostgresTestBase {
     }
 
     /**
-     * An archived run is not cancellable.
+     * Archiving an unfinished run cancels it first, so every archived run is
+     * terminal; a later cancel is a no-op.
      */
     @Test
-    void doesNotCancelAnArchivedRun() {
+    void archivingAnUnfinishedRunCancelsItAndCancelIsANoOp() {
         seedBigint(1, 2);
         String label = uniqueLabel("cancel-archived");
         Long runId = populate(label);
         Routines.archiveMigrationRun(dsl.configuration(), label);
 
-        assertNull(Routines.cancelMigrationRun(dsl.configuration(), label));
-        assertNull(run(runId).getCancelledAt(), "an archived run is not cancelled");
+        assertNotNull(run(runId).getCancelledAt(),
+                "archive cancels the unfinished run");
+        assertNotNull(run(runId).getArchivedAt(), "the run is archived");
+        assertNull(Routines.cancelMigrationRun(dsl.configuration(), label),
+                "an archived run is not cancellable");
     }
 
     /**

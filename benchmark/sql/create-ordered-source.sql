@@ -42,4 +42,4 @@ SELECT pg_catalog.overlay(
        timestamptz '2020-01-01 00:00:00+00'
            + ((g - 1) / 10) * interval '1 second',
        pg_catalog.md5(g::text)
-FROM pg_catalog.generate_series(1, :rows) AS g;
+FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;

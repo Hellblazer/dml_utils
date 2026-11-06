@@ -147,6 +147,32 @@ class RunCreationHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * The run row is the authority for the driving table and chunking strategy:
+     * a direct caller cannot attach another relation's leaves or choose a
+     * different strategy, and a second snapshot for the same run is rejected.
+     */
+    @Test
+    void manifestSnapshotRejectsAMismatchedRunDescriptor() {
+        long runId = insertRunRow(ChunkingStrategy.primary_key, true, 2);
+
+        assertSqlState("22023", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_multi",
+                ChunkingStrategy.primary_key, null));
+        assertSqlState("22023", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.blocks, null));
+        assertSqlState("22023", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.ordered_key, "test_partitioned_range_ordered_key_idx"));
+
+        Routines.snapshotPartitionLeafManifest(dsl.configuration(), runId,
+                PARTITION_SCHEMA, "test_partitioned_range", ChunkingStrategy.primary_key, null);
+        assertSqlState("55000", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.primary_key, null));
+    }
+
+    /**
      * The single-relation helper inserts the contiguous boundaries and records
      * the totals.
      */
@@ -169,6 +195,12 @@ class RunCreationHelpersTest extends PartitionTestBase {
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT));
+
+        // A repeat call is rejected instead of moving the milestone or hitting a
+        // raw duplicate key from the boundary INSERT.
+        assertSqlState("55000", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
     }
 
     private long insertRunRow(ChunkingStrategy chunkBy, boolean partitionWise, int chunkSize) {

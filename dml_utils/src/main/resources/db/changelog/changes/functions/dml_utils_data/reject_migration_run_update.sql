@@ -38,6 +38,16 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- boundaries_calculated_at is the milestone the total_chunks freeze keys on;
+    -- clearing or moving it would let a later statement rewrite total_chunks and
+    -- break the completed <= total invariant.
+    IF OLD.boundaries_calculated_at IS NOT NULL
+        AND NEW.boundaries_calculated_at IS DISTINCT FROM OLD.boundaries_calculated_at
+    THEN
+        RAISE EXCEPTION 'migration_run.boundaries_calculated_at is immutable once set'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- cancelled_at is set once, by cancel_migration_run or the coordinator; a
     -- second cancellation is a no-op, and the timestamp must not be rewritten.
     IF OLD.cancelled_at IS NOT NULL
@@ -59,5 +69,6 @@ COMMENT ON FUNCTION dml_utils_data.reject_migration_run_update IS
         'table schema/name or the driving table relation filepath. It also '
         'rejects a change to migration_run.total_chunks once '
         'boundaries_calculated_at is set (the value is written with that '
-        'milestone) and rejects rewriting a migration_run.cancelled_at that is '
+        'milestone), rejects clearing or moving boundaries_calculated_at once it '
+        'is set, and rejects rewriting a migration_run.cancelled_at that is '
         'already set; migration_run.total_chunks_completed stays mutable.';

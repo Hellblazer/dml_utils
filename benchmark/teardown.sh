@@ -16,6 +16,19 @@ if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]
     . "$here/config.local.env"
 fi
 
+# Only ever remove resources in the benchmark namespace. The names come from
+# config.env/config.local.env, where a typo or copied override must not destroy
+# an unrelated container or data volume.
+for _name in "$BENCH_CONTAINER" "$BENCH_VOLUME" "$BENCH_NETWORK"; do
+    case "$_name" in
+        dml_utils_benchmark*) ;;
+        *)
+            echo "refusing to remove '$_name': not a benchmark resource" >&2
+            exit 1
+            ;;
+    esac
+done
+
 command -v docker >/dev/null 2>&1 || {
     echo "docker is required but was not found on PATH" >&2
     exit 1

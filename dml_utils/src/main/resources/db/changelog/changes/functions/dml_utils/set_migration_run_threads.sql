@@ -21,7 +21,8 @@ BEGIN
     SET threads = i_threads
     WHERE label = i_label
       AND archived_at IS NULL
-      AND completed_at IS NULL;
+      AND completed_at IS NULL
+      AND cancelled_at IS NULL;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'no unfinished migration run for label %', i_label

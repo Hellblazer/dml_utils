@@ -63,6 +63,12 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
         assertSqlState("42704", () -> Routines.assertOrderedKeyIndexUsable(
                 dsl.configuration(), relationOid(SCHEMA + "." + "test_bigint_pkey"),
                 SCHEMA, TABLE, "test_ordered_key_pkey"));
+        // The OID is valid and belongs to the table, but the name resolves to a
+        // different index on that table.
+        assertSqlState("42704", () -> Routines.assertOrderedKeyIndexUsable(
+                dsl.configuration(),
+                relationOid(SCHEMA + "." + "test_ordered_key_created_at_id_idx"),
+                SCHEMA, TABLE, "test_ordered_key_external_id_idx"));
     }
 
     /**

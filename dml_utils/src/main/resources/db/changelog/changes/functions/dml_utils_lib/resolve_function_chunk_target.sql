@@ -49,10 +49,12 @@ BEGIN
     -- resolves overloads: a same-name/same-arity sibling with different argument
     -- types is not selected, so a valid overload is still found when others
     -- exist. Duplicate signatures are impossible, so this yields at most one row.
-    -- Restrict to an ordinary function (prokind 'f'): a procedure or aggregate
-    -- can share the name, arguments and a void return but cannot be called as
-    -- SELECT schema.name(...), so it must not pass validation. (Ordinary
-    -- functions used as window functions also have prokind 'f'.)
+    -- Restrict to an ordinary, non-set-returning function (prokind 'f',
+    -- proretset false): a procedure or aggregate can share the name, arguments
+    -- and a void return but cannot be called as SELECT schema.name(...), and a
+    -- RETURNS SETOF void function would expand rows instead of returning exactly
+    -- one value per driving row. (Ordinary functions used as window functions
+    -- also have prokind 'f'.)
     SELECT p.prorettype <> 'void'::pg_catalog.regtype
     INTO l_function_not_void
     FROM pg_catalog.pg_proc AS p
@@ -60,6 +62,7 @@ BEGIN
     WHERE n.nspname = i_function_schema_name
       AND p.proname = i_function_name
       AND p.prokind = 'f'
+      AND NOT p.proretset
       AND p.pronargs = pg_catalog.cardinality(l_argument_oids)
       AND (SELECT pg_catalog.array_agg(x ORDER BY o)
            FROM pg_catalog.unnest(p.proargtypes::oid[]) WITH ORDINALITY AS u(x, o)) IS NOT DISTINCT FROM l_argument_oids;

@@ -58,6 +58,9 @@ BEGIN
     -- element, so distinct inputs cannot collide. The filter and strategy are part
     -- of the label, so calls that differ only in those derive different runs
     -- instead of the second silently resuming the first with its stored values.
+    -- The filter is hashed because label is indexed by three btree indexes; a
+    -- large IN list or regex would otherwise exceed the btree tuple limit and fail
+    -- run creation with an opaque "index row size" error.
     l_label := coalesce(
             i_label,
             'function:' || pg_catalog.json_build_array(
@@ -65,7 +68,12 @@ BEGIN
                     i_driving_table_name,
                     i_function_schema_name,
                     i_function_name,
-                    i_filter,
+                    CASE
+                        WHEN i_filter IS NULL THEN NULL
+                        ELSE 'sha256:' || pg_catalog.encode(
+                                pg_catalog.sha256(pg_catalog.convert_to(i_filter, 'UTF8')),
+                                'hex')
+                        END,
                     i_chunk_by)::text);
 
     -- Delegate to the base engine: it owns resume, chunk scheduling, error
@@ -87,7 +95,8 @@ $$;
 COMMENT ON FUNCTION dml_utils.run_function_over_table IS
     'Runs a user-supplied void function once per row of the driving table, chunk '
         'by chunk, resuming by label (derived from the table, function and, when '
-        'set, i_filter when i_label is NULL). The function must take the '
+        'set, a SHA-256 of i_filter when i_label is NULL, so the label stays within '
+        'the btree index limit). The function must take the '
         'primary-key column types in key order and return void. A non-NULL '
         'i_filter is ANDed onto every chunk''s range predicate, so only the rows '
         'it matches are passed to the function. i_chunk_by selects the chunking '

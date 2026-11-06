@@ -28,6 +28,17 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- completed_at is written exactly once by complete_migration_boundary.
+    -- Clearing or moving it would make the partial pending index and the next
+    -- chunk lookup treat the boundary as pending again, processing the same rows
+    -- twice while total_chunks_completed keeps its old value.
+    IF OLD.completed_at IS NOT NULL
+        AND NEW.completed_at IS DISTINCT FROM OLD.completed_at
+    THEN
+        RAISE EXCEPTION 'migration_boundary.completed_at is immutable once set'
+            USING ERRCODE = '22023';
+    END IF;
+
     RETURN NEW;
 END;
 $$;
@@ -35,5 +46,5 @@ $$;
 COMMENT ON FUNCTION dml_utils_data.reject_migration_boundary_update IS
     'BEFORE UPDATE trigger that rejects any change to '
         'migration_boundary.run_id, boundary_no, boundary_id or leaf_ordinal, '
-        'and rejects rewriting a migration_boundary.cancelled_at that is already '
-        'set.';
+        'and rejects rewriting a migration_boundary.cancelled_at or '
+        'migration_boundary.completed_at that is already set.';
