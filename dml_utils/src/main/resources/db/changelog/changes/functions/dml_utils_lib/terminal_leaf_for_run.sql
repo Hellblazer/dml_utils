@@ -6,7 +6,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
     OUT o_bigint_values bigint[],
     OUT o_text_values text[],
     OUT o_uuid_values uuid[],
-    OUT o_timestamptz_values timestamptz[]
+    OUT o_timestamptz_values timestamptz[],
+    OUT o_bytea_values bytea[]
 )
     RETURNS record
     LANGUAGE plpgsql
@@ -45,9 +46,11 @@ BEGIN
            (leaf.terminal_boundary_id).bigint_values,
            (leaf.terminal_boundary_id).text_values,
            (leaf.terminal_boundary_id).uuid_values,
-           (leaf.terminal_boundary_id).timestamptz_values
+           (leaf.terminal_boundary_id).timestamptz_values,
+           (leaf.terminal_boundary_id).bytea_values
     INTO o_leaf_ordinal, o_leaf_schema_name, o_leaf_name,
-        o_bigint_values, o_text_values, o_uuid_values, o_timestamptz_values
+        o_bigint_values, o_text_values, o_uuid_values, o_timestamptz_values,
+        o_bytea_values
     FROM dml_utils_data.migration_run_leaf AS leaf
     WHERE leaf.run_id = i_run_id
       AND leaf.boundary_count > 0

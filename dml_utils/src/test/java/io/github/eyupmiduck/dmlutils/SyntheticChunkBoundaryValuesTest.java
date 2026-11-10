@@ -69,6 +69,17 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
     }
 
     /**
+     * A bytea key gets a pair of hex values whose start sorts before its end.
+     */
+    @Test
+    void returnsAHexPairForAByteaKey() {
+        SyntheticChunkBoundaryValuesRecord bytea = Routines.syntheticChunkBoundaryValues(
+                dsl.configuration(), new String[]{"bytea"}, 10L).get(0);
+        assertArrayEquals(new String[]{"00"}, bytea.getOStartValues());
+        assertArrayEquals(new String[]{"01"}, bytea.getOEndValues());
+    }
+
+    /**
      * A composite key aligns each position with its own kind, so a bigint and a
      * text column get the bigint and text pairs respectively.
      */

@@ -93,6 +93,37 @@ class PrimaryKeyAttributesTest extends PostgresTestBase {
     }
 
     /**
+     * A bytea primary key maps to the {@code bytea} boundary kind, alone and as
+     * the last column of a (text, text, bytea) key.
+     */
+    @Test
+    void mapsByteaPrimaryKeys() {
+        List<PrimaryKeyAttributesRecord> single = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_bytea_pk");
+        assertEquals(1, single.size());
+        assertAttribute(single.get(0), 1, "chash", "bytea");
+
+        List<PrimaryKeyAttributesRecord> composite = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_bytea_composite_pk");
+        assertEquals(3, composite.size());
+        assertAttribute(composite.get(0), 1, "tenant_id", "text");
+        assertAttribute(composite.get(1), 2, "collection", "text");
+        assertAttribute(composite.get(2), 3, "chash", "bytea");
+    }
+
+    /**
+     * A partitioned parent reports the key declared on the parent.
+     */
+    @Test
+    void mapsTheByteaKeyOfAPartitionedParent() {
+        List<PrimaryKeyAttributesRecord> rows = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_bytea_partitioned");
+
+        assertEquals(3, rows.size());
+        assertAttribute(rows.get(2), 3, "chash", "bytea");
+    }
+
+    /**
      * A table without a primary key raises {@code 22023}.
      */
     @Test

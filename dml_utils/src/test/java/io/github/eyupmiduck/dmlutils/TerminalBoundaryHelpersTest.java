@@ -97,7 +97,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
                 dsl.configuration(), runId);
         MigrationKeyRecord key = new MigrationKeyRecord(terminal.getOBigintValues(),
                 terminal.getOTextValues(), terminal.getOUuidValues(),
-                terminal.getOTimestamptzValues());
+                terminal.getOTimestamptzValues(), terminal.getOByteaValues());
 
         long boundaryNo = Routines.appendTerminalBoundary(dsl.configuration(), runId,
                 terminal.getOLeafOrdinal(), terminal.getOLeafSchemaName(),
@@ -130,7 +130,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         assertSqlState("55000", () -> Routines.appendTerminalBoundary(
                 dsl.configuration(), runId, 999, terminal.getOLeafSchemaName(),
                 terminal.getOLeafName(),
-                new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null)));
+                new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null, null)));
 
         executeAsOwner("REVOKE SELECT ON " + PARTITION_SCHEMA
                 + ".test_partitioned_range_high FROM " + TEST_USER + ", dml_utils_caller");
@@ -138,7 +138,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
             assertSqlState("42501", () -> Routines.appendTerminalBoundary(
                     dsl.configuration(), runId, terminal.getOLeafOrdinal(),
                     terminal.getOLeafSchemaName(), terminal.getOLeafName(),
-                    new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null)));
+                    new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null, null)));
         } finally {
             executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                     + PARTITION_SCHEMA + ".test_partitioned_range_high TO "

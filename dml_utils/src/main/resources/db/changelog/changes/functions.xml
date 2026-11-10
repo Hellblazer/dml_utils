@@ -983,8 +983,12 @@
 
     <changeSet id="function-dml_utils_lib.terminal_leaf_for_run" author="lee.horner"
                dbms="postgresql" runOnChange="true">
+        <sqlFile path="functions/dml_utils_lib/terminal_leaf_for_run-drop.sql"
+                 relativeToChangelogFile="true"/>
         <createProcedure path="functions/dml_utils_lib/terminal_leaf_for_run.sql"
                          relativeToChangelogFile="true"/>
+        <sqlFile path="functions/dml_utils_lib/terminal_leaf_for_run-grants.sql"
+                 relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils_lib/terminal_leaf_for_run-rollback.sql"
                      relativeToChangelogFile="true"/>

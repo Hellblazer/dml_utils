@@ -33,7 +33,7 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertEquals("k1", row.getOOrderBy());
         assertEquals("id1 DESC", row.getOOrderByDesc());
         assertEquals("ROW(ARRAY[id1::bigint]::bigint[], NULL::text[], NULL::uuid[],"
-                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key",
                 row.getOPackExpression());
     }
 
@@ -51,8 +51,8 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertEquals("created_at, id", row.getOOrderBy());
         assertEquals("id1 DESC, id2 DESC", row.getOOrderByDesc());
         assertEquals("ROW(ARRAY[NULL, id2::bigint]::bigint[], NULL::text[],"
-                + " NULL::uuid[], ARRAY[id1::timestamptz, NULL]::timestamptz[])"
-                + "::dml_utils_data.migration_key", row.getOPackExpression());
+                + " NULL::uuid[], ARRAY[id1::timestamptz, NULL]::timestamptz[],"
+                + " NULL::bytea[])::dml_utils_data.migration_key", row.getOPackExpression());
     }
 
     /**
@@ -72,8 +72,8 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertEquals("id1 DESC, id2 DESC, id3 DESC", row.getOOrderByDesc());
         assertEquals("ROW(ARRAY[NULL, id2::bigint, NULL]::bigint[],"
                 + " ARRAY[NULL, NULL, id3::text]::text[],"
-                + " ARRAY[id1::uuid, NULL, NULL]::uuid[], NULL::timestamptz[])"
-                + "::dml_utils_data.migration_key", row.getOPackExpression());
+                + " ARRAY[id1::uuid, NULL, NULL]::uuid[], NULL::timestamptz[],"
+                + " NULL::bytea[])::dml_utils_data.migration_key", row.getOPackExpression());
     }
 
     /**

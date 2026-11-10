@@ -728,3 +728,75 @@ CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p1
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p1 IS
     'Fixture: hash leaf remainder 1.';
+
+-- A single-column bytea primary key, the shape of a content hash.
+CREATE TABLE dml_utils_fixtures.test_bytea_pk
+(
+    chash   bytea PRIMARY KEY,
+    payload text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_bytea_pk IS
+    'Fixture: a table with a single bytea primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_pk.chash IS
+    'Fixture bytea primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_pk.payload IS
+    'Fixture payload column.';
+
+-- A composite (text, text, bytea) primary key, the shape of a chunk table keyed
+-- by tenant, collection and content hash.
+CREATE TABLE dml_utils_fixtures.test_bytea_composite_pk
+(
+    tenant_id  text  NOT NULL,
+    collection text  NOT NULL,
+    chash      bytea NOT NULL,
+    payload    text,
+    PRIMARY KEY (tenant_id, collection, chash)
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_bytea_composite_pk IS
+    'Fixture: a table with a three-column (text, text, bytea) primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_composite_pk.tenant_id IS
+    'Fixture first primary-key column (text).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_composite_pk.collection IS
+    'Fixture second primary-key column (text).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_composite_pk.chash IS
+    'Fixture third primary-key column (bytea).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_composite_pk.payload IS
+    'Fixture payload column.';
+
+-- The same key on a list-partitioned parent: the primary key is on the parent
+-- (and on each leaf), as it is on a partitioned chunk table.
+CREATE TABLE dml_utils_fixtures.test_bytea_partitioned
+(
+    tenant_id  text  NOT NULL,
+    collection text  NOT NULL,
+    chash      bytea NOT NULL,
+    payload    text,
+    PRIMARY KEY (tenant_id, collection, chash)
+) PARTITION BY LIST (collection);
+
+COMMENT ON TABLE dml_utils_fixtures.test_bytea_partitioned IS
+    'Fixture: a list-partitioned parent with a (text, text, bytea) primary key.';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_partitioned.tenant_id IS
+    'Fixture first primary-key column (text).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_partitioned.collection IS
+    'Fixture list key and second primary-key column (text).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_partitioned.chash IS
+    'Fixture third primary-key column (bytea).';
+COMMENT ON COLUMN dml_utils_fixtures.test_bytea_partitioned.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_bytea_partitioned_beta
+    PARTITION OF dml_utils_fixtures.test_bytea_partitioned
+        FOR VALUES IN ('beta');
+
+COMMENT ON TABLE dml_utils_fixtures.test_bytea_partitioned_beta IS
+    'Fixture: the leaf for collection beta, created before alpha.';
+
+CREATE TABLE dml_utils_fixtures.test_bytea_partitioned_alpha
+    PARTITION OF dml_utils_fixtures.test_bytea_partitioned
+        FOR VALUES IN ('alpha');
+
+COMMENT ON TABLE dml_utils_fixtures.test_bytea_partitioned_alpha IS
+    'Fixture: the leaf for collection alpha.';

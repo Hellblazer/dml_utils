@@ -12,9 +12,9 @@ and a re-run resumes where it stopped (see
 processed in parallel by more than one worker.
 
 It works on a table with a **primary key of up to three columns**, each of type
-`smallint`, `integer`, `bigint`, `text`, `uuid` or `timestamptz` (the column names
-need not be `id`); the chunks are primary-key ranges, so the planner can use the
-primary-key index.
+`smallint`, `integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea` (the
+column names need not be `id`); the chunks are primary-key ranges, so the
+planner can use the primary-key index.
 
 It is packaged as Liquibase-managed SQL, so installing it means applying the
 bundled changelog with the Liquibase CLI — there is nothing to build and no
@@ -42,7 +42,7 @@ anything above it:
 - **`dml_utils_data`** — the data layer: the shared domains (`non_null_text`,
   `positive_integer`), the `migration_key` composite type that packs a
   boundary's key value (position-aligned arrays, one per key kind, including
-  `timestamptz`), and the fixed-row chunk migration tables
+  `timestamptz` and `bytea`), and the fixed-row chunk migration tables
   `migration_run` / `migration_boundary` (`migration_error` records failed
   chunks), plus their trigger functions.
 
@@ -101,8 +101,8 @@ exactly once:
 
 For the default `primary_key` strategy, the driving table must have a **primary
 key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`,
-`uuid` or `timestamptz`; the column names are read from the catalog, so they need
-not be `id`.
+`uuid`, `timestamptz` or `bytea`; the column names are read from the catalog, so
+they need not be `id`.
 The predicate compares the key tuple to explicitly cast literals (`(t.id) >= ('1'::bigint)`, or
 `(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
 composite key) so the planner can use the primary-key index. Chunks are cut by
@@ -159,7 +159,7 @@ The index must be:
 - ascending with `NULLS LAST`, using the type's default btree operator class and
   the column's own collation;
 - on key columns of type `smallint`, `integer`, `bigint` (all collapsed to
-  `bigint`), `text`, `uuid` or `timestamptz`.
+  `bigint`), `text`, `uuid`, `timestamptz` or `bytea`.
 
 The order is lexicographic. A one-column key is a scalar range; a composite key
 compares column by column, so a second column (for example `id`) is the
@@ -563,7 +563,7 @@ GRANT ddl_utils_caller TO dml_utils_owner;
 ```
 
 dml_utils' own changelog does not create ddl_utils; a database without it fails
-at the first changeset that calls a helper. The versioned
+at the first changeset that calls a helper (today `009-allow-bytea-ordered-key-kind`). The versioned
 `io.github.eyupmiduck:ddl_utils` Maven artifact (`ddl-utils.version`) supplies
 the changelog to the test suite and the jOOQ code generator (unpacked into
 `target/classes/db/changelog-install/ddl-utils`), the local development stack (`scripts/postgres/migrate.sh`) and the

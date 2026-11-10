@@ -22,7 +22,7 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     @Test
     void packsASingleBigintKey() {
         assertEquals("ROW(ARRAY[id1::bigint]::bigint[], NULL::text[], NULL::uuid[],"
-                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key",
                 pack(new String[]{"bigint"}));
     }
 
@@ -32,7 +32,7 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     @Test
     void packsASingleTextKey() {
         assertEquals("ROW(NULL::bigint[], ARRAY[id1::text]::text[], NULL::uuid[],"
-                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key",
                 pack(new String[]{"text"}));
     }
 
@@ -44,7 +44,7 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     void packsAMixedTwoColumnKey() {
         assertEquals("ROW(ARRAY[NULL, id2::bigint]::bigint[],"
                         + " ARRAY[id1::text, NULL]::text[], NULL::uuid[],"
-                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key",
                 pack(new String[]{"text", "bigint"}));
     }
 
@@ -56,8 +56,25 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
         assertEquals("ROW(ARRAY[NULL, id2::bigint, NULL]::bigint[],"
                         + " ARRAY[NULL, NULL, id3::text]::text[],"
                         + " ARRAY[id1::uuid, NULL, NULL]::uuid[],"
-                        + " NULL::timestamptz[])::dml_utils_data.migration_key",
+                        + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key",
                 pack(new String[]{"uuid", "bigint", "text"}));
+    }
+
+    /**
+     * A bytea key populates only the bytea array, and a composite
+     * (text, text, bytea) key keeps the bytea term at its own position.
+     */
+    @Test
+    void packsByteaKeys() {
+        assertEquals("ROW(NULL::bigint[], NULL::text[], NULL::uuid[],"
+                        + " NULL::timestamptz[], ARRAY[id1::bytea]::bytea[])"
+                        + "::dml_utils_data.migration_key",
+                pack(new String[]{"bytea"}));
+        assertEquals("ROW(NULL::bigint[], ARRAY[id1::text, id2::text, NULL]::text[],"
+                        + " NULL::uuid[], NULL::timestamptz[],"
+                        + " ARRAY[NULL, NULL, id3::bytea]::bytea[])"
+                        + "::dml_utils_data.migration_key",
+                pack(new String[]{"text", "text", "bytea"}));
     }
 
     /**

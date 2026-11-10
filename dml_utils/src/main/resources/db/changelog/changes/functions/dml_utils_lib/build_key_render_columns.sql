@@ -41,7 +41,7 @@ BEGIN
 
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
             -- not true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;

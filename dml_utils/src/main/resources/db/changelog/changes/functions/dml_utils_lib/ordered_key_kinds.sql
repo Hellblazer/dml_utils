@@ -27,7 +27,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.ordered_key_kinds IS
-    'Returns the collapsed boundary key kind (bigint, text, uuid or timestamptz) '
+    'Returns the collapsed boundary key kind (bigint, text, uuid, timestamptz or bytea) '
         'of each ordered-key column in index order, delegating validation to '
         'ordered_key_attributes and raising invalid_parameter_value (22023) for '
         'an unsupported type.';

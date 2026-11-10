@@ -38,7 +38,7 @@ BEGIN
 
             -- A NULL kind would make every comparison below NULL (not true) and
             -- fall through to a NULL branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -56,6 +56,9 @@ BEGIN
                                  l_end := (i_end_key).uuid_values[l_position]::text;
                 WHEN 'timestamptz' THEN l_start := (i_start_key).timestamptz_values[l_position]::text;
                                         l_end := (i_end_key).timestamptz_values[l_position]::text;
+                -- Hex digits, so the text does not depend on bytea_output.
+                WHEN 'bytea' THEN l_start := pg_catalog.encode((i_start_key).bytea_values[l_position], 'hex');
+                                  l_end := pg_catalog.encode((i_end_key).bytea_values[l_position], 'hex');
                 END CASE;
 
             o_start_values := o_start_values || l_start;

@@ -22,7 +22,7 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
 
     private static final String PACK =
             "ROW(ARRAY[id1::bigint]::bigint[], NULL::text[], NULL::uuid[],"
-                    + " NULL::timestamptz[])::dml_utils_data.migration_key";
+                    + " NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key";
 
     /**
      * Clears the fixture and run metadata between tests.

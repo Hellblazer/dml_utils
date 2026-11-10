@@ -47,7 +47,7 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.render_chunk_sql IS
     'Returns the SQL template with <driving_table> and <chunking_clause> '
         'substituted for the given table, alias, key columns and chunk range; each '
-        'key kind (bigint, text, uuid or timestamptz) selects the explicit cast. '
+        'key kind (bigint, text, uuid, timestamptz or bytea) selects the explicit cast. '
         'The chunking clause is a disjunction of axis-aligned boxes that exactly '
         'tiles the lexicographic range, so the planner estimates it column by '
         'column and uses the key index. The final chunk uses an inclusive upper '

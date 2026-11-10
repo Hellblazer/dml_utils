@@ -64,6 +64,7 @@ BEGIN
                    WHEN a.atttypid = 'text'::pg_catalog.regtype THEN 'text'
                    WHEN a.atttypid = 'uuid'::pg_catalog.regtype THEN 'uuid'
                    WHEN a.atttypid = 'timestamptz'::pg_catalog.regtype THEN 'timestamptz'
+                   WHEN a.atttypid = 'bytea'::pg_catalog.regtype THEN 'bytea'
                    ELSE NULL
                    END AS key_kind
         FROM pg_catalog.pg_index AS i
@@ -84,5 +85,5 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.primary_key_attributes IS
     'Returns the primary-key columns in key order with, per column, its ordinal '
         'position, name, type oid, type and collapsed boundary kind (bigint, text, '
-        'uuid or timestamptz; NULL for an unsupported type). Validates the '
+        'uuid, timestamptz or bytea; NULL for an unsupported type). Validates the '
         'schema/table and the one-to-three-column limit.';

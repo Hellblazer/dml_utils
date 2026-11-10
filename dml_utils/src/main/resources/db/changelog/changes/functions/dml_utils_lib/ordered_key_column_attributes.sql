@@ -77,6 +77,8 @@ BEGIN
                                   THEN 'uuid'
                               WHEN l_key.key_column_oid = 'timestamptz'::pg_catalog.regtype
                                   THEN 'timestamptz'
+                              WHEN l_key.key_column_oid = 'bytea'::pg_catalog.regtype
+                                  THEN 'bytea'
                 END;
 
             IF l_key_kind IS NULL THEN

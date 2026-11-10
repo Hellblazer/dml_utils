@@ -362,7 +362,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         String[] values = Routines.migrationKeyValues(
                 dsl.configuration(),
                 new MigrationKeyRecord(new Long[]{7L, null, null}, new String[]{null, "x", null},
-                        new UUID[]{null, null, uuid(1)}, null),
+                        new UUID[]{null, null, uuid(1)}, null, null),
                 new String[]{"bigint", "text", "uuid"});
 
         assertArrayEquals(new String[]{"7", "x", uuid(1).toString()}, values);
@@ -378,11 +378,40 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
 
         String[] values = Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{timestamp}),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{timestamp}, null),
                 new String[]{"timestamptz"});
 
         assertEquals(timestamp.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values[0])
                 .get(0, OffsetDateTime.class).toInstant());
+    }
+
+    /**
+     * The key-values helper flattens a bytea key to hex digits, whatever the
+     * session's {@code bytea_output}.
+     */
+    @Test
+    void migrationKeyValuesFlattensAByteaKeyAsHex() {
+        String[] values = Routines.migrationKeyValues(
+                dsl.configuration(),
+                new MigrationKeyRecord(null, new String[]{"x", null}, null, null,
+                        new byte[][]{null, new byte[]{(byte) 0xde, (byte) 0xad, 0x00}}),
+                new String[]{"text", "bytea"});
+
+        assertArrayEquals(new String[]{"x", "dead00"}, values);
+    }
+
+    /**
+     * An empty bytea key flattens to an empty value, not NULL, so it is a
+     * boundary like any other.
+     */
+    @Test
+    void migrationKeyValuesFlattensAnEmptyByteaKeyToAnEmptyValue() {
+        String[] values = dsl.fetchOne("SELECT dml_utils_lib.migration_key_values("
+                        + "ROW(NULL, NULL, NULL, NULL, ARRAY[''::bytea])::dml_utils_data.migration_key,"
+                        + " ARRAY['bytea'])")
+                .get(0, String[].class);
+
+        assertArrayEquals(new String[]{""}, values);
     }
 
     /**
@@ -393,19 +422,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesFlattensSingleAndTwoColumnKeys() {
         assertArrayEquals(new String[]{"7"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{7L}, null, null, null),
+                        new MigrationKeyRecord(new Long[]{7L}, null, null, null, null),
                         new String[]{"bigint"}),
                 "a single-column bigint key flattens to one value");
 
         assertArrayEquals(new String[]{"x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, new String[]{"x"}, null, null),
+                        new MigrationKeyRecord(null, new String[]{"x"}, null, null, null),
                         new String[]{"text"}),
                 "a single-column text key reads the text array");
 
         assertArrayEquals(new String[]{"1", "x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null),
+                        new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null, null),
                         new String[]{"bigint", "text"}),
                 "a two-column mixed key keeps each value at its position");
     }
@@ -419,19 +448,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesDoesNotShiftAroundAnAbsentOrNullPosition() {
         assertArrayEquals(new String[]{null}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, null, null, null),
+                        new MigrationKeyRecord(null, null, null, null, null),
                         new String[]{"bigint"}),
                 "an absent array yields NULL at the position");
 
         assertArrayEquals(new String[]{null}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(new Long[]{null}, null, null, null),
+                        new MigrationKeyRecord(new Long[]{null}, null, null, null, null),
                         new String[]{"bigint"}),
                 "a NULL element yields NULL at the position");
 
         assertArrayEquals(new String[]{null, "x"}, Routines.migrationKeyValues(
                         dsl.configuration(),
-                        new MigrationKeyRecord(null, new String[]{null, "x"}, null, null),
+                        new MigrationKeyRecord(null, new String[]{null, "x"}, null, null, null),
                         new String[]{"text", "text"}),
                 "a NULL element does not compact away the later value");
     }
@@ -444,7 +473,7 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesRejectsUnsupportedKind() {
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null, null),
                 new String[]{"numeric"}));
     }
 
@@ -456,11 +485,11 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void migrationKeyValuesRejectsEmptyKinds() {
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null, null),
                 new String[]{}));
         assertSqlState("22023", () -> Routines.migrationKeyValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null, null),
                 null));
     }
 
