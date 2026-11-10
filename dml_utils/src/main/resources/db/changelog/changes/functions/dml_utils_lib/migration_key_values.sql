@@ -16,7 +16,8 @@ BEGIN
     -- Flatten a position-aligned migration_key back into one text value per
     -- boundary-key column, in key order, using i_key_kinds to select the array
     -- for each position. The values are the text form the chunk predicate
-    -- re-casts. Reject a NULL, empty, over-long, non-1-dimensional or non-1-based
+    -- re-casts; a bytea value is its hex digits (no prefix), which do not depend
+    -- on bytea_output. Reject a NULL, empty, over-long, non-1-dimensional or non-1-based
     -- kinds array: cardinality alone does not catch the last two, and indexing a
     -- non-1-based or multidimensional array would read a slice or an out-of-range
     -- subscript. The migration_key type has one array per supported kind.
@@ -35,7 +36,7 @@ BEGIN
 
             -- A NULL kind would make every comparison below NULL (not true) and
             -- fall through to the ELSE branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind %', l_kind
                     USING ERRCODE = '22023';
             END IF;
@@ -50,6 +51,7 @@ BEGIN
                            WHEN 'text' THEN (i_key).text_values[l_position]
                            WHEN 'uuid' THEN (i_key).uuid_values[l_position]::text
                            WHEN 'timestamptz' THEN (i_key).timestamptz_values[l_position]::text
+                           WHEN 'bytea' THEN pg_catalog.encode((i_key).bytea_values[l_position], 'hex')
                 END;
 
             l_values := l_values || l_value;

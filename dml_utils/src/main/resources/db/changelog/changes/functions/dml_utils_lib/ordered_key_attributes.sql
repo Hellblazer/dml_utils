@@ -89,7 +89,7 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes IS
     'Resolves a unique btree index on a plain driving table to its ordered-key '
         'columns, in index order, with each column''s ordinal position, name, type '
-        'oid, type and collapsed boundary kind (bigint, text, uuid or timestamptz). '
+        'oid, type and collapsed boundary kind (bigint, text, uuid, timestamptz or bytea). '
         'The single validator for the ordered-key contract: it rejects a missing '
         'index (42704), a missing schema/table (3F000/42P01), a partitioned or '
         'otherwise non-plain table (0A000), a non-btree or non-unique index, an '

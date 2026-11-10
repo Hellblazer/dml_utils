@@ -57,14 +57,16 @@ BEGIN
            o_bigint_values,
            o_text_values,
            o_uuid_values,
-           o_timestamptz_values
+           o_timestamptz_values,
+           o_bytea_values
     INTO l_terminal
     FROM dml_utils_lib.terminal_leaf_for_run(i_run_id => i_run_id);
 
     IF l_terminal.o_leaf_ordinal IS NOT NULL THEN
         l_terminal_key := ROW (l_terminal.o_bigint_values,
             l_terminal.o_text_values, l_terminal.o_uuid_values,
-            l_terminal.o_timestamptz_values)::dml_utils_data.migration_key;
+            l_terminal.o_timestamptz_values,
+            l_terminal.o_bytea_values)::dml_utils_data.migration_key;
 
         l_total_chunks := dml_utils_lib.append_terminal_boundary(
                 i_run_id => i_run_id,

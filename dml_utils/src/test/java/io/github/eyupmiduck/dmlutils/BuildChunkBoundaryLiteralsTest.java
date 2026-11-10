@@ -109,6 +109,69 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
     }
 
     /**
+     * A bytea range is rendered through {@code decode} of normalized lower-case
+     * hex, never as a quoted backslash-hex string, so the literal does not depend
+     * on {@code standard_conforming_strings} or {@code bytea_output}. The order
+     * is unsigned byte order, so {@code ff} sorts after {@code 7f} and a longer
+     * key after its prefix.
+     */
+    @Test
+    void buildsByteaLiteralsAndOrdersThemByUnsignedBytes() {
+        BuildChunkBoundaryLiterals result = literals(new String[]{"t.chash"},
+                new String[]{"bytea"}, new String[]{null},
+                new String[]{"7F"}, new String[]{"ff"});
+
+        assertArrayEquals(new String[]{"pg_catalog.decode('7f', 'hex')"}, result.getOStartLiterals());
+        assertArrayEquals(new String[]{"pg_catalog.decode('ff', 'hex')"}, result.getOEndLiterals());
+        assertEquals(-1, result.getOFirstDifference(), "0x7f sorts before 0xff");
+
+        assertEquals(-1, literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"00"}, new String[]{"0000"})
+                .getOFirstDifference(), "a prefix sorts before its extension");
+        assertEquals(-1, literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{""}, new String[]{"00"})
+                .getOFirstDifference(), "the empty key sorts first");
+        assertEquals(1, literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"ff00"}, new String[]{"ff"})
+                .getOFirstDifference(), "0xff00 sorts after 0xff");
+        assertEquals(0, literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"0A"}, new String[]{"0a"})
+                .getOFirstDifference(), "hex case does not matter");
+    }
+
+    /**
+     * A bytea column after text columns reports the first difference at the
+     * bytea position only when the text prefixes are equal.
+     */
+    @Test
+    void reportsAByteaDifferenceAfterEqualTextColumns() {
+        BuildChunkBoundaryLiterals result = literals(
+                new String[]{"t.tenant_id", "t.collection", "t.chash"},
+                new String[]{"text", "text", "bytea"},
+                new String[]{null, null, null},
+                new String[]{"a", "b", "00ff"}, new String[]{"a", "b", "0100"});
+
+        assertEquals(-1, result.getOFirstDifference());
+        assertEquals(3, result.getOFirstDifferencePosition());
+        assertArrayEquals(new String[]{"'a'::text", "'b'::text", "pg_catalog.decode('00ff', 'hex')"},
+                result.getOStartLiterals());
+    }
+
+    /**
+     * A bytea value that is not hex digits, or has an odd number of them, is
+     * rejected with {@code 22023}.
+     */
+    @Test
+    void rejectsInvalidByteaValues() {
+        assertSqlState("22023", () -> literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"zz"}, new String[]{"00"}));
+        assertSqlState("22023", () -> literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"00"}, new String[]{"abc"}));
+        assertSqlState("22023", () -> literals(new String[]{"t.chash"}, new String[]{"bytea"},
+                new String[]{null}, new String[]{"\\x00"}, new String[]{"01"}));
+    }
+
+    /**
      * A NULL boundary value, an invalid literal for its kind and an unsupported
      * or NULL kind are all rejected.
      */

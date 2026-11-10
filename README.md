@@ -12,9 +12,9 @@ and a re-run resumes where it stopped (see
 processed in parallel by more than one worker.
 
 It works on a table with a **primary key of up to three columns**, each of type
-`smallint`, `integer`, `bigint`, `text`, `uuid` or `timestamptz` (the column names
-need not be `id`); the chunks are primary-key ranges, so the planner can use the
-primary-key index.
+`smallint`, `integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea` (the
+column names need not be `id`); the chunks are primary-key ranges, so the
+planner can use the primary-key index.
 
 It is packaged as Liquibase-managed SQL, so installing it means applying the
 bundled changelog with the Liquibase CLI — there is nothing to build and no
@@ -42,7 +42,7 @@ anything above it:
 - **`dml_utils_data`** — the data layer: the shared domains (`non_null_text`,
   `positive_integer`), the `migration_key` composite type that packs a
   boundary's key value (position-aligned arrays, one per key kind, including
-  `timestamptz`), and the fixed-row chunk migration tables
+  `timestamptz` and `bytea`), and the fixed-row chunk migration tables
   `migration_run` / `migration_boundary` (`migration_error` records failed
   chunks), plus their trigger functions.
 
@@ -101,8 +101,8 @@ exactly once:
 
 For the default `primary_key` strategy, the driving table must have a **primary
 key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`,
-`uuid` or `timestamptz`; the column names are read from the catalog, so they need
-not be `id`.
+`uuid`, `timestamptz` or `bytea`; the column names are read from the catalog, so
+they need not be `id`.
 The predicate compares the key tuple to explicitly cast literals (`(t.id) >= ('1'::bigint)`, or
 `(t.a, t.b) >= ('1'::bigint, 'x'::text)` for a
 composite key) so the planner can use the primary-key index. Chunks are cut by
@@ -159,7 +159,7 @@ The index must be:
 - ascending with `NULLS LAST`, using the type's default btree operator class and
   the column's own collation;
 - on key columns of type `smallint`, `integer`, `bigint` (all collapsed to
-  `bigint`), `text`, `uuid` or `timestamptz`.
+  `bigint`), `text`, `uuid`, `timestamptz` or `bytea`.
 
 The order is lexicographic. A one-column key is a scalar range; a composite key
 compares column by column, so a second column (for example `id`) is the
@@ -550,10 +550,24 @@ SELECT dml_utils.delete_archived_migration_runs(i_label => 'events-region-backfi
 
 ## ddl_utils dependency
 
-dml_utils assumes **ddl_utils is installed in the same database**. Future
-changes to the `dml_utils_data` tables use ddl_utils' lock-aware DDL helpers (for example `ddl_utils.add_column`)
-instead of a raw `ALTER TABLE`, so a
+dml_utils assumes **ddl_utils is installed in the same database**. Changes to
+the `dml_utils_data` tables use ddl_utils' lock-aware DDL helpers (for example
+`ddl_utils.drop_constraint`, `ddl_utils.add_check_constraint` and
+`ddl_utils.ensure_check_constraint`) instead of a raw `ALTER TABLE`, so a
 migration does not hold an unbounded `ACCESS EXCLUSIVE` lock.
+
+The helpers the changelog calls are `ddl_utils.drop_constraint`,
+`ddl_utils.add_check_constraint` and `ddl_utils.ensure_check_constraint`, which
+in turn call `ddl_utils.get_lock_settings` and the `ddl_utils_lib` helpers.
+dml_utils is built and tested against the `ddl-utils.version` in the root POM
+(v1.4.0); use v1.0.0 or later. The three helpers have the same signatures in
+every release back to v0.1.0, but v1.0.0 is the first release whose
+`ensure_check_constraint` takes its advisory lock with the table-qualified
+64-bit key that the later releases use. The changelog checks for the helpers,
+for `USAGE` on both schemas and for `EXECUTE` on each function they call in a
+precondition on changeset `008-add-bytea-key-kind`, the first one that changes
+a type the routines build. A database that lacks any of them halts there, before
+anything changes, and the migration can be re-run after ddl_utils is installed.
 
 Install ddl_utils' changelog **before** dml_utils' changelog, and grant its
 caller role to the role that runs the dml_utils migration:
@@ -562,8 +576,7 @@ caller role to the role that runs the dml_utils migration:
 GRANT ddl_utils_caller TO dml_utils_owner;
 ```
 
-dml_utils' own changelog does not create ddl_utils; a database without it fails
-at the first changeset that calls a helper. The versioned
+dml_utils' own changelog does not create ddl_utils. The versioned
 `io.github.eyupmiduck:ddl_utils` Maven artifact (`ddl-utils.version`) supplies
 the changelog to the test suite and the jOOQ code generator (unpacked into
 `target/classes/db/changelog-install/ddl-utils`), the local development stack (`scripts/postgres/migrate.sh`) and the
@@ -575,6 +588,22 @@ The build resolves the artifact from GitHub Packages, so a local Maven build
 needs a `github-ddl-utils` server (a token with `read:packages`) alongside the
 existing `github` server in `~/.m2/settings.xml`. CI supplies both through
 `.github/scripts/settings.xml`.
+
+## Upgrading an installed database
+
+Upgrade with no migration run active: stop or let finish every
+`run_migration_chunks` / `run_function_over_table` call and its pg_background
+workers first. Changeset `008-add-bytea-key-kind` adds an attribute to the
+`dml_utils_data.migration_key` type, and the routines that build a key are
+replaced by later changesets of the same Liquibase run. A worker that starts in
+between runs a routine that builds the old, narrower key, and fails with
+`Input has too few columns`. Boundaries and leaf terminals stored by an earlier
+release stay readable, so a run that was stopped or failed before the upgrade
+resumes under its label afterwards.
+
+Rolling back past `008` discards the stored bytea arrays, and rolling back past
+`009` leaves a `NOT VALID` check that rejects updates to a run whose ordered key
+includes bytea; the rollback files say what to archive first.
 
 ## Building and testing
 

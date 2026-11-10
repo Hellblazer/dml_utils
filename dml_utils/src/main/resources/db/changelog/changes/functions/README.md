@@ -53,7 +53,7 @@ A run chunks the driving table one of three ways, recorded in the run's `chunk_b
   resumable.
 - **`ordered_key`**: fixed-row chunks from the order of a caller-selected unique
   btree index (`i_boundary_key_index`). The index must cover one to three
-  `NOT NULL` columns of type `bigint`, `text`, `uuid` or `timestamptz`, use the
+  `NOT NULL` columns of type `bigint`, `text`, `uuid`, `timestamptz` or `bytea`, use the
   type's default btree opclass and the column's collation, and be ascending with
   `NULLS LAST`. The resolved descriptor is stored with the run, so resume and
   explain use the same key; a resumed run re-validates the stored index and
@@ -643,7 +643,7 @@ RETURNS TABLE
 key: `primary_key_columns` and `primary_key_kinds` delegate to it, so the key
 order and the one-to-three-column validation live in one place. Each row is one
 key column in key order, with its ordinal position, name, type oid, type and
-collapsed boundary kind (`bigint`/`text`/`uuid`/`timestamptz`, or NULL for an
+collapsed boundary kind (`bigint`/`text`/`uuid`/`timestamptz`/`bytea`, or NULL for an
 unsupported type). Raises `invalid_parameter_value` (`22023`) when the table has
 no primary key or more than 3 key columns.
 
@@ -670,7 +670,8 @@ RETURNS text[]
 
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key kind of each primary-key
 column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
-`text` key, `uuid` for a `uuid` key and `timestamptz` for a `timestamptz` key.
+`text` key, `uuid` for a `uuid` key, `timestamptz` for a `timestamptz` key and
+`bytea` for a `bytea` key.
 Raises `invalid_parameter_value` (`22023`) for any other type.
 
 ### `dml_utils_lib.ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
@@ -687,7 +688,7 @@ RETURNS TABLE
 `STABLE`, `SECURITY INVOKER`. The single catalog reader and validator for an
 ordered key: resolves the named unique btree index on the driving table to one
 row per key column in index order, with its ordinal position, name, type oid,
-type and collapsed boundary kind (`bigint`, `text`, `uuid` or `timestamptz`).
+type and collapsed boundary kind (`bigint`, `text`, `uuid`, `timestamptz` or `bytea`).
 `INCLUDE` columns are ignored. It rejects:
 
 | Situation                                                                                                                                                   | SQLSTATE          |
@@ -875,9 +876,10 @@ RETURNS text[]
 
 `STABLE`, `SECURITY INVOKER`. Flattens a position-aligned `migration_key`
 into one text value per key column, in key order, using `i_key_kinds` to
-pick the array for each position. The chunk predicate re-casts each value. It is
-`STABLE` rather than `IMMUTABLE` because `timestamptz::text` depends on the
-session time zone.
+pick the array for each position. The chunk predicate re-casts each value; a
+`bytea` value is its bare hex digits (no `\x` prefix), so it does not depend on
+`bytea_output`. It is `STABLE` rather than `IMMUTABLE` because
+`timestamptz::text` depends on the session time zone.
 
 ### `dml_utils_lib.migration_key_pair_values(i_start_key, i_end_key, i_key_kinds)`
 
@@ -1006,8 +1008,13 @@ bounds are all equal is a single row. Each box is a prefix of equalities plus a
 range on the next column, so PostgreSQL estimates it column by column and uses
 the key index, where a single row-value comparison is mis-estimated and
 can sequential-scan the whole table. Each
-`i_key_kinds` entry must be `bigint`, `text`, `uuid` or `timestamptz` and is
-interpolated as the literal's cast, so any other value raises `22023`; the
+`i_key_kinds` entry must be `bigint`, `text`, `uuid`, `timestamptz` or `bytea`.
+A `bytea` value is hex digits (an odd count or a non-hex digit raises `22023`)
+and its literal is `pg_catalog.decode('<hex>', 'hex')`, which depends on neither
+`bytea_output` nor `standard_conforming_strings` and is a constant the planner
+folds, so the key index serves the predicate; `bytea` orders by unsigned bytes,
+the order of the key's btree. The other kinds are interpolated as the literal's
+cast, so any other value raises `22023`; the
 arrays must all have the same length, and a NULL start or end value raises
 `22023` (a NULL would render as an unquoted `NULL`, making the predicate match
 no rows). The start and end
@@ -1133,10 +1140,10 @@ and records the driving table's physical filepath. Both timestamps are written i
 this worker's transaction, so they commit with the run and persist across a
 failed processing attempt. For `primary_key` the source table must exist and have
 a primary key of one to three columns, each of a supported type (`smallint`,
-`integer`, `bigint`, `text` or `uuid`); the columns are identified from the
+`integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea`); the columns are identified from the
 catalog in key order, not assumed to be `id`. For `ordered_key` the named index
 must be a valid unique btree index on one to three `NOT NULL` columns of a
-supported type (`bigint`, `text`, `uuid` or `timestamptz`), with the type's
+supported type (`bigint`, `text`, `uuid`, `timestamptz` or `bytea`), with the type's
 default opclass and the column's collation; `i_boundary_key_index` is required for
 `ordered_key` and rejected for the other strategies (`22023`). For `blocks` the
 table must be a plain heap. Each boundary is stored as
@@ -1145,7 +1152,7 @@ the value of key column i in the array matching that column's kind, and
 exactly one array element is non-NULL per index. The `migration_boundary_key_check`
 constraint enforces that: each present array must have a non-NULL element (so an
 all-NULL or empty array is rejected), present arrays must share one length of one
-to three, and exactly one of the four arrays holds a non-NULL value at each
+to three, and exactly one of the five arrays holds a non-NULL value at each
 index. Raises `23505` when
 an active (not archived) run already exists for the label. The
 `migration_boundary` rows are inserted with their own `started_at` and
@@ -1240,7 +1247,7 @@ boundary). The key may be the primary key or a caller-selected ordered key.
 `populate_migration_boundaries` executes it and the explain path explains it, so
 both use the identical SQL; the run id and chunk size are inlined (both bigint).
 Identifiers are quoted with `%I` and every kind is checked against the
-`bigint`/`text`/`uuid`/`timestamptz` whitelist (`22023` otherwise). The statement
+`bigint`/`text`/`uuid`/`timestamptz`/`bytea` whitelist (`22023` otherwise). The statement
 text itself lives in `format_boundary_population_sql`.
 
 ### `dml_utils_lib.synthetic_chunk_boundary_values(i_key_kinds, i_chunk_size)`
@@ -1254,8 +1261,8 @@ RETURNS TABLE
 
 `IMMUTABLE`, `SECURITY INVOKER`. Returns two representative chunk ranges, one
 per key kind and in key order: the non-final (`o_is_final` false) and final (`o_is_final` true) rows. `bigint` spans
-`0..chunk_size`, `text` uses `a..b`, `uuid` the first two all-zero forms and
-`timestamptz` two consecutive days. The values are synthetic, so the explain
+`0..chunk_size`, `text` uses `a..b`, `uuid` the first two all-zero forms,
+`timestamptz` two consecutive days and `bytea` the hex digits `00` and `01`. The values are synthetic, so the explain
 path can render a plausible chunk predicate without reading real boundaries.
 Rejects malformed kinds or a non-positive chunk size (`22023`).
 
@@ -1879,7 +1886,7 @@ i_run_id bigint
 RETURNS record
     (o_leaf_ordinal integer, o_leaf_schema_name text, o_leaf_name text,
      o_bigint_values bigint[], o_text_values text[], o_uuid_values uuid[],
-     o_timestamptz_values timestamptz[])
+     o_timestamptz_values timestamptz[], o_bytea_values bytea[])
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the last non-empty manifest leaf of a

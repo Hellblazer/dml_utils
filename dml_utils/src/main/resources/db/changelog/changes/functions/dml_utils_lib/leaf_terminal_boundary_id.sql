@@ -18,6 +18,7 @@ DECLARE
     l_text_values        text[];
     l_uuid_values        uuid[];
     l_timestamptz_values timestamptz[];
+    l_bytea_values       bytea[];
 BEGIN
     SELECT run.chunk_by, leaf.leaf_schema_name::text, leaf.leaf_name::text
     INTO l_chunk_by, l_schema_name, l_name
@@ -45,13 +46,13 @@ BEGIN
         END IF;
 
         RETURN ROW (ARRAY [l_block_count]::bigint[], NULL::text[], NULL::uuid[],
-            NULL::timestamptz[])::dml_utils_data.migration_key;
+            NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key;
     END IF;
 
     -- The terminal high-water key is the last row of the leaf in the run's key
     -- order. The descriptor is the same one the leaf's starts were built from,
     -- so the terminal is comparable with them. The packed key is selected as its
-    -- four arrays because a composite result cannot be assigned to a composite
+    -- five arrays because a composite result cannot be assigned to a composite
     -- variable directly.
     SELECT o_key_columns,
            o_key_kinds
@@ -70,7 +71,8 @@ BEGIN
 
     EXECUTE pg_catalog.format(
             'SELECT (packed.key).bigint_values, (packed.key).text_values,'
-                ' (packed.key).uuid_values, (packed.key).timestamptz_values'
+                ' (packed.key).uuid_values, (packed.key).timestamptz_values,'
+                ' (packed.key).bytea_values'
                 ' FROM (SELECT %s AS key'
                 ' FROM (SELECT %s FROM %I.%I ORDER BY %s LIMIT 1) AS last_row) AS packed',
             l_descriptor.o_pack_expression,
@@ -78,14 +80,15 @@ BEGIN
             l_schema_name,
             l_name,
             l_descriptor.o_order_by_desc)
-        INTO l_bigint_values, l_text_values, l_uuid_values, l_timestamptz_values;
+        INTO l_bigint_values, l_text_values, l_uuid_values, l_timestamptz_values,
+            l_bytea_values;
 
     IF NOT FOUND THEN
         RETURN NULL;
     END IF;
 
     RETURN ROW (l_bigint_values, l_text_values, l_uuid_values,
-        l_timestamptz_values)::dml_utils_data.migration_key;
+        l_timestamptz_values, l_bytea_values)::dml_utils_data.migration_key;
 END;
 $$;
 

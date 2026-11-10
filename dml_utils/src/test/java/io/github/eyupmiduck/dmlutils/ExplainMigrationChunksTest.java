@@ -12,6 +12,7 @@ import java.util.List;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestByteaCompositePk.TEST_BYTEA_COMPOSITE_PK;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeThree.TEST_COMPOSITE_THREE;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestNumeric.TEST_NUMERIC;
@@ -62,6 +63,22 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
         assertEquals(THREE_KINDS, planKinds(plans));
         assertTrue(plans.get(1).getOSqlText().contains("'2026-01-01T00:00:00Z'::timestamptz"),
                 "the non-final chunk uses the synthetic timestamptz range");
+        plans.forEach(plan -> assertEquals("ModifyTable", planNodeType(plan.getOPlan())));
+    }
+
+    /**
+     * A composite (text, text, bytea) primary key yields the three plan kinds
+     * with the synthetic bytea range rendered through {@code decode}.
+     */
+    @Test
+    void plansACompositeByteaPrimaryKey() {
+        List<ExplainMigrationChunksRecord> plans = Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_BYTEA_COMPOSITE_PK),
+                name(TEST_BYTEA_COMPOSITE_PK), 10, "t", ChunkingStrategy.primary_key, null);
+
+        assertEquals(THREE_KINDS, planKinds(plans));
+        assertTrue(plans.get(1).getOSqlText().contains("pg_catalog.decode('00', 'hex')"),
+                "the non-final chunk uses the synthetic bytea range");
         plans.forEach(plan -> assertEquals("ModifyTable", planNodeType(plan.getOPlan())));
     }
 

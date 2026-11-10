@@ -57,7 +57,7 @@ BEGIN
         SELECT %1$s,
                base.first_boundary_no + starts.leaf_boundary_no,
                ROW(ARRAY[start_block]::bigint[], NULL::text[], NULL::uuid[],
-                   NULL::timestamptz[])::dml_utils_data.migration_key,
+                   NULL::timestamptz[], NULL::bytea[])::dml_utils_data.migration_key,
                %4$s,
                NULL::timestamptz
         FROM starts

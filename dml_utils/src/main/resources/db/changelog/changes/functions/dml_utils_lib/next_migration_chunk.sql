@@ -25,6 +25,7 @@ DECLARE
     l_terminal_text        text[];
     l_terminal_uuid        uuid[];
     l_terminal_timestamptz timestamptz[];
+    l_terminal_bytea       bytea[];
     l_terminal_key         dml_utils_data.migration_key;
 BEGIN
     -- Extract the per-position key values of the start and end boundaries in one
@@ -40,12 +41,13 @@ BEGIN
            (leaf.terminal_boundary_id).text_values,
            (leaf.terminal_boundary_id).uuid_values,
            (leaf.terminal_boundary_id).timestamptz_values,
+           (leaf.terminal_boundary_id).bytea_values,
            pair.o_start_values,
            pair.o_end_values,
            next.boundary_no = last.boundary_no
     INTO o_boundary_no, l_start_leaf_ordinal, l_end_leaf_ordinal,
         o_chunk_schema_name, o_chunk_table_name, l_terminal_bigint,
-        l_terminal_text, l_terminal_uuid, l_terminal_timestamptz,
+        l_terminal_text, l_terminal_uuid, l_terminal_timestamptz, l_terminal_bytea,
         o_start_values, o_end_values, o_is_final
     FROM dml_utils_data.migration_boundary AS b
              JOIN dml_utils_data.migration_boundary AS next
@@ -91,7 +93,7 @@ BEGIN
         IF l_end_leaf_ordinal IS DISTINCT FROM l_start_leaf_ordinal THEN
             l_terminal_key := ROW (l_terminal_bigint, l_terminal_text,
                 l_terminal_uuid,
-                l_terminal_timestamptz)::dml_utils_data.migration_key;
+                l_terminal_timestamptz, l_terminal_bytea)::dml_utils_data.migration_key;
             IF l_terminal_key IS NULL THEN
                 RAISE EXCEPTION 'leaf ordinal % of run % has no terminal snapshot',
                     l_start_leaf_ordinal, i_run_id

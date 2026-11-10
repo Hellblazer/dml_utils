@@ -34,6 +34,6 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.primary_key_kinds IS
-    'Returns the boundary key kind (bigint, text, uuid or timestamptz) of each '
+    'Returns the boundary key kind (bigint, text, uuid, timestamptz or bytea) of each '
         'primary-key column in key order, raising invalid_parameter_value (22023) '
         'for an unsupported type.';
