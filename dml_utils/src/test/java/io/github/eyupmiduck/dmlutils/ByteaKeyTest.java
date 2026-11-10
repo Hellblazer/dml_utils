@@ -187,11 +187,8 @@ class ByteaKeyTest extends PartitionTestBase {
 
         try (Connection connection = openTestConnection()) {
             DSLContext hostile = DSL.using(connection, SQLDialect.POSTGRES);
-            tryDisableStandardConformingStrings(hostile);
-            try {
+            if (tryDisableStandardConformingStrings(hostile)) {
                 hostile.execute("SET escape_string_warning = off");
-            } catch (org.jooq.exception.DataAccessException removed) {
-                // not settable on this server; the session needs nothing from it
             }
             hostile.execute("SET bytea_output = 'escape'");
             assertEquals("escape", hostile.fetchOne("SHOW bytea_output").get(0, String.class));

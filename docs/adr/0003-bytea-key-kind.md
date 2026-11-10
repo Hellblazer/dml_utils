@@ -56,7 +56,10 @@ the change is made in new changesets, and `LiquibaseUpgradeTest` stays enabled:
 - `009-allow-bytea-ordered-key-kind` replaces the ordered-key shape check through
   the ddl_utils helpers, adding the new check `NOT VALID`; `010` validates it
   with `ensure_check_constraint`, outside a transaction because the procedure
-  commits.
+  commits. Both run after the functions and triggers includes, because they can
+  fail on a lock timeout or a missing grant: a failure there leaves the new
+  routines in place against the new type, never a mix. No routine, trigger or
+  table definition reads the widened check.
 - The routines are edited in place under `runOnChange`. `terminal_leaf_for_run`
   gains an OUT column, so it is dropped and recreated with its grants
   re-asserted.
@@ -65,12 +68,14 @@ the change is made in new changesets, and `LiquibaseUpgradeTest` stays enabled:
 
 009 and 010 are the first changesets to call ddl_utils, which the README has
 always said dml_utils assumes is installed. 008 commits on its own, so a
-database where 009 then failed would keep the fifth attribute while the routines
-that build a key still construct the old, narrower row, and every new backend,
-pg_background workers included, would fail with `Input has too few columns`.
-008 therefore carries a precondition, `onFail="HALT"`, that requires the
-`ddl_utils` schema, `USAGE` on it and `EXECUTE` on `drop_constraint`,
-`add_check_constraint` and `ensure_check_constraint` for the migrating role. A
+database where the migration then stopped before the routines were replaced
+would keep the fifth attribute while the routines that build a key still
+construct the old, narrower row, and every new backend, pg_background workers
+included, would fail with `Input has too few columns`. Running 009 and 010 last
+keeps their failures out of that window, but a missing ddl_utils would still
+stop the migration there, after the type had changed. 008 therefore carries a precondition, `onFail="HALT"`, that requires the
+`ddl_utils` and `ddl_utils_lib` schemas, `USAGE` on both and `EXECUTE` for the
+migrating role on the three helpers and on the functions they call. A
 database that lacks them halts before anything changes and the migration can be
 re-run. The precondition is the one place SQL is written in the changelog XML,
 because Liquibase has no file form for it.

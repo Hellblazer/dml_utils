@@ -557,14 +557,17 @@ the `dml_utils_data` tables use ddl_utils' lock-aware DDL helpers (for example
 migration does not hold an unbounded `ACCESS EXCLUSIVE` lock.
 
 The helpers the changelog calls are `ddl_utils.drop_constraint`,
-`ddl_utils.add_check_constraint` and `ddl_utils.ensure_check_constraint`. All
-three exist, with the same signatures, in every ddl_utils release from v0.1.0;
+`ddl_utils.add_check_constraint` and `ddl_utils.ensure_check_constraint`, which
+in turn call `ddl_utils.get_lock_settings` and the `ddl_utils_lib` helpers.
 dml_utils is built and tested against the `ddl-utils.version` in the root POM
-(v1.4.0). The changelog checks for them, and for `USAGE` on the `ddl_utils`
-schema and `EXECUTE` on each, in a precondition on changeset
-`008-add-bytea-key-kind`, the first one that changes a type the routines build.
-A database that lacks them halts there, before anything changes, and the
-migration can be re-run after ddl_utils is installed.
+(v1.4.0); use v1.0.0 or later. The three helpers have the same signatures in
+every release back to v0.1.0, but v1.0.0 is the first release whose
+`ensure_check_constraint` takes its advisory lock with the table-qualified
+64-bit key that the later releases use. The changelog checks for the helpers,
+for `USAGE` on both schemas and for `EXECUTE` on each function they call in a
+precondition on changeset `008-add-bytea-key-kind`, the first one that changes
+a type the routines build. A database that lacks any of them halts there, before
+anything changes, and the migration can be re-run after ddl_utils is installed.
 
 Install ddl_utils' changelog **before** dml_utils' changelog, and grant its
 caller role to the role that runs the dml_utils migration:

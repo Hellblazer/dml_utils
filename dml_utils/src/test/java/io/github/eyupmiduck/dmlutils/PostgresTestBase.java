@@ -223,19 +223,26 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Sets {@code standard_conforming_strings = off} on a session when the server
-     * still allows it. PostgreSQL 19 removed non-standard string literals and
-     * rejects the setting, in which case there is nothing to be independent of and
-     * the session is left as it is.
+     * Sets {@code standard_conforming_strings = off} on a session. PostgreSQL 19
+     * removed non-standard string literals and rejects the setting, so only on a
+     * 19 or newer server is a failure tolerated (there is nothing to be
+     * independent of, and the session is left as it is); on an older server a
+     * failed SET is a test failure, not a quietly weaker test.
      *
      * @param session a session on an autocommit connection
-     * @return {@code true} when the setting took effect
+     * @return {@code true} when the setting took effect, {@code false} on a
+     * server that no longer supports it
      */
     protected static boolean tryDisableStandardConformingStrings(DSLContext session) {
         try {
             session.execute("SET standard_conforming_strings = off");
             return true;
         } catch (DataAccessException unsupported) {
+            int major = Integer.parseInt(
+                    session.fetchOne("SHOW server_version_num").get(0, String.class)) / 10000;
+            if (major < 19) {
+                throw unsupported;
+            }
             return false;
         }
     }
