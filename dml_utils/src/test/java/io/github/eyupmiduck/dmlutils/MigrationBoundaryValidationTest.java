@@ -3,10 +3,15 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
 import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -387,17 +392,31 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
 
     /**
      * The key-values helper flattens a bytea key to hex digits, whatever the
-     * session's {@code bytea_output}.
+     * session's {@code bytea_output}: the same result in the default session and
+     * in one set to {@code escape} output with string escapes enabled, where
+     * {@code bytea::text} itself differs.
      */
     @Test
-    void migrationKeyValuesFlattensAByteaKeyAsHex() {
-        String[] values = Routines.migrationKeyValues(
-                dsl.configuration(),
-                new MigrationKeyRecord(null, new String[]{"x", null}, null, null,
-                        new byte[][]{null, new byte[]{(byte) 0xde, (byte) 0xad, 0x00}}),
-                new String[]{"text", "bytea"});
+    void migrationKeyValuesFlattensAByteaKeyAsHex() throws SQLException {
+        MigrationKeyRecord key = new MigrationKeyRecord(null, new String[]{"x", null}, null, null,
+                new byte[][]{null, new byte[]{(byte) 0xde, (byte) 0xad, 0x00}});
+        String[] expected = {"x", "dead00"};
+        String asText = "SELECT pg_catalog.decode('dead00', 'hex')::text";
 
-        assertArrayEquals(new String[]{"x", "dead00"}, values);
+        assertArrayEquals(expected, Routines.migrationKeyValues(
+                dsl.configuration(), key, new String[]{"text", "bytea"}));
+        assertEquals("\\xdead00", dsl.fetchOne(asText).get(0, String.class));
+
+        try (Connection connection = openTestConnection()) {
+            DSLContext escape = DSL.using(connection, SQLDialect.POSTGRES);
+            escape.execute("SET bytea_output = 'escape'");
+            tryDisableStandardConformingStrings(escape);
+
+            assertEquals("\\336\\255\\000", escape.fetchOne(asText).get(0, String.class),
+                    "the session really prints bytea in escape form");
+            assertArrayEquals(expected, Routines.migrationKeyValues(
+                    escape.configuration(), key, new String[]{"text", "bytea"}));
+        }
     }
 
     /**

@@ -774,6 +774,26 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
+     * The ordered-key shape check is validated (changeset 010 validates the check
+     * that 009 adds NOT VALID, so a deleted 010 leaves it unvalidated) and its
+     * stored definition lists every supported kind, bytea included.
+     */
+    @Test
+    void theOrderedKeyShapeCheckIsValidatedAndListsEveryKind() {
+        var check = dsl.fetchOne("SELECT convalidated, pg_catalog.pg_get_constraintdef(oid) AS definition"
+                + " FROM pg_catalog.pg_constraint"
+                + " WHERE conname = 'migration_run_ordered_key_shape_check'"
+                + " AND conrelid = 'dml_utils_data.migration_run'::regclass");
+
+        assertTrue(check.get("convalidated", Boolean.class), "the shape check is validated");
+        String definition = check.get("definition", String.class);
+        for (String kind : List.of("bigint", "text", "uuid", "timestamptz", "bytea")) {
+            assertTrue(definition.contains("'" + kind + "'::text"),
+                    "the shape check admits " + kind + ": " + definition);
+        }
+    }
+
+    /**
      * A run may record bytea as an ordered-key kind, and an unknown kind is
      * still rejected.
      */

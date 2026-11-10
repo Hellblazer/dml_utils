@@ -7,10 +7,12 @@ import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
+import org.jooq.DSLContext;
 import org.jooq.Field;
 import org.jooq.JSON;
 import org.jooq.Record;
 import org.jooq.Table;
+import org.jooq.exception.DataAccessException;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 
@@ -218,6 +220,24 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected static OffsetDateTime timestamp(int second) {
         return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
+    }
+
+    /**
+     * Sets {@code standard_conforming_strings = off} on a session when the server
+     * still allows it. PostgreSQL 19 removed non-standard string literals and
+     * rejects the setting, in which case there is nothing to be independent of and
+     * the session is left as it is.
+     *
+     * @param session a session on an autocommit connection
+     * @return {@code true} when the setting took effect
+     */
+    protected static boolean tryDisableStandardConformingStrings(DSLContext session) {
+        try {
+            session.execute("SET standard_conforming_strings = off");
+            return true;
+        } catch (DataAccessException unsupported) {
+            return false;
+        }
     }
 
     /**

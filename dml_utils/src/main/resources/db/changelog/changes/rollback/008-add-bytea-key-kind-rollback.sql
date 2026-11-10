@@ -1,3 +1,6 @@
+-- Dropping the attribute discards every stored bytea array, so a bytea boundary
+-- or leaf terminal loses its key. Archive every run over a bytea key before
+-- rolling this back, and roll back 009 and 010 first.
 ALTER TYPE dml_utils_data.migration_key DROP ATTRIBUTE IF EXISTS bytea_values;
 
 COMMENT ON TYPE dml_utils_data.migration_key IS

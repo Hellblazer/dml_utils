@@ -550,10 +550,21 @@ SELECT dml_utils.delete_archived_migration_runs(i_label => 'events-region-backfi
 
 ## ddl_utils dependency
 
-dml_utils assumes **ddl_utils is installed in the same database**. Future
-changes to the `dml_utils_data` tables use ddl_utils' lock-aware DDL helpers (for example `ddl_utils.add_column`)
-instead of a raw `ALTER TABLE`, so a
+dml_utils assumes **ddl_utils is installed in the same database**. Changes to
+the `dml_utils_data` tables use ddl_utils' lock-aware DDL helpers (for example
+`ddl_utils.drop_constraint`, `ddl_utils.add_check_constraint` and
+`ddl_utils.ensure_check_constraint`) instead of a raw `ALTER TABLE`, so a
 migration does not hold an unbounded `ACCESS EXCLUSIVE` lock.
+
+The helpers the changelog calls are `ddl_utils.drop_constraint`,
+`ddl_utils.add_check_constraint` and `ddl_utils.ensure_check_constraint`. All
+three exist, with the same signatures, in every ddl_utils release from v0.1.0;
+dml_utils is built and tested against the `ddl-utils.version` in the root POM
+(v1.4.0). The changelog checks for them, and for `USAGE` on the `ddl_utils`
+schema and `EXECUTE` on each, in a precondition on changeset
+`008-add-bytea-key-kind`, the first one that changes a type the routines build.
+A database that lacks them halts there, before anything changes, and the
+migration can be re-run after ddl_utils is installed.
 
 Install ddl_utils' changelog **before** dml_utils' changelog, and grant its
 caller role to the role that runs the dml_utils migration:
@@ -562,8 +573,7 @@ caller role to the role that runs the dml_utils migration:
 GRANT ddl_utils_caller TO dml_utils_owner;
 ```
 
-dml_utils' own changelog does not create ddl_utils; a database without it fails
-at the first changeset that calls a helper (today `009-allow-bytea-ordered-key-kind`). The versioned
+dml_utils' own changelog does not create ddl_utils. The versioned
 `io.github.eyupmiduck:ddl_utils` Maven artifact (`ddl-utils.version`) supplies
 the changelog to the test suite and the jOOQ code generator (unpacked into
 `target/classes/db/changelog-install/ddl-utils`), the local development stack (`scripts/postgres/migrate.sh`) and the
@@ -575,6 +585,22 @@ The build resolves the artifact from GitHub Packages, so a local Maven build
 needs a `github-ddl-utils` server (a token with `read:packages`) alongside the
 existing `github` server in `~/.m2/settings.xml`. CI supplies both through
 `.github/scripts/settings.xml`.
+
+## Upgrading an installed database
+
+Upgrade with no migration run active: stop or let finish every
+`run_migration_chunks` / `run_function_over_table` call and its pg_background
+workers first. Changeset `008-add-bytea-key-kind` adds an attribute to the
+`dml_utils_data.migration_key` type, and the routines that build a key are
+replaced by later changesets of the same Liquibase run. A worker that starts in
+between runs a routine that builds the old, narrower key, and fails with
+`Input has too few columns`. Boundaries and leaf terminals stored by an earlier
+release stay readable, so a run that was stopped or failed before the upgrade
+resumes under its label afterwards.
+
+Rolling back past `008` discards the stored bytea arrays, and rolling back past
+`009` leaves a `NOT VALID` check that rejects updates to a run whose ordered key
+includes bytea; the rollback files say what to archive first.
 
 ## Building and testing
 

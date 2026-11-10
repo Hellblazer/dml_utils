@@ -4,6 +4,24 @@
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
+    <!-- The migration_run ordered-key shape check, in its original form and as
+         widened for bytea. Changesets 009 and 010 and 009's rollback expand these
+         into their SQL files, so the expression is written once and cannot drift
+         between them. Quotes are doubled because the expression is passed to the
+         ddl_utils helpers as a string literal. -->
+    <property name="ordered_key_shape_check_expression"
+              value="ordered_key_columns IS NULL
+        OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
+        AND pg_catalog.cardinality(ordered_key_kinds)
+                = pg_catalog.cardinality(ordered_key_columns)
+        AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
+    <property name="ordered_key_shape_check_expression_before_bytea"
+              value="ordered_key_columns IS NULL
+        OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
+        AND pg_catalog.cardinality(ordered_key_kinds)
+                = pg_catalog.cardinality(ordered_key_columns)
+        AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'']::text[])"/>
+
     <changeSet id="001-create-schema" author="lee.horner" dbms="postgresql">
         <sqlFile path="sql_changes/001-create-schema.sql" relativeToChangelogFile="true"/>
         <rollback>
@@ -39,7 +57,31 @@
          below reads the new attribute, so a database built from scratch needs it
          before that helper is created. A database upgraded from an earlier
          release runs it on its own first, then re-applies the helper. -->
-    <changeSet id="008-add-bytea-key-kind" author="lee.horner" dbms="postgresql">
+    <changeSet id="008-add-bytea-key-kind" author="hellblazer" dbms="postgresql">
+        <!-- 008 commits on its own, and a database that has the fifth attribute
+             but not the routines that build it breaks in every new backend, so
+             this changeset must not run unless 009 and 010 can. They call the
+             ddl_utils helpers: halt here, before anything changes, when the
+             schema is missing or the migrating role cannot execute them. This
+             is the one place a changeset carries SQL in the XML; Liquibase has
+             no file form of a precondition. -->
+        <preConditions onFail="HALT" onError="HALT">
+            <sqlCheck expectedResult="1">
+                SELECT CASE
+                    WHEN pg_catalog.to_regnamespace('ddl_utils') IS NULL THEN 0
+                    WHEN NOT pg_catalog.has_schema_privilege(pg_catalog.current_user(), 'ddl_utils', 'USAGE') THEN 0
+                    WHEN (SELECT pg_catalog.count(DISTINCT p.proname)
+                          FROM pg_catalog.pg_proc AS p
+                                   JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+                          WHERE n.nspname = 'ddl_utils'
+                            AND p.proname IN ('drop_constraint', 'add_check_constraint',
+                                              'ensure_check_constraint')
+                            AND pg_catalog.has_function_privilege(pg_catalog.current_user(), p.oid, 'EXECUTE')) = 3
+                        THEN 1
+                    ELSE 0
+                END
+            </sqlCheck>
+        </preConditions>
         <sqlFile path="sql_changes/008-add-bytea-key-kind.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="rollback/008-add-bytea-key-kind-rollback.sql" relativeToChangelogFile="true"/>
@@ -76,7 +118,7 @@
          migration_run, so it follows the table's own changeset, and it calls
          the ddl_utils helpers. The new check is added NOT VALID here and
          validated by the next changeset. -->
-    <changeSet id="009-allow-bytea-ordered-key-kind" author="lee.horner" dbms="postgresql">
+    <changeSet id="009-allow-bytea-ordered-key-kind" author="hellblazer" dbms="postgresql">
         <sqlFile path="sql_changes/009-allow-bytea-ordered-key-kind.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="rollback/009-allow-bytea-ordered-key-kind-rollback.sql"
@@ -87,7 +129,7 @@
     <!-- Validates the check the previous changeset added NOT VALID. The
          ddl_utils procedure commits between steps, so it runs outside a
          transaction and is this changeset's only statement. -->
-    <changeSet id="010-validate-ordered-key-shape-check" author="lee.horner" dbms="postgresql"
+    <changeSet id="010-validate-ordered-key-shape-check" author="hellblazer" dbms="postgresql"
                runInTransaction="false">
         <sqlFile path="sql_changes/010-validate-ordered-key-shape-check.sql"
                  relativeToChangelogFile="true"/>

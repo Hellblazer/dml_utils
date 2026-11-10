@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestByteaCompositePk.TEST_BYTEA_COMPOSITE_PK;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestByteaPartitioned.TEST_BYTEA_PARTITIONED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestByteaPk.TEST_BYTEA_PK;
@@ -186,8 +187,12 @@ class ByteaKeyTest extends PartitionTestBase {
 
         try (Connection connection = openTestConnection()) {
             DSLContext hostile = DSL.using(connection, SQLDialect.POSTGRES);
-            hostile.execute("SET standard_conforming_strings = off");
-            hostile.execute("SET escape_string_warning = off");
+            tryDisableStandardConformingStrings(hostile);
+            try {
+                hostile.execute("SET escape_string_warning = off");
+            } catch (org.jooq.exception.DataAccessException removed) {
+                // not settable on this server; the session needs nothing from it
+            }
             hostile.execute("SET bytea_output = 'escape'");
             assertEquals("escape", hostile.fetchOne("SHOW bytea_output").get(0, String.class));
 
@@ -223,23 +228,32 @@ class ByteaKeyTest extends PartitionTestBase {
     }
 
     /**
-     * A chunk predicate over a composite bytea key is served by the primary-key
-     * index rather than a sequential scan, because the literals are constants the
-     * planner folds.
+     * A chunk predicate over a composite bytea key can be served by the
+     * primary-key index, because the literals are constants the planner folds.
+     * With sequential scans disabled the planner has no other access path, so
+     * the plan does not depend on version-specific costing: it must carry an
+     * Index Cond on the primary-key index, and the condition must name the bytea
+     * column (a predicate the planner could not fold would be a Filter).
      */
     @Test
     void servesAChunkPredicateFromThePrimaryKeyIndex() throws SQLException {
         seedHashes(4000);
         executeAsOwner("ANALYZE " + PARTITION_SCHEMA + ".test_bytea_composite_pk");
         long runId = populate(TEST_BYTEA_COMPOSITE_PK, uniqueLabel("bytea-plan"), 100);
-
         List<String> sql = renderedChunkSql(runId, TEST_BYTEA_COMPOSITE_PK,
                 "tenant_id, collection, chash", "1", TEXT_TEXT_BYTEA, dsl);
-        String plan = dsl.fetchOne("EXPLAIN (FORMAT JSON) " + sql.get(10)).get(0, String.class);
 
-        assertTrue(plan.contains("test_bytea_composite_pk_pkey"),
-                "the plan reads the primary-key index: " + plan);
-        assertFalse(plan.contains("Seq Scan"), "the plan does not scan the table: " + plan);
+        try (Connection connection = openTestConnection()) {
+            DSLContext planner = DSL.using(connection, SQLDialect.POSTGRES);
+            planner.execute("SET enable_seqscan = off");
+            String plan = planner.fetchOne("EXPLAIN (FORMAT JSON) " + sql.get(10))
+                    .get(0, String.class);
+
+            assertTrue(plan.contains("test_bytea_composite_pk_pkey"),
+                    "the plan reads the primary-key index: " + plan);
+            assertTrue(plan.contains("Index Cond"), "the key predicate is an index condition: " + plan);
+            assertTrue(plan.contains("chash"), "the index condition covers the bytea column: " + plan);
+        }
     }
 
     /**
@@ -346,6 +360,9 @@ class ByteaKeyTest extends PartitionTestBase {
 
         assertEveryRowDoneOnce(TEST_BYTEA_PARTITIONED, 2 * EDGE_KEYS.size(), "partitioned parent");
         assertTrue(runCompleted(label), "the run completes");
+        assertEquals(0, dsl.fetchCount(MIGRATION_RUN_LEAF,
+                        MIGRATION_RUN_LEAF.RUN_ID.eq(runId(label))),
+                "a run over the parent as one relation has no leaf manifest");
     }
 
     /**
@@ -363,6 +380,12 @@ class ByteaKeyTest extends PartitionTestBase {
 
         assertEveryRowDoneOnce(TEST_BYTEA_PARTITIONED, 2 * EDGE_KEYS.size(), "partition-wise");
         assertTrue(runCompleted(label), "the partition-wise run completes");
+        long runId = runId(label);
+        assertTrue(dsl.select(MIGRATION_RUN.PARTITION_WISE).from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId)).fetchOne(MIGRATION_RUN.PARTITION_WISE),
+                "the run is recorded as partition-wise, not silently run as one relation");
+        assertEquals(2, dsl.fetchCount(MIGRATION_RUN_LEAF, MIGRATION_RUN_LEAF.RUN_ID.eq(runId)),
+                "one manifest leaf per partition");
     }
 
     private static final String COMPOSITE_ROW =

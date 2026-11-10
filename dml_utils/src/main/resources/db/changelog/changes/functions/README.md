@@ -1140,7 +1140,7 @@ and records the driving table's physical filepath. Both timestamps are written i
 this worker's transaction, so they commit with the run and persist across a
 failed processing attempt. For `primary_key` the source table must exist and have
 a primary key of one to three columns, each of a supported type (`smallint`,
-`integer`, `bigint`, `text` or `uuid`); the columns are identified from the
+`integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea`); the columns are identified from the
 catalog in key order, not assumed to be `id`. For `ordered_key` the named index
 must be a valid unique btree index on one to three `NOT NULL` columns of a
 supported type (`bigint`, `text`, `uuid`, `timestamptz` or `bytea`), with the type's
