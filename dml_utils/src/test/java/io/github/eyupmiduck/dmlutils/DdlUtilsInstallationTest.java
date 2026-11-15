@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.Statement;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -29,6 +30,24 @@ class DdlUtilsInstallationTest extends PostgresTestBase {
             } finally {
                 statement.execute("ALTER TABLE dml_utils_fixtures.test_bigint"
                         + " DROP COLUMN IF EXISTS ddl_probe");
+            }
+        }
+    }
+
+    /**
+     * The ddl_utils install hands its Liquibase Database a connection the caller
+     * still owns; closing that wrapper must not close the shared admin connection
+     * (the upgrade hook uses it again after the install).
+     */
+    @Test
+    void installingDdlUtilsDoesNotCloseTheSharedConnection() throws Exception {
+        try (Connection admin = openOwnerConnection()) {
+            Connection wrapper = PostgresTestBase.closeIgnoring(admin);
+            wrapper.close();
+
+            assertFalse(admin.isClosed(), "the caller-owned connection stays open");
+            try (Statement statement = admin.createStatement()) {
+                statement.execute("SELECT 1");
             }
         }
     }

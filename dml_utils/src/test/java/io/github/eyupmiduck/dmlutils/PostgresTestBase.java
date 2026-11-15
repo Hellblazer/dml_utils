@@ -14,12 +14,15 @@ import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -164,8 +167,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                     + " TO " + OWNER_USER);
         }
         try {
+            // Liquibase's Database.close() closes the underlying connection. The
+            // admin connection is caller-owned and shared by several setup steps, so
+            // wrap it in a delegate whose close() is a no-op.
             Database database = DatabaseFactory.getInstance()
-                    .findCorrectDatabaseImplementation(new JdbcConnection(admin));
+                    .findCorrectDatabaseImplementation(
+                            new JdbcConnection(closeIgnoring(admin)));
             database.setDefaultSchemaName("public");
             database.setLiquibaseSchemaName(LIQUIBASE_SCHEMA);
             database.setDatabaseChangeLogTableName("ddl_utils_databasechangelog");
@@ -181,6 +188,29 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         } catch (Exception error) {
             throw new SQLException("could not install ddl_utils", error);
         }
+    }
+
+    /**
+     * Wraps a connection so {@link Connection#close()} does nothing. Used where a
+     * library would otherwise close a connection the caller still owns.
+     *
+     * @param delegate the real connection
+     * @return a view of the connection whose close() is a no-op
+     */
+    static Connection closeIgnoring(Connection delegate) {
+        return (Connection) Proxy.newProxyInstance(
+                Connection.class.getClassLoader(),
+                new Class<?>[]{Connection.class},
+                (proxy, method, args) -> {
+                    if ("close".equals(method.getName())) {
+                        return null;
+                    }
+                    try {
+                        return method.invoke(delegate, args);
+                    } catch (InvocationTargetException error) {
+                        throw error.getCause();
+                    }
+                });
     }
 
     /**
@@ -201,23 +231,29 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * A synthetic uuid for the uuid-key fixtures, with the given value in its
      * final twelve digits. Shared so every test builds the same values.
      *
-     * @param n the trailing value
+     * @param n the trailing value; it must be non-negative
      * @return the synthetic uuid
+     * @throws IllegalArgumentException if {@code n} is negative (the formatted
+     *                                  literal would not be a valid uuid)
      */
     protected static UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
+        if (n < 0) {
+            throw new IllegalArgumentException("uuid() trailing value must not be negative: " + n);
+        }
+        return UUID.fromString(
+                String.format(Locale.ROOT, "00000000-0000-0000-0000-%012d", n));
     }
 
     /**
-     * A synthetic timestamptz one second after 2026-01-01T00:00:00Z, for the
-     * ordered-key fixtures. The value is formatted zero-padded so any second
-     * count yields a valid instant.
+     * A synthetic timestamptz {@code second} seconds after 2026-01-01T00:00:00Z,
+     * for the ordered-key fixtures. Built arithmetically, so any count (including
+     * 60+, or negative) yields a valid instant instead of an unparseable literal.
      *
-     * @param second the second within the first minute
+     * @param second seconds after the fixture epoch
      * @return the synthetic instant
      */
     protected static OffsetDateTime timestamp(int second) {
-        return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
+        return OffsetDateTime.parse("2026-01-01T00:00:00Z").plusSeconds(second);
     }
 
     /**
@@ -284,8 +320,20 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      */
     protected static void setRole(Connection connection, String role) throws SQLException {
         try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + role);
+            statement.execute("SET ROLE " + quoteIdentifier(role));
         }
+    }
+
+    /**
+     * Quotes an SQL identifier, doubling embedded double quotes. {@code SET ROLE},
+     * like most utility statements, takes no bind parameter, so a role name must
+     * be quoted rather than concatenated raw.
+     *
+     * @param identifier the identifier to quote
+     * @return the double-quoted identifier
+     */
+    private static String quoteIdentifier(String identifier) {
+        return '"' + identifier.replace("\"", "\"\"") + '"';
     }
 
     /**
@@ -362,9 +410,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param ids the primary-key values to insert
      */
     protected void seedBigint(long... ids) {
-        for (long id : ids) {
-            dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID).values(id).execute();
+        if (ids.length == 0) {
+            return;
         }
+        var insert = dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID);
+        for (long id : ids) {
+            insert = insert.values(id);
+        }
+        insert.execute();
     }
 
     /**
@@ -401,10 +454,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the run id
      */
     protected long runId(String label) {
-        return dsl.select(MIGRATION_RUN.RUN_ID)
+        Long id = dsl.select(MIGRATION_RUN.RUN_ID)
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        if (id == null) {
+            throw new IllegalStateException("no migration run with label " + label);
+        }
+        return id;
     }
 
     /**
@@ -414,10 +471,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the total chunk count
      */
     protected long totalChunks(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
+        Long total = dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS);
+        if (total == null) {
+            throw new IllegalStateException("no migration run with id " + runId);
+        }
+        return total;
     }
 
     /**
@@ -427,10 +488,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the completed chunk count
      */
     protected long totalChunksCompleted(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
+        Long completed = dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+        if (completed == null) {
+            throw new IllegalStateException("no migration run with id " + runId);
+        }
+        return completed;
     }
 
     /**
@@ -498,13 +563,17 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the run id
      */
     protected long insertRun(String label, String schemaName, String tableName) {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long id = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
                         MIGRATION_RUN.DRIVING_TABLE_NAME)
                 .values(label, "SELECT 1", 1, 1, schemaName, tableName)
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        if (id == null) {
+            throw new IllegalStateException("the run insert for " + label + " returned no id");
+        }
+        return id;
     }
 
     /**
@@ -558,7 +627,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Whether the boundary {@code (runId, boundaryNo)} has been claimed.
+     * Whether the boundary {@code (runId, boundaryNo)} has completed.
      *
      * @param runId      the run id
      * @param boundaryNo the boundary number
