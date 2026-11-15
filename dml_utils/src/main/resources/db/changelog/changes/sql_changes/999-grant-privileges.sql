@@ -22,7 +22,9 @@ GRANT USAGE ON TYPE dml_utils_data.chunking_strategy TO dml_utils_caller;
 
 -- The default ACLs for future objects are installed by 007-default-privileges,
 -- before the functions include, so every routine is created already protected
--- instead of becoming world-executable until this changeset runs.
+-- instead of becoming world-executable until this changeset runs. That default
+-- ACL is database-wide and cannot cover table row types (PostgreSQL does not
+-- apply default ACLs to them), so the row types below are revoked explicitly.
 
 -- The caller can read metadata but never write it directly. The invoker-owned
 -- coordinator and chunk worker delegate every metadata write to the owner-owned

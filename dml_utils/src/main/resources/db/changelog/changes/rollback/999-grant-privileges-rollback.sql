@@ -3,26 +3,29 @@
 REVOKE USAGE ON SCHEMA dml_utils FROM dml_utils_caller;
 REVOKE USAGE ON SCHEMA dml_utils_lib FROM dml_utils_caller;
 REVOKE USAGE ON SCHEMA dml_utils_data FROM dml_utils_caller;
-GRANT USAGE ON DOMAIN dml_utils_data.non_null_text TO public;
+-- 007-default-privileges runs before 004 and uses a database-wide default ACL, so
+-- the domains and the explicitly created types below exist without PUBLIC usage:
+-- the forward PUBLIC revokes are no-ops and the pre-999 state is "no PUBLIC
+-- access". Take the caller's grant back only; granting USAGE to PUBLIC would
+-- widen access beyond what a fresh install ever had.
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_text FROM dml_utils_caller;
-GRANT USAGE ON DOMAIN dml_utils_data.positive_integer TO public;
 REVOKE USAGE ON DOMAIN dml_utils_data.positive_integer FROM dml_utils_caller;
-GRANT USAGE ON DOMAIN dml_utils_data.non_negative_integer TO public;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_negative_integer FROM dml_utils_caller;
-GRANT USAGE ON DOMAIN dml_utils_data.non_null_boolean TO public;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_boolean FROM dml_utils_caller;
-GRANT USAGE ON TYPE dml_utils_data.migration_key TO public;
 REVOKE USAGE ON TYPE dml_utils_data.migration_key FROM dml_utils_caller;
-GRANT USAGE ON TYPE dml_utils_data.chunking_strategy TO public;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM dml_utils_caller;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils
-    GRANT EXECUTE ON FUNCTIONS TO public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_lib
-    GRANT EXECUTE ON FUNCTIONS TO public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_data
-    GRANT EXECUTE ON FUNCTIONS TO public;
-ALTER DEFAULT PRIVILEGES FOR ROLE dml_utils_owner IN SCHEMA dml_utils_data
-    GRANT USAGE ON TYPES TO public;
+-- The four migration table row types are the exception: PostgreSQL does not apply
+-- default ACLs to the implicit composite type of a table, so PUBLIC really does
+-- have the built-in USAGE before 999. Restore it here, alongside the caller
+-- revoke.
+GRANT USAGE ON TYPE dml_utils_data.migration_run TO public;
+REVOKE USAGE ON TYPE dml_utils_data.migration_run FROM dml_utils_caller;
+GRANT USAGE ON TYPE dml_utils_data.migration_boundary TO public;
+REVOKE USAGE ON TYPE dml_utils_data.migration_boundary FROM dml_utils_caller;
+GRANT USAGE ON TYPE dml_utils_data.migration_error TO public;
+REVOKE USAGE ON TYPE dml_utils_data.migration_error FROM dml_utils_caller;
+GRANT USAGE ON TYPE dml_utils_data.migration_run_leaf TO public;
+REVOKE USAGE ON TYPE dml_utils_data.migration_run_leaf FROM dml_utils_caller;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_run FROM dml_utils_caller;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_boundary FROM dml_utils_caller;
 REVOKE SELECT, INSERT, UPDATE, DELETE ON dml_utils_data.migration_error FROM dml_utils_caller;

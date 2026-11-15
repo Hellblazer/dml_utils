@@ -348,8 +348,8 @@ i_boundary_key_index        name DEFAULT NULL
 i_partition_wise            dml_utils_data.non_null_boolean DEFAULT FALSE
 i_leaf_ordinal              integer DEFAULT NULL
 RETURNS TABLE
-    (o_plan_kind text, o_sql_text text, o_plan json,
-     o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
+(o_plan_kind text, o_sql_text text, o_plan json,
+    o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. The explicit-boundary companion to
@@ -381,8 +381,8 @@ resolves no run, reads no boundaries and writes nothing.
 i_run_id      bigint
 i_boundary_no bigint
 RETURNS TABLE
-    (o_plan_kind text, o_sql_text text, o_plan json,
-     o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
+(o_plan_kind text, o_sql_text text, o_plan json,
+    o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Explains one real chunk of a stored run by run
@@ -488,8 +488,8 @@ i_boundary_key_index        name DEFAULT NULL
 i_partition_wise            dml_utils_data.non_null_boolean DEFAULT FALSE
 i_leaf_ordinal              integer DEFAULT NULL
 RETURNS TABLE
-    (o_plan_kind text, o_sql_text text, o_plan json,
-     o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
+(o_plan_kind text, o_sql_text text, o_plan json,
+    o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. The read-only companion to
@@ -522,8 +522,8 @@ i_boundary_key_index        name DEFAULT NULL
 i_partition_wise            dml_utils_data.non_null_boolean DEFAULT FALSE
 i_leaf_ordinal              integer DEFAULT NULL
 RETURNS TABLE
-    (o_plan_kind text, o_sql_text text, o_plan json,
-     o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
+(o_plan_kind text, o_sql_text text, o_plan json,
+    o_leaf_schema_name text, o_leaf_name text, o_leaf_ordinal integer)
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. The explicit-boundary companion to
@@ -715,9 +715,9 @@ Use `migration_run_leaves` for the manifest rows.
 ```sql
 i_run_id bigint
 RETURNS TABLE
-    (run_id, leaf_ordinal, leaf_schema_name, leaf_name, leaf_oid, leaf_bound,
-     relation_filepath, state, boundary_count, terminal_boundary_id,
-     calculated_at, error_sqlstate, error_message, created_at, updated_at)
+(run_id, leaf_ordinal, leaf_schema_name, leaf_name, leaf_oid, leaf_bound,
+    relation_filepath, state, boundary_count, terminal_boundary_id,
+    calculated_at, error_sqlstate, error_message, created_at, updated_at)
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns one row per manifest leaf of a
@@ -734,12 +734,12 @@ manifest and returns no rows.
 ```sql
 i_run_id bigint
 RETURNS TABLE
-    (run_id, label, chunk_by, partition_wise, status,
-     total_chunks, completed_chunks, remaining_chunks, percent_complete,
-     total_rows_affected, elapsed_ms, chunks_per_second, rows_per_second,
-     estimated_remaining_ms, estimated_completion_at, paused_at, max_retries,
-     retry_backoff_ms, started_at, boundaries_calculated_at, completed_at,
-     cancelled_at, archived_at)
+(run_id, label, chunk_by, partition_wise, status,
+    total_chunks, completed_chunks, remaining_chunks, percent_complete,
+    total_rows_affected, elapsed_ms, chunks_per_second, rows_per_second,
+    estimated_remaining_ms, estimated_completion_at, paused_at, max_retries,
+    retry_backoff_ms, started_at, boundaries_calculated_at, completed_at,
+    cancelled_at, archived_at)
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns one progress row for the run. `status` is

@@ -25,6 +25,23 @@
         </rollback>
     </changeSet>
 
+    <!-- Revoke PUBLIC's default EXECUTE/USAGE on future objects before any type
+         or routine is created. It must run before 004 (domains and the
+         chunking_strategy enum) and 005 (the boundary-key helper), because
+         ALTER DEFAULT PRIVILEGES only affects objects created after it executes;
+         anything created earlier keeps PostgreSQL's world-readable ACLs until
+         999-grant-privileges runs. The revokes are database-wide: a schema-scoped
+         default ACL is added on top of the hard-wired default and cannot remove
+         it. The id keeps its original number; the file-order position is what
+         Liquibase applies. -->
+    <changeSet id="007-default-privileges" author="lee.horner" dbms="postgresql">
+        <sqlFile path="sql_changes/007-default-privileges.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/007-default-privileges-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <!-- Domains must exist before any routine that types its arguments with
          them, so create them before the functions include. -->
     <changeSet id="004-create-domains" author="lee.horner" dbms="postgresql">
@@ -57,17 +74,6 @@
         <sqlFile path="sql_changes/006-create-migration-tables.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="rollback/006-create-migration-tables-rollback.sql" relativeToChangelogFile="true"/>
-        </rollback>
-    </changeSet>
-
-    <!-- Revoke PUBLIC's default EXECUTE/USAGE on future objects before any
-         routine or type is created, so a newly added object cannot be
-         world-executable even if it is omitted from 999-grant-privileges. -->
-    <changeSet id="007-default-privileges" author="lee.horner" dbms="postgresql">
-        <sqlFile path="sql_changes/007-default-privileges.sql" relativeToChangelogFile="true"/>
-        <rollback>
-            <sqlFile path="rollback/007-default-privileges-rollback.sql"
-                     relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
 
