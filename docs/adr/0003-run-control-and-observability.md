@@ -46,17 +46,25 @@ paused_at IS NULL
     OR (started_at IS NOT NULL
         AND paused_at >= started_at
         AND completed_at IS NULL
-        AND cancelled_at IS NULL)
+        AND cancelled_at IS NULL
+        AND archived_at IS NULL)
 ```
 
 `cancel_migration_run` and `complete_migration_run` clear `paused_at` when they
 set their terminal timestamp. This keeps the invariant that a paused run is
 never also completed or cancelled. Cancellation wins over pause.
 
+`archived_at` is part of the constraint as well, so a direct INSERT cannot create
+a paused-and-archived row: that row would be terminal (the pause could never be
+cleared) and the archive delete helper could never remove it, because it needs
+`completed_at` or `cancelled_at`. An archived run is therefore never paused.
+
 `dml_utils_data.reject_migration_run_update` allows `paused_at` to be set or
-cleared on an unfinished, non-cancelled run. It rejects pausing a terminal run
-and rejects rewriting a non-NULL `paused_at` to another non-NULL timestamp; a
-second pause is a no-op.
+cleared on an unfinished, non-cancelled run. It rejects pausing a terminal run,
+rejects a paused run that is also archived (a backstop for the constraint), and
+rejects rewriting a non-NULL `paused_at` to another non-NULL timestamp; a
+second pause is a no-op. `cancelled_at`, `completed_at` and `archived_at` are
+immutable once set, so a finished or archived run cannot be re-opened.
 
 ### 2. Pause/resume control functions
 

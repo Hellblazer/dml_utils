@@ -2,6 +2,7 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.PublishedRelease;
 import io.github.eyupmiduck.changelogvalidator.testing.UpgradeContract;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.Collection;
 import java.util.List;
@@ -20,6 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * master changelog: the upgrade test must apply the plain dml_utils changelog,
  * not the install changelog that bundles ddl_utils.
  */
+@Disabled("Suspended for epic dml-ix5: changesets are edited in place while nothing is deployed, so the "
+        + "published baseline's changeset checksums no longer match. Restore against the first release cut "
+        + "from the cleaned changelog, as done in dml-99x.3 (and dml-b87.13 before it).")
 class LiquibaseUpgradeTest extends UpgradeContract {
 
     /**

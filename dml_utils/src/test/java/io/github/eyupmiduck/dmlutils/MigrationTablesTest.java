@@ -508,6 +508,122 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
+     * A completion timestamp is set once: moving it or clearing it back to NULL
+     * would re-open a finished run, while writing the identical value is a
+     * trigger-safe no-op.
+     */
+    @Test
+    void rejectsRewritingOrClearingARunCompletion() {
+        Long runId = insertRun();
+        OffsetDateTime completedAt = OffsetDateTime.parse("2020-01-02T00:00:00Z");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.COMPLETED_AT, completedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, completedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertEquals(completedAt.toInstant(), dsl.select(MIGRATION_RUN.COMPLETED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT).toInstant());
+    }
+
+    /**
+     * An archive timestamp is set once: clearing it would resurrect the run as
+     * active and let its label be reused by a second run.
+     */
+    @Test
+    void rejectsRewritingOrClearingARunArchive() {
+        Long runId = insertRun();
+        OffsetDateTime archivedAt = OffsetDateTime.parse("2020-01-03T00:00:00Z");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, archivedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.parse("2020-01-04T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // Writing the identical value is a trigger-safe no-op, as with
+        // completed_at: the trigger compares with IS DISTINCT FROM.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, archivedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(archivedAt.toInstant(), dsl.select(MIGRATION_RUN.ARCHIVED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.ARCHIVED_AT).toInstant());
+    }
+
+    /**
+     * The paused/archived rule is a table constraint, not only an update guard, so
+     * a direct INSERT cannot create a row that is terminal (the pause could never
+     * be cleared) and undeletable (the delete helper needs completed_at or
+     * cancelled_at).
+     */
+    @Test
+    void rejectsInsertingAPausedAndArchivedRun() {
+        OffsetDateTime now = OffsetDateTime.now();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.STARTED_AT,
+                        MIGRATION_RUN.PAUSED_AT, MIGRATION_RUN.ARCHIVED_AT)
+                .values(uniqueLabel("paused-archived"), "SELECT 1", 1, 1, PUBLIC_SCHEMA,
+                        "migration_tables_source", now, now, now)
+                .execute());
+    }
+
+    /**
+     * A paused run cannot also be archived: the row would be terminal (the pause
+     * could never be cleared) and the delete helper could never remove it, because
+     * it needs completed_at or cancelled_at.
+     */
+    @Test
+    void rejectsArchivingAPausedRun() {
+        Long runId = insertRun();
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
      * A run cannot be both completed and cancelled.
      */
     @Test

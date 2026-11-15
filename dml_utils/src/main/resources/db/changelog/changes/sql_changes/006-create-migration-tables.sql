@@ -75,15 +75,18 @@ CREATE TABLE dml_utils_data.migration_run
         cancelled_at IS NULL
             OR (started_at IS NOT NULL AND cancelled_at >= started_at)
         ),
-    -- A paused run is unfinished and not cancelled: pause is a reversible flag,
-    -- not a terminal state. The timestamp cannot precede the start, and a
-    -- terminal run cannot be paused.
+    -- A paused run is unfinished, not cancelled and not archived: pause is a
+    -- reversible flag, not a terminal state. The timestamp cannot precede the
+    -- start, and a terminal run cannot be paused. archived_at is part of the
+    -- constraint (not only the update trigger) so a direct INSERT cannot create a
+    -- paused row that is archived and therefore undeletable.
     CONSTRAINT migration_run_paused_at_check CHECK (
         paused_at IS NULL
             OR (started_at IS NOT NULL
             AND paused_at >= started_at
             AND completed_at IS NULL
-            AND cancelled_at IS NULL)
+            AND cancelled_at IS NULL
+            AND archived_at IS NULL)
         ),
     CONSTRAINT migration_run_completed_or_cancelled_check CHECK (
         completed_at IS NULL OR cancelled_at IS NULL

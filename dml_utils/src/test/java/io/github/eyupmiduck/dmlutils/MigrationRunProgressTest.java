@@ -142,16 +142,17 @@ class MigrationRunProgressTest extends PartitionTestBase {
         String label = uniqueLabel("progress-zero-elapsed");
         long runId = populateSingle(label, 2, 1L, 2L);
         completeBoundary(runId, 0L, 5L);
-        completeRun(runId);
-        MigrationRunRecord run = run(runId);
-        assertNotNull(run.getCompletedAt());
-        // Finish at the same instant the run started, so the elapsed time is zero
-        // (the milestone ordering still allows this because the boundaries were
-        // calculated after the start).
+        // Finish at the same instant the run started. This writes the completion
+        // directly instead of going through complete_migration_run, because a
+        // completion timestamp is immutable once set and the point here is the
+        // view's zero-elapsed branch, not the completion protocol. The milestone
+        // ordering still allows it because the boundaries were calculated after the
+        // start.
         dsl.update(MIGRATION_RUN)
-                .set(MIGRATION_RUN.COMPLETED_AT, run.getStartedAt())
+                .set(MIGRATION_RUN.COMPLETED_AT, run(runId).getStartedAt())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
+        assertNotNull(run(runId).getCompletedAt());
 
         MigrationRunProgressRecord progress = progress(runId);
 
