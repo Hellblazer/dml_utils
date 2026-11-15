@@ -2,7 +2,6 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.TerminalLeafForRun;
 import org.junit.jupiter.api.BeforeEach;
@@ -11,8 +10,7 @@ import org.junit.jupiter.api.Test;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the terminal-boundary helpers: the last non-empty leaf and its
@@ -95,13 +93,9 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         calculateAll(runId);
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
                 dsl.configuration(), runId);
-        MigrationKeyRecord key = new MigrationKeyRecord(terminal.getOBigintValues(),
-                terminal.getOTextValues(), terminal.getOUuidValues(),
-                terminal.getOTimestamptzValues());
 
         long boundaryNo = Routines.appendTerminalBoundary(dsl.configuration(), runId,
-                terminal.getOLeafOrdinal(), terminal.getOLeafSchemaName(),
-                terminal.getOLeafName(), key);
+                terminal.getOLeafOrdinal());
 
         assertEquals(4L, boundaryNo);
         MigrationBoundaryRecord boundary = dsl.selectFrom(MIGRATION_BOUNDARY)
@@ -124,26 +118,80 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
                 dsl.configuration(), runId);
 
+        // The middle leaf is calculated but empty, so it has no terminal snapshot.
         assertSqlState("55000", () -> Routines.appendTerminalBoundary(
-                dsl.configuration(), runId, terminal.getOLeafOrdinal(),
-                terminal.getOLeafSchemaName(), terminal.getOLeafName(), null));
+                dsl.configuration(), runId,
+                leafOrdinal(runId, PARTITIONED_RANGE_MID)));
         assertSqlState("55000", () -> Routines.appendTerminalBoundary(
-                dsl.configuration(), runId, 999, terminal.getOLeafSchemaName(),
-                terminal.getOLeafName(),
-                new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null)));
+                dsl.configuration(), runId, 999));
 
         executeAsOwner("REVOKE SELECT ON " + PARTITION_SCHEMA
                 + ".test_partitioned_range_high FROM " + TEST_USER + ", dml_utils_caller");
         try {
             assertSqlState("42501", () -> Routines.appendTerminalBoundary(
-                    dsl.configuration(), runId, terminal.getOLeafOrdinal(),
-                    terminal.getOLeafSchemaName(), terminal.getOLeafName(),
-                    new MigrationKeyRecord(terminal.getOBigintValues(), null, null, null)));
+                    dsl.configuration(), runId, terminal.getOLeafOrdinal()));
         } finally {
             executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                     + PARTITION_SCHEMA + ".test_partitioned_range_high TO "
                     + TEST_USER + ", dml_utils_caller");
         }
+    }
+
+    /**
+     * A NULL run id or a NULL/non-positive ordinal is a caller argument error
+     * ({@code 22023}), while an unknown run is {@code P0002}.
+     */
+    @Test
+    void rejectsBadRunIdOrOrdinal() {
+        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), null, 1));
+        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), 1L, null));
+        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), 1L, 0));
+        assertSqlState("P0002", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), -1L, 1));
+    }
+
+    /**
+     * The function is the single-terminal gate: a repeat call is rejected, and a
+     * cancelled run cannot gain a terminal boundary.
+     */
+    @Test
+    void rejectsARepeatAppendAndACancelledRun() {
+        insertRangeRows(0L, 200L);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
+        calculateAll(runId);
+        TerminalLeafForRun terminal = Routines.terminalLeafForRun(
+                dsl.configuration(), runId);
+
+        Routines.appendTerminalBoundary(dsl.configuration(), runId,
+                terminal.getOLeafOrdinal());
+        assertNotNull(dsl.select(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT),
+                "the append records the milestone itself");
+        assertEquals(boundaryNo(runId, terminal), totalChunks(runId),
+                "the terminal boundary number is the chunk count");
+
+        assertSqlState("55000", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), runId, terminal.getOLeafOrdinal()));
+
+        long cancelledRun = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 1, null);
+        calculateAll(cancelledRun);
+        TerminalLeafForRun cancelledTerminal = Routines.terminalLeafForRun(
+                dsl.configuration(), cancelledRun);
+        Routines.markMigrationRunCancelled(dsl.configuration(), cancelledRun);
+        assertSqlState("55000", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), cancelledRun, cancelledTerminal.getOLeafOrdinal()));
+    }
+
+    private long boundaryNo(long runId, TerminalLeafForRun terminal) {
+        return dsl.fetchOne("SELECT max(boundary_no) FROM dml_utils_data.migration_boundary"
+                        + " WHERE run_id = ?", runId)
+                .get(0, Long.class);
     }
 
 

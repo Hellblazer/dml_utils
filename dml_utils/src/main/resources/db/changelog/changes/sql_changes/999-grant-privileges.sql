@@ -1121,17 +1121,11 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.terminal_leaf_for_run(
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.append_terminal_boundary(
     bigint,
-    integer,
-    text,
-    text,
-    dml_utils_data.migration_key
+    integer
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.append_terminal_boundary(
     bigint,
-    integer,
-    text,
-    text,
-    dml_utils_data.migration_key
+    integer
     ) TO dml_utils_caller;
 
 -- Leaf calculation SQL builder.

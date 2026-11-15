@@ -1652,11 +1652,13 @@ i_leaf_ordinal integer
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Fails closed with `invalid_transaction_initiation`
+`VOLATILE`, `SECURITY INVOKER`. Fails closed with `invalid_transaction_initiation`
 (`55000`) when the manifest leaf no longer matches the live relation: missing,
 replaced (different OID), detached or rebound (different partition bound), not an
 ordinary table, or (for `blocks`) a rewritten heap (different
-`pg_relation_filepath`). Used before calculating a leaf and before finalizing, so
+`pg_relation_filepath`). Holds `ACCESS SHARE` on the leaf (hence `VOLATILE`) so
+the verified identity stays stable for the caller's transaction. Used before calculating a leaf and before finalizing,
+so
 a changed partition tree never mixes stale ranges with new ones.
 
 ### `dml_utils_lib.leaf_terminal_boundary_id(i_run_id, i_leaf_ordinal)`
@@ -1999,10 +2001,12 @@ i_relation_filepath  text
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
+`VOLATILE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
 relation and raises `55000` when it is missing, replaced (different OID),
 detached or rebound (different partition bound), not a plain table, or (for
-blocks) a rewritten heap.
+blocks) a rewritten heap. A NULL strategy is `22023` instead of failing open. It
+takes `ACCESS SHARE` on the leaf so the verified identity cannot change before
+the caller's transaction uses it.
 
 ###
 
@@ -2132,21 +2136,25 @@ RETURNS record
 partition-wise run with its stored high-water key arrays, or NULL fields when
 every leaf is empty.
 
-### `dml_utils_lib.append_terminal_boundary(i_run_id, i_leaf_ordinal, i_leaf_schema_name, i_leaf_name, i_terminal_key)`
+### `dml_utils_lib.append_terminal_boundary(i_run_id, i_leaf_ordinal)`
 
 ```sql
-i_run_id            bigint
-i_leaf_ordinal      integer
-i_leaf_schema_name  text
-i_leaf_name         text
-i_terminal_key      dml_utils_data.migration_key
+i_run_id       bigint
+i_leaf_ordinal integer
 RETURNS bigint
 ```
 
 `SECURITY DEFINER`. Appends the single terminal boundary after the last committed
-boundary, tagged with the terminal leaf, and returns its boundary number (the
-run's chunk count). Re-checks the caller's SELECT privilege and the terminal leaf
-identity, and rejects a missing snapshot with `55000`.
+boundary, tagged with the manifest leaf at `i_leaf_ordinal`, and returns its
+boundary number (the run's chunk count). Every input is taken from the manifest:
+the leaf schema/name (so the caller's SELECT privilege is checked on the leaf that
+is actually written) and the terminal high-water key (`migration_run_leaf.terminal_boundary_id`, which the runner uses
+as the end of
+the leaf's last chunk). It serializes on the run row, re-checks the stored leaf
+identity, rejects a run with uncalculated leaves, records
+`boundaries_calculated_at`/`total_chunks` itself (a repeat call is `55000`), and
+rejects a cancelled run (`55000`), a NULL run id or ordinal (`22023`) and a leaf
+without a snapshot (`55000`).
 
 ### `dml_utils_lib.assert_caller_can_select_relation(i_schema_name, i_table_name)`
 

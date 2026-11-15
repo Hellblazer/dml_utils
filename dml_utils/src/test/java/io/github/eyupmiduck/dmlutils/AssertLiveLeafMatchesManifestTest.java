@@ -3,12 +3,18 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ManifestLeafIdentity;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.sql.Connection;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * Verifies {@code dml_utils_lib.assert_live_leaf_matches_manifest}: a matching
@@ -99,13 +105,111 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
     }
 
 
+    /**
+     * A NULL chunk strategy is rejected with {@code 22023} instead of skipping
+     * both filepath guards.
+     */
+    @Test
+    void rejectsANullChunkStrategy() {
+        ManifestLeafIdentity leaf = identity(
+                populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                        ChunkingStrategy.primary_key, 2, null));
+
+        assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
+                dsl.configuration(), null, leaf.getOLeafSchemaName(),
+                leaf.getOLeafName(), leaf.getOLeafOid(), leaf.getOLeafBound(),
+                leaf.getORelationFilepath()));
+    }
+
+    /**
+     * A leaf that has actually been detached fails closed: its live partition
+     * bound is NULL, so the stored bound no longer matches.
+     */
+    @Test
+    void rejectsADetachedLeaf() throws Exception {
+        long runId = populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+        ManifestLeafIdentity leaf = identity(runId,
+                leafOrdinal(runId, PARTITIONED_RANGE_MID));
+
+        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + TABLE
+                + " DETACH PARTITION " + PARTITION_SCHEMA + ".test_partitioned_range_mid");
+        try {
+            assertSqlState("55000", () -> assertLeaf(leaf));
+        } finally {
+            restoreMidPartition();
+        }
+    }
+
+    /**
+     * The ACCESS SHARE lock is held until the caller's transaction ends, so a
+     * concurrent DETACH waits and fails with {@code 55P03} under a lock timeout
+     * instead of racing the assertion.
+     */
+    @Test
+    void holdsAccessShareUntilTheTransactionEnds() throws Exception {
+        long runId = populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+        ManifestLeafIdentity leaf = identity(runId,
+                leafOrdinal(runId, PARTITIONED_RANGE_MID));
+
+        try (Connection asserting = openOwnerConnection();
+             Connection detaching = openOwnerConnection()) {
+            DSLContext assertingDsl = DSL.using(asserting, SQLDialect.POSTGRES);
+            DSLContext detachingDsl = DSL.using(detaching, SQLDialect.POSTGRES);
+            RuntimeException rollback = new RollbackTransaction();
+            try {
+                assertingDsl.transaction(config -> {
+                    DSLContext tx = DSL.using(config);
+                    assertLeaf(tx, leaf);
+
+                    detachingDsl.execute("SET lock_timeout = '250ms'");
+                    assertSqlState("55P03", () -> detachingDsl.execute(
+                            "ALTER TABLE " + PARTITION_SCHEMA + "." + TABLE
+                                    + " DETACH PARTITION " + PARTITION_SCHEMA + "."
+                                    + PARTITIONED_RANGE_MID));
+                    throw rollback;
+                });
+                fail("the transaction should have been rolled back");
+            } catch (RuntimeException error) {
+                if (error != rollback && error.getCause() != rollback) {
+                    throw error;
+                }
+            } finally {
+                // If the lock guarantee regresses, the DETACH above succeeds; put
+                // the fixture back so later tests in the class see three leaves.
+                restoreMidPartition();
+            }
+        }
+    }
+
     private ManifestLeafIdentity identity(long runId) {
-        return Routines.manifestLeafIdentity(dsl.configuration(), runId, 1);
+        return identity(runId, 1);
+    }
+
+    private ManifestLeafIdentity identity(long runId, int ordinal) {
+        return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);
     }
 
     private void assertLeaf(ManifestLeafIdentity leaf) {
-        Routines.assertLiveLeafMatchesManifest(dsl.configuration(), leaf.getOChunkBy(),
-                leaf.getOLeafSchemaName(), leaf.getOLeafName(), leaf.getOLeafOid(),
-                leaf.getOLeafBound(), leaf.getORelationFilepath());
+        assertLeaf(dsl, leaf);
+    }
+
+    private void assertLeaf(DSLContext context, ManifestLeafIdentity leaf) {
+        Routines.assertLiveLeafMatchesManifest(context.configuration(),
+                leaf.getOChunkBy(), leaf.getOLeafSchemaName(), leaf.getOLeafName(),
+                leaf.getOLeafOid(), leaf.getOLeafBound(),
+                leaf.getORelationFilepath());
+    }
+
+    /**
+     * Sentinel thrown to roll back the lock-holding transaction.
+     */
+    private static final class RollbackTransaction extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        private RollbackTransaction() {
+            super("roll back the lock-holding transaction");
+        }
     }
 }

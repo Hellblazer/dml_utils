@@ -514,28 +514,52 @@ boundaries, leaf manifest and errors by run id:
 -- One row per run for the label, with boundary/error counts, the stored
 -- partition and chunk totals, leaf counts, and whether it is done, cancelled or
 -- archived. Take the run_id from here.
-SELECT run_id, partition_wise, total_chunks, total_chunks_completed,
-       boundary_count, completed_boundary_count,
-       leaf_count, leaves_calculated, leaves_failed, leaves_pending,
-       completed_at, cancelled_at, archived_at
+SELECT run_id,
+       partition_wise,
+       total_chunks,
+       total_chunks_completed,
+       boundary_count,
+       completed_boundary_count,
+       leaf_count,
+       leaves_calculated,
+       leaves_failed,
+       leaves_pending,
+       completed_at,
+       cancelled_at,
+       archived_at
 FROM dml_utils.migration_run_summary(i_label => 'events-region-backfill');
 
 -- One row for the run's derived status, percent complete, throughput, rows and
 -- ETA, including the pause and retry policy. Rates and the ETA are NULL while
 -- calculating, paused, cancelled, or when no chunk has completed yet.
-SELECT status, total_chunks, completed_chunks, remaining_chunks,
-       percent_complete, total_rows_affected, elapsed_ms,
-       chunks_per_second, rows_per_second,
-       estimated_remaining_ms, estimated_completion_at,
-       paused_at, max_retries, retry_backoff_ms
+SELECT status,
+       total_chunks,
+       completed_chunks,
+       remaining_chunks,
+       percent_complete,
+       total_rows_affected,
+       elapsed_ms,
+       chunks_per_second,
+       rows_per_second,
+       estimated_remaining_ms,
+       estimated_completion_at,
+       paused_at,
+       max_retries,
+       retry_backoff_ms
 FROM dml_utils.migration_run_progress(i_run_id => 42);
 
 -- Per-chunk progress (completed_at IS NULL means still to do). boundary_id is a
 -- migration_key: position-aligned arrays, one per key kind. Index i is the i-th
 -- key column, so (boundary_id).bigint_values[1] reads the first column
 -- of a bigint key.
-SELECT boundary_no, (boundary_id).bigint_values[1], leaf_ordinal,
-       rows_affected, started_at, completed_at, cancelled_at, duration_ms
+SELECT boundary_no,
+       (boundary_id).bigint_values[1],
+       leaf_ordinal,
+       rows_affected,
+       started_at,
+       completed_at,
+       cancelled_at,
+       duration_ms
 FROM dml_utils.migration_boundaries(i_run_id => 42);
 
 -- The errors recorded for the run, so it can be diagnosed without the worker
@@ -553,8 +577,12 @@ To explain a real chunk of a stored run, give the run id and boundary number; no
 key decoding or leaf selection is needed:
 
 ```sql
-SELECT o_plan_kind, o_sql_text, o_plan,
-       o_leaf_schema_name, o_leaf_name, o_leaf_ordinal
+SELECT o_plan_kind,
+       o_sql_text,
+       o_plan,
+       o_leaf_schema_name,
+       o_leaf_name,
+       o_leaf_ordinal
 FROM dml_utils.explain_migration_run_chunk(i_run_id => 42, i_boundary_no => 0);
 ```
 
