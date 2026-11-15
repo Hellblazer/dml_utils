@@ -250,13 +250,20 @@ personal overrides in a gitignored `config.local.env` (copy
 `BENCH_SQL` must contain `<driving_table>` and `<chunking_clause>` exactly once;
 the driving table is aliased `t`. The default keeps the source table untouched by
 copying each chunk into `benchmark.bench_target`, which is truncated before every
-run. The same contract applies to `BENCH_ORDERED_SQL`, which copies the UUID key,
-`created_at` and payload into `bench_ordered_target` for `ordered_key`; to
-`BENCH_PARTITIONED_SQL`, which copies the bigint key and payload into
-`bench_partitioned_target` for a partition-wise `primary_key`/`blocks` run; and
-to `BENCH_PARTITIONED_ORDERED_SQL`, which copies the UUID key, `created_at` and
-payload into `bench_partitioned_ordered_target` for a partition-wise
-`ordered_key` run.
+run. Any identifier used in a template is quoted, so a reserved word or a name
+that needs quoting is safe. The same contract applies to `BENCH_ORDERED_SQL`,
+which copies the UUID key, `created_at` and payload into `bench_ordered_target`
+for `ordered_key`; to `BENCH_PARTITIONED_SQL`, which copies the bigint key and
+payload into `bench_partitioned_target` for a partition-wise
+`primary_key`/`blocks` run; and to `BENCH_PARTITIONED_ORDERED_SQL`, which copies
+the UUID key, `created_at` and payload into `bench_partitioned_ordered_target` for
+a partition-wise `ordered_key` run.
+
+The derived values (`BENCH_PK_COLS_CSV`, `BENCH_PK_SELECT` and the default
+workload SQL) are built *after* `config.local.env` is sourced, so overriding
+`BENCH_PK_COLUMNS` there also changes the generated key columns and templates.
+Every other setting is validated at the same point; an invalid value fails the
+script before any DDL or measurement instead of silently changing the workload.
 
 `BENCH_CHUNK_BY` selects the strategy: `primary_key` (the default) chunks a fixed
 number of rows in primary-key order; `ordered_key` chunks a fixed number of rows

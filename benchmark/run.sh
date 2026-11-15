@@ -23,6 +23,11 @@ if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]
     . "$here/config.local.env"
 fi
 
+# Derive and validate the effective configuration only now: doing it in config.env
+# would ignore a config.local.env override (for example BENCH_PK_COLUMNS=3).
+bench_derive
+bench_validate || exit 2
+
 # Validate the sweep before doing any work, so an invalid bound cannot silently
 # skip the loops and still report success with an empty CSV.
 require_non_negative() {
