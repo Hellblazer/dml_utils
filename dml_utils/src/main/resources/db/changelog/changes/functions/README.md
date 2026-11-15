@@ -2004,9 +2004,10 @@ RETURNS void
 `VOLATILE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
 relation and raises `55000` when it is missing, replaced (different OID),
 detached or rebound (different partition bound), not a plain table, or (for
-blocks) a rewritten heap. A NULL strategy is `22023` instead of failing open. It
-takes `ACCESS SHARE` on the leaf so the verified identity cannot change before
-the caller's transaction uses it.
+blocks) a rewritten heap. A NULL strategy or NULL leaf name is `22023` instead
+of failing open. It takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the verified
+identity cannot change before the caller's transaction uses it, and reports a
+concurrent modification (or a dropped relation/schema) as the same `55000`.
 
 ###
 

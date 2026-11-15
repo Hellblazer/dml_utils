@@ -9,12 +9,12 @@
          has no createFunction change type). runOnChange re-applies only the
          changeset whose body changed, and each one carries its own rollback.
 
-         CREATE OR REPLACE only replaces a routine with an identical signature:
-         changing RETURNS or the parameter names aborts the deploy, and changing
-         a parameter type silently leaves the old overload behind. When a
-         signature changes, add an explicit
-         `DROP FUNCTION IF EXISTS <old signature>;` (for example another sqlFile
-         in that routine's changeset) so the deprecated signature is removed. -->
+         Nothing is deployed yet, so a signature change is made in place: the
+         routine file is edited and CREATE OR REPLACE defines the one current
+         signature. Do not add `DROP FUNCTION IF EXISTS <old signature>` guards or
+         other compatibility changesets — a fresh database (and every test and CI
+         database) defines only the new signature, and long-lived local databases
+         are recreated. -->
     <changeSet id="function-dml_utils_data.set_updated_at" author="lee.horner" dbms="postgresql"
                runOnChange="true">
         <createProcedure path="functions/dml_utils_data/set_updated_at.sql" relativeToChangelogFile="true"/>

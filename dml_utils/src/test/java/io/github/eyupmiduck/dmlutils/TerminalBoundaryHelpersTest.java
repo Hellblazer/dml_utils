@@ -154,6 +154,37 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * A run with uncalculated leaves cannot be finalized by a direct call: the
+     * milestone would freeze a short total_chunks and the remaining leaves would
+     * never be calculated.
+     */
+    @Test
+    void rejectsARunWithUncalculatedLeaves() {
+        insertRangeRows(0L, 200L);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 1, null);
+
+        assertSqlState("55000", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), runId, 1));
+    }
+
+    /**
+     * Only the run's last non-empty leaf can carry the terminal boundary; an
+     * earlier leaf would leave the later leaves unprocessed behind a finalized
+     * run.
+     */
+    @Test
+    void rejectsANonTerminalOrdinal() {
+        insertRangeRows(0L, 200L);
+        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 1, null);
+        calculateAll(runId);
+
+        assertSqlState("55000", () -> Routines.appendTerminalBoundary(
+                dsl.configuration(), runId, leafOrdinal(runId, "test_partitioned_range_low")));
+    }
+
+    /**
      * The function is the single-terminal gate: a repeat call is rejected, and a
      * cancelled run cannot gain a terminal boundary.
      */
@@ -172,7 +203,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
                         .where(MIGRATION_RUN.RUN_ID.eq(runId))
                         .fetchOne(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT),
                 "the append records the milestone itself");
-        assertEquals(boundaryNo(runId, terminal), totalChunks(runId),
+        assertEquals(boundaryNo(runId), totalChunks(runId),
                 "the terminal boundary number is the chunk count");
 
         assertSqlState("55000", () -> Routines.appendTerminalBoundary(
@@ -188,10 +219,14 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
                 dsl.configuration(), cancelledRun, cancelledTerminal.getOLeafOrdinal()));
     }
 
-    private long boundaryNo(long runId, TerminalLeafForRun terminal) {
-        return dsl.fetchOne("SELECT max(boundary_no) FROM dml_utils_data.migration_boundary"
+    private long boundaryNo(long runId) {
+        Long max = dsl.fetchOne("SELECT max(boundary_no) FROM dml_utils_data.migration_boundary"
                         + " WHERE run_id = ?", runId)
                 .get(0, Long.class);
+        if (max == null) {
+            throw new IllegalStateException("no boundaries for run " + runId);
+        }
+        return max;
     }
 
 

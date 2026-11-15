@@ -64,6 +64,23 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
+    -- The ordinal is the only remaining caller-supplied input. It must be the run's
+    -- last non-empty leaf: the runner ends the run's final chunk at this boundary,
+    -- so finalizing with an earlier leaf would silently leave the later leaves
+    -- unprocessed while the run looked complete.
+    IF i_leaf_ordinal IS DISTINCT FROM (
+            SELECT leaf.leaf_ordinal
+            FROM dml_utils_data.migration_run_leaf AS leaf
+            WHERE leaf.run_id = i_run_id
+              AND leaf.boundary_count > 0
+            ORDER BY leaf.leaf_ordinal DESC
+            LIMIT 1)
+    THEN
+        RAISE EXCEPTION 'leaf % is not the terminal leaf of run %',
+            i_leaf_ordinal, i_run_id
+            USING ERRCODE = '55000';
+    END IF;
+
     -- The leaf identity comes from the manifest, never from the caller: the
     -- privilege check must authorize the leaf the row will actually be tagged
     -- with.
@@ -138,5 +155,6 @@ COMMENT ON FUNCTION dml_utils_lib.append_terminal_boundary(
         'and the caller''s SELECT privilege, and the terminal high-water key from '
         'migration_run_leaf. Serializes on the run row, records '
         'boundaries_calculated_at/total_chunks itself, and rejects a repeat '
-        'append, a cancelled run, a run with uncalculated leaves and a leaf '
-        'without a snapshot (55000), or a NULL run id/ordinal (22023).';
+        'append, a cancelled run, a run with uncalculated leaves, a non-terminal '
+        'ordinal and a leaf without a snapshot (55000), or a NULL run '
+        'id/ordinal (22023).';

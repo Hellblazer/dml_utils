@@ -25,6 +25,12 @@ BEGIN
         RAISE EXCEPTION 'chunk strategy must not be NULL'
             USING ERRCODE = '22023';
     END IF;
+    -- A NULL name would make format() produce NULL and EXECUTE fail with the
+    -- opaque "query string argument of EXECUTE is null"; reject it here.
+    IF i_leaf_schema_name IS NULL OR i_leaf_name IS NULL THEN
+        RAISE EXCEPTION 'leaf schema name and leaf name must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
 
     -- Hold the relation until the caller's transaction ends, before reading it: a
     -- catalog read alone is a point-in-time check, and DETACH, VACUUM FULL,
@@ -35,11 +41,19 @@ BEGIN
     -- ACCESS SHARE conflicts with the ACCESS EXCLUSIVE those operations need and
     -- with nothing the scan needs.
     BEGIN
-        EXECUTE pg_catalog.format('LOCK TABLE %I.%I IN ACCESS SHARE MODE',
+        -- NOWAIT: waiting would block a claim for the whole duration of a rewrite,
+        -- and a caller-side lock_timeout would surface 55P03 where this function
+        -- documents 55000. Failing fast and translating both cases keeps the
+        -- contract "the leaf is being changed" => 55000.
+        EXECUTE pg_catalog.format('LOCK TABLE %I.%I IN ACCESS SHARE MODE NOWAIT',
                                   i_leaf_schema_name, i_leaf_name);
     EXCEPTION
-        WHEN undefined_table THEN
+        WHEN undefined_table OR invalid_schema_name THEN
             RAISE EXCEPTION 'leaf %.% no longer exists', i_leaf_schema_name, i_leaf_name
+                USING ERRCODE = '55000';
+        WHEN lock_not_available THEN
+            RAISE EXCEPTION 'leaf %.% is being modified concurrently',
+                i_leaf_schema_name, i_leaf_name
                 USING ERRCODE = '55000';
         WHEN wrong_object_type THEN
             -- Not lockable as a table (an index); the relkind guard below reports
@@ -112,5 +126,6 @@ COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     'Compares one manifest leaf identity with the live relation and raises '
         'object_not_in_prerequisite_state (55000) when it is missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '
-        'plain table, or (for blocks) a rewritten heap. Takes ACCESS SHARE on the leaf '
-        'so the verified identity cannot change before the caller uses it.';
+        'plain table, or (for blocks) a rewritten heap. Takes ACCESS SHARE (NOWAIT) on '
+        'the leaf so the verified identity cannot change before the caller uses it, '
+        'and reports a concurrent modification as the same 55000.';

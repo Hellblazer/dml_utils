@@ -122,6 +122,69 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
     }
 
     /**
+     * A NULL schema/name is a caller argument error ({@code 22023}), not the
+     * opaque EXECUTE failure a NULL format() argument would produce.
+     */
+    @Test
+    void rejectsANullLeafName() {
+        ManifestLeafIdentity leaf = identity(
+                populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                        ChunkingStrategy.primary_key, 2, null));
+
+        assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
+                dsl.configuration(), leaf.getOChunkBy(), null, leaf.getOLeafName(),
+                leaf.getOLeafOid(), leaf.getOLeafBound(), leaf.getORelationFilepath()));
+        assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
+                dsl.configuration(), leaf.getOChunkBy(), leaf.getOLeafSchemaName(), null,
+                leaf.getOLeafOid(), leaf.getOLeafBound(), leaf.getORelationFilepath()));
+    }
+
+    /**
+     * An index occupying the leaf name is not lockable as a table; the lock is
+     * skipped and the relkind guard reports the documented {@code 55000}.
+     */
+    @Test
+    void reportsAnIndexOccupyingTheLeafName() {
+        long indexOid = relationOid(
+                PARTITION_SCHEMA + ".test_partitioned_range_ordered_key_idx");
+
+        assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
+                dsl.configuration(), ChunkingStrategy.primary_key, PARTITION_SCHEMA,
+                "test_partitioned_range_ordered_key_idx", indexOid, null, null));
+    }
+
+    /**
+     * A concurrent rewrite holding the leaf blocks the {@code NOWAIT} lock; that
+     * surfaces as the documented {@code 55000}, not {@code 55P03}.
+     */
+    @Test
+    void reportsAConcurrentModificationAsTheDocumentedState() throws Exception {
+        long runId = populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+        ManifestLeafIdentity leaf = identity(runId,
+                leafOrdinal(runId, PARTITIONED_RANGE_MID));
+
+        try (Connection blocker = openOwnerConnection()) {
+            DSLContext blockerDsl = DSL.using(blocker, SQLDialect.POSTGRES);
+            RuntimeException rollback = new RollbackTransaction();
+            try {
+                blockerDsl.transaction(config -> {
+                    DSLContext tx = DSL.using(config);
+                    tx.execute("LOCK TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
+                            + " IN ACCESS EXCLUSIVE MODE");
+                    assertSqlState("55000", () -> assertLeaf(leaf));
+                    throw rollback;
+                });
+                fail("the transaction should have been rolled back");
+            } catch (RuntimeException error) {
+                if (error != rollback && error.getCause() != rollback) {
+                    throw error;
+                }
+            }
+        }
+    }
+
+    /**
      * A leaf that has actually been detached fails closed: its live partition
      * bound is NULL, so the stored bound no longer matches.
      */
