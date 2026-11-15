@@ -4,6 +4,21 @@
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
+    <!-- The trigger changesets use CREATE OR REPLACE TRIGGER (PostgreSQL 14+).
+         Check the server version once, before any changeset in this changelog
+         runs: a changeSet-level precondition would only run after the schemas,
+         tables and routines have already committed, leaving a half-applied
+         schema. The CASE keeps the check a 1/0 result for Liquibase. -->
+    <preConditions onFail="HALT"
+                   onFailMessage="dml_utils requires PostgreSQL 14 or newer: CREATE OR REPLACE TRIGGER is unavailable on this server">
+        <sqlCheck expectedResult="1">
+            SELECT CASE
+            WHEN current_setting('server_version_num')::integer >= 140000 THEN 1
+            ELSE 0
+            END
+        </sqlCheck>
+    </preConditions>
+
     <changeSet id="001-create-schema" author="lee.horner" dbms="postgresql">
         <sqlFile path="sql_changes/001-create-schema.sql" relativeToChangelogFile="true"/>
         <rollback>
