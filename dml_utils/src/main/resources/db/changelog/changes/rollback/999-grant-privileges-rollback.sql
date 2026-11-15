@@ -1094,10 +1094,10 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.claim_next_migration_leaf(
     dml_utils_data.non_null_bigint
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
-    bigint
+    dml_utils_data.non_null_bigint
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
-    bigint
+    dml_utils_data.non_null_bigint
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.finalize_calculated_run(
     dml_utils_data.non_null_bigint
@@ -1262,11 +1262,11 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.create_migration_run(
 
 -- Chunk-runner coordinator helpers.
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
@@ -1286,14 +1286,14 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
     text
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.record_migration_worker_failure(
-    bigint,
-    bigint,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.non_negative_bigint,
     text,
     text
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.record_migration_worker_failure(
-    bigint,
-    bigint,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.non_negative_bigint,
     text,
     text
     ) TO public;

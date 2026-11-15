@@ -2103,14 +2103,15 @@ leaf's chunk starts, using the blocks builder or the run's stored key descriptor
 ### `dml_utils_lib.calculate_next_leaf_in_worker(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS integer
 ```
 
 `SECURITY INVOKER`. Runs one `calculate_migration_leaf` step in its own
 `pg_background` transaction and returns the calculated ordinal (NULL when no leaf
-is left). A failing leaf is recorded on the manifest in its own worker
-transaction before the worker error is re-raised.
+is left). It inspects the worker outcome, and a failing leaf is recorded on the
+manifest in its own worker transaction before the worker error is re-raised; a
+recording failure is reported as a `WARNING`.
 
 ### `dml_utils_lib.finalize_calculated_run(i_run_id)`
 
@@ -2295,7 +2296,7 @@ and returns the run id.
 ### `dml_utils_lib.prepare_partition_wise_execution(i_run_id, i_label)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 i_label  dml_utils_data.non_null_text
 RETURNS boolean
 ```
@@ -2329,8 +2330,8 @@ bound. Returns no boundary number when nothing is left.
 ### `dml_utils_lib.record_migration_worker_failure(i_run_id, i_boundary_no, i_sqlstate, i_error_message)`
 
 ```sql
-i_run_id        bigint
-i_boundary_no   bigint
+i_run_id        dml_utils_data.non_null_bigint
+i_boundary_no   dml_utils_data.non_negative_bigint
 i_sqlstate      text
 i_error_message text
 RETURNS void
@@ -2338,8 +2339,9 @@ RETURNS void
 
 `VOLATILE`, `SECURITY INVOKER`. Records a failed chunk in
 `dml_utils_data.migration_error` through an autonomous `pg_background`
-transaction, swallowing a recording failure so the caller can still re-raise
-the worker error.
+transaction. A NULL sqlstate/message is replaced with a generic value so the
+record is never lost, and a recording failure (launch or worker) is reported as a
+`WARNING` rather than raised, so the caller can still re-raise the worker error.
 
 ### `dml_utils_lib.sleep_between_migration_chunks(i_run_id, i_sleep_ms)`
 

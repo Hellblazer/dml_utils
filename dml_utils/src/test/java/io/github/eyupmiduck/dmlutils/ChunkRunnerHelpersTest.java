@@ -37,6 +37,16 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * A NULL run id is rejected by the non-null bigint domain instead of silently
+     * matching no row.
+     */
+    @Test
+    void rejectsANullRunIdWhenPreparing() {
+        assertDomainViolation(() -> Routines.preparePartitionWiseExecution(
+                dsl.configuration(), null, "prepare-null"));
+    }
+
+    /**
      * Preparing a partition-wise run calculates and finalizes its boundaries and
      * checks the tree; a cancelled run returns false.
      */

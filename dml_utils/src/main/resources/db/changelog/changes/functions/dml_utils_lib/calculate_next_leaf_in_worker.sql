@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS integer
     LANGUAGE plpgsql
@@ -7,11 +7,12 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
 AS
 $$
 DECLARE
-    l_handle       public.pg_background_handle;
-    l_ordinal      integer;
-    l_leaf_ordinal integer;
-    l_info         public.pg_background_result_info;
-    l_error        public.pg_background_error;
+    l_handle         public.pg_background_handle;
+    l_ordinal        integer;
+    l_leaf_ordinal   integer;
+    l_info           public.pg_background_result_info;
+    l_error          public.pg_background_error;
+    l_record_outcome record;
 BEGIN
     -- One leaf per worker transaction: calculate_migration_leaf claims the first
     -- pending/failed leaf, appends its starts and marks it calculated. A NULL
@@ -87,14 +88,32 @@ BEGIN
         LIMIT 1;
         IF FOUND THEN
             BEGIN
-                PERFORM public.pg_background_run(pg_catalog.format(
-                        'SELECT dml_utils_lib.record_migration_leaf_error(%s, %s, %L, %L)',
+                SELECT outcome.completed,
+                       outcome.has_error,
+                       outcome.sqlstate,
+                       outcome.error_message
+                INTO l_record_outcome
+                FROM public.pg_background_run(pg_catalog.format(
+                        'SELECT dml_utils_lib.record_migration_leaf_error(%L, %L, %L, %L)',
                         i_run_id, l_leaf_ordinal,
                         COALESCE(l_error.sqlstate, 'XX000'),
-                        COALESCE(l_error.message, 'worker failed')));
+                        COALESCE(l_error.message, 'worker failed'))
+                     ) AS outcome;
+
+                -- Do not raise: the original worker SQLSTATE is re-raised below.
+                IF NOT COALESCE(l_record_outcome.completed, false)
+                    OR COALESCE(l_record_outcome.has_error, false)
+                THEN
+                    RAISE WARNING
+                        'could not record the failure of leaf % of run %: % (%)',
+                        l_leaf_ordinal, i_run_id,
+                        l_record_outcome.error_message, l_record_outcome.sqlstate;
+                END IF;
             EXCEPTION
                 WHEN OTHERS THEN
-                    NULL;
+                    RAISE WARNING
+                        'could not launch the failure-recording worker for leaf % of run %: % (%)',
+                        l_leaf_ordinal, i_run_id, SQLERRM, SQLSTATE;
             END;
         END IF;
     END IF;
@@ -122,7 +141,9 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
+    dml_utils_data.non_null_bigint
+    ) IS
     'Runs one calculate_migration_leaf step in its own pg_background '
         'transaction and returns the calculated ordinal (NULL when no leaf is '
         'left). A worker-reported failure is recorded on the manifest in its own '

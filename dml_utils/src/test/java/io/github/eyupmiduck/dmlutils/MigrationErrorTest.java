@@ -44,6 +44,38 @@ class MigrationErrorTest extends PostgresTestBase {
     }
 
     /**
+     * A worker failure with a NULL sqlstate/message is still recorded, using the
+     * generic fallback values.
+     */
+    @Test
+    void recordsAWorkerFailureWithFallbackValues() {
+        Long runId = insertRunWithBoundary();
+
+        Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), runId, 0L, null, null);
+
+        MigrationErrorRecord error = dsl.selectFrom(MIGRATION_ERROR)
+                .where(MIGRATION_ERROR.RUN_ID.eq(runId))
+                .fetchOne();
+        assertNotNull(error, "the failure is recorded despite the NULL inputs");
+        assertEquals("55000", error.getSqlstate());
+        assertEquals("chunk failed without an error message", error.getMessage());
+    }
+
+    /**
+     * The worker-failure keys are non-null domains.
+     */
+    @Test
+    void rejectsNullWorkerFailureKeys() {
+        assertDomainViolation(() -> Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), null, 0L, "22012", "boom"));
+        assertDomainViolation(() -> Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), 1L, null, "22012", "boom"));
+        assertDomainViolation(() -> Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), 1L, -1L, "22012", "boom"));
+    }
+
+    /**
      * A null or blank SQLSTATE or message is rejected by the non-null text
      * domain.
      */

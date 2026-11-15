@@ -83,6 +83,7 @@ DECLARE
     -- caller's (or Liquibase's) search_path.
     l_handle                     public.pg_background_handle;
     l_outcome                    record;
+    l_mark_outcome               record;
 BEGIN
     -- Validate the template up front so a bad call fails before any run or
     -- worker exists.
@@ -337,24 +338,34 @@ BEGIN
             -- Leave the main loop for the cancellation handler.
             EXIT WHEN l_cancelled_at IS NOT NULL;
 
-            -- Recover the boundary the finished worker was launched for, then drop it
-            -- from the in-flight set.
+            -- Recover the boundary the finished worker was launched for. A NULL
+            -- index would turn every following subscript into NULL and corrupt the
+            -- scheduling arrays (the coordinator could then neither launch nor
+            -- exit), so fail loudly instead of assuming the handle is present.
             l_worker_index := pg_catalog.array_position(l_in_flight, l_handle);
+            IF l_worker_index IS NULL THEN
+                RAISE EXCEPTION 'finished worker % is not in the in-flight set', l_handle
+                    USING ERRCODE = '55000';
+            END IF;
             l_boundary_no := l_in_flight_boundaries[l_worker_index];
             l_chunk_sql := l_in_flight_sql[l_worker_index];
-            l_in_flight := l_in_flight[1:l_worker_index - 1]
-                || l_in_flight[l_worker_index + 1:];
-            l_in_flight_boundaries := l_in_flight_boundaries[1:l_worker_index - 1]
-                || l_in_flight_boundaries[l_worker_index + 1:];
-            l_in_flight_sql := l_in_flight_sql[1:l_worker_index - 1]
-                || l_in_flight_sql[l_worker_index + 1:];
 
+            -- Reap and detach before dropping the slot: if either call raises, the
+            -- WHEN OTHERS drain below rebuilds its set from l_in_flight and must
+            -- still contain this handle, or it is never waited on or detached.
             SELECT outcome.has_error,
                    outcome.sqlstate,
                    outcome.error_message
             INTO l_outcome
             FROM public.pg_background_outcome(l_handle.pid, l_handle.cookie) AS outcome;
             PERFORM public.pg_background_detach(l_handle.pid, l_handle.cookie);
+
+            l_in_flight := l_in_flight[1:l_worker_index - 1]
+                || l_in_flight[l_worker_index + 1:];
+            l_in_flight_boundaries := l_in_flight_boundaries[1:l_worker_index - 1]
+                || l_in_flight_boundaries[l_worker_index + 1:];
+            l_in_flight_sql := l_in_flight_sql[1:l_worker_index - 1]
+                || l_in_flight_sql[l_worker_index + 1:];
 
             IF l_outcome.has_error THEN
                 -- P0C01 is the claim protocol's dedicated code. Treat it as
@@ -491,12 +502,28 @@ BEGIN
             -- a caller rollback. completed_at wins for a chunk that finished
             -- before the cancel reached it.
             BEGIN
-                PERFORM public.pg_background_run(pg_catalog.format(
-                        'SELECT dml_utils_lib.mark_migration_run_cancelled(%s)',
-                        l_run_id));
+                SELECT outcome.completed,
+                       outcome.has_error,
+                       outcome.sqlstate,
+                       outcome.error_message
+                INTO l_mark_outcome
+                FROM public.pg_background_run(pg_catalog.format(
+                        'SELECT dml_utils_lib.mark_migration_run_cancelled(%L)',
+                        l_run_id)
+                     ) AS outcome;
+
+                IF NOT COALESCE(l_mark_outcome.completed, false)
+                    OR COALESCE(l_mark_outcome.has_error, false)
+                THEN
+                    RAISE WARNING
+                        'could not mark the boundaries of cancelled run % cancelled: % (%)',
+                        l_run_id, l_mark_outcome.error_message, l_mark_outcome.sqlstate;
+                END IF;
             EXCEPTION
                 WHEN OTHERS THEN
-                    NULL;
+                    RAISE WARNING
+                        'could not launch the cancellation worker for run %: % (%)',
+                        l_run_id, SQLERRM, SQLSTATE;
             END;
 
             RAISE NOTICE 'migration run % for label % cancelled', l_run_id, i_label;
@@ -535,11 +562,19 @@ BEGIN
             -- leak, then re-raise the original error.
             l_pids := ARRAY(SELECT (h).pid FROM pg_catalog.unnest(l_in_flight) AS h);
             l_cookies := ARRAY(SELECT (h).cookie FROM pg_catalog.unnest(l_in_flight) AS h);
+            -- Bounded: a worker that cannot finish (for example it is blocked on
+            -- a lock held by the caller's own transaction) must not hang the
+            -- handler forever. The wait is per worker and sequential, so the worst
+            -- case is 30s per in-flight thread. On timeout stop_migration_workers
+            -- warns and detaches; because this drain does not cancel, the worker
+            -- may still finish and commit its chunk after the coordinator
+            -- re-raises. That is safe: a committed boundary is complete, and a
+            -- pending one is re-runnable on resume.
             PERFORM dml_utils_lib.stop_migration_workers(
                     i_pids => l_pids,
                     i_cookies => l_cookies,
                     i_cancel => false,
-                    i_wait_ms => NULL);
+                    i_wait_ms => 30000);
             RAISE;
     END;
 
