@@ -28,8 +28,8 @@ BEGIN
     INTO l_parent
     FROM pg_catalog.pg_class AS c
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE n.nspname = i_schema_name
-      AND c.relname = i_table_name;
+    WHERE n.nspname = i_schema_name::name
+      AND c.relname = i_table_name::name;
 
     PERFORM dml_utils_lib.assert_partitioned_leaf_relations(i_parent => l_parent);
     PERFORM dml_utils_lib.assert_partitioned_leaf_privileges(i_parent => l_parent);

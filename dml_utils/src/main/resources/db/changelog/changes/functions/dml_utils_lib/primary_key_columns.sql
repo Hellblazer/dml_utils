@@ -23,8 +23,8 @@ BEGIN
              JOIN pg_catalog.pg_class AS c ON c.oid = i.indrelid
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
     WHERE i.indisprimary
-      AND n.nspname = i_schema_name
-      AND c.relname = i_table_name;
+      AND n.nspname = i_schema_name::name
+      AND c.relname = i_table_name::name;
 
     IF l_key_column_count IS NULL THEN
         RAISE EXCEPTION 'table %.% has no primary key', i_schema_name, i_table_name
@@ -45,9 +45,10 @@ BEGIN
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name) AS a;
 
-    -- A concurrent drop of the primary key between the count read above and this
-    -- one would leave the aggregate NULL (or short); fail loudly instead of
-    -- returning a NULL/partial list to callers that zip it with the kinds.
+    -- Both reads share the caller's snapshot (STABLE), so this is a self-check
+    -- that the aggregate matches the arity read above rather than a concurrency
+    -- detector; fail loudly instead of returning a NULL/partial list to callers
+    -- that zip it with the kinds.
     IF pg_catalog.cardinality(l_primary_key_columns) IS DISTINCT FROM l_key_column_count::integer
     THEN
         RAISE EXCEPTION 'primary key of table %.% changed while reading its columns',

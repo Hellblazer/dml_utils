@@ -801,7 +801,8 @@ RETURNS void
 ```
 
 `STABLE`, `SECURITY INVOKER`. Raises `invalid_schema_name` (`3F000`) when the
-schema does not exist.
+schema does not exist. The name is compared as an identifier, so a name longer
+than 63 bytes resolves to the truncated name `CREATE SCHEMA` stored.
 
 ### `dml_utils_lib.assert_table_exists(i_schema_name, i_table_name)`
 
@@ -811,8 +812,9 @@ i_table_name  dml_utils_data.non_null_text
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Raises `undefined_table` (`42P01`) when the table
-does not exist in the schema.
+`STABLE`, `SECURITY INVOKER`. Raises `undefined_table` (`42P01`) when the
+relation does not exist and `wrong_object_type` (`42809`) when it exists but is
+not a plain or partitioned table.
 
 ### `dml_utils_lib.assert_partitioned_table(i_schema_name, i_table_name)`
 
@@ -891,7 +893,10 @@ RETURNS text[]
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key kind of each primary-key
 column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
 `text` key, `uuid` for a `uuid` key and `timestamptz` for a `timestamptz` key.
-Raises `invalid_parameter_value` (`22023`) for any other type.
+Raises `invalid_parameter_value` (`22023`) for any other type, and
+`object_not_in_prerequisite_state` (`55000`) if the returned kinds do not line up
+with the primary key's arity (a self-check on the catalog reads, not a concurrency
+detector: the routine is `STABLE`).
 
 ### `dml_utils_lib.ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
 
@@ -959,7 +964,8 @@ RETURNS void
 ```
 
 `STABLE`, `SECURITY INVOKER`. Raises the `ordered_key_attributes` error when the
-index cannot serve as an ordered key, and returns normally when it can. Used by
+index cannot serve as an ordered key, and returns normally when it can; `55000`
+if the callee returns no attributes at all. Used by
 the run path and by resume validation. A caller that also needs the descriptor
 should read `ordered_key_attributes` once instead of calling this wrapper and
 then `ordered_key_columns`/`ordered_key_kinds`, which would repeat the catalog
@@ -1737,7 +1743,9 @@ RETURNS text
 
 `STABLE`, `SECURITY INVOKER`. Returns the table's `pg_relation_filepath` (its
 physical file, relative to the data directory), the fingerprint a block run
-records; raises `undefined_table` (`42P01`) when the table does not exist.
+records. Raises `undefined_table` (`42P01`) when the relation does not exist,
+`wrong_object_type` (`42809`) when it has no heap of its own (partitioned table,
+view, matview, foreign table), and `55000` if the filepath lookup returns NULL.
 
 ### `dml_utils_lib.assert_relation_filepath(i_schema_name, i_table_name, i_expected_filepath)`
 

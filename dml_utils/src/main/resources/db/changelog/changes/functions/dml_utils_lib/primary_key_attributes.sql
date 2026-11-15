@@ -32,8 +32,8 @@ BEGIN
              JOIN pg_catalog.pg_class AS c ON c.oid = i.indrelid
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
     WHERE i.indisprimary
-      AND n.nspname = i_schema_name
-      AND c.relname = i_table_name;
+      AND n.nspname = i_schema_name::name
+      AND c.relname = i_table_name::name;
 
     IF l_key_column_count IS NULL THEN
         RAISE EXCEPTION 'table %.% has no primary key', i_schema_name, i_table_name
@@ -74,8 +74,8 @@ BEGIN
                  JOIN pg_catalog.pg_attribute AS a
                       ON a.attrelid = c.oid AND a.attnum = k.attnum
         WHERE i.indisprimary
-          AND n.nspname = i_schema_name
-          AND c.relname = i_table_name
+          AND n.nspname = i_schema_name::name
+          AND c.relname = i_table_name::name
           AND k.ordinality <= i.indnkeyatts
         ORDER BY k.ordinality;
 END;

@@ -18,10 +18,18 @@ BEGIN
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name,
                  i_index_name => i_index_name) AS a;
+
+    -- An assert gate must enforce its own contract: a future refactor that made
+    -- the callee filter instead of raise would otherwise turn this into a no-op.
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'index % on %.% has no usable ordered-key attributes',
+            i_index_name, i_schema_name, i_table_name
+            USING ERRCODE = '55000';
+    END IF;
 END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_usable_ordered_key IS
     'Raises when the named index cannot serve as an ordered key, delegating to '
-        'ordered_key_attributes; returns void when it can. Used by the run path '
-        'and by resume validation.';
+        'ordered_key_attributes; returns void when it can, and 55000 if the callee '
+        'returns no attributes. Used by the run path and by resume validation.';
