@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_migration_leaf(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS integer
     LANGUAGE plpgsql
@@ -45,6 +45,23 @@ BEGIN
             i_run_id => i_run_id,
             i_leaf_ordinal => l_leaf.o_leaf_ordinal);
 
+    -- The population and the terminal snapshot are separate statements, so under
+    -- READ COMMITTED they do not share a snapshot. A concurrent delete/truncate
+    -- can leave starts without a terminal; a concurrent insert can leave a
+    -- terminal without starts, which would otherwise be discarded silently (the
+    -- leaf recorded as empty, its rows never migrated). Reject both directions
+    -- with a descriptive error instead of a bare constraint violation.
+    -- Compare against IS NULL, not IS NOT NULL: for a composite value
+    -- `x IS NOT NULL` is true only when *every* field is non-null, and a
+    -- migration_key always has NULL arrays for the unused kinds.
+    IF (l_boundary_count > 0) = (l_terminal_key IS NULL) THEN
+        RAISE EXCEPTION
+            'leaf % of run % has % boundaries but %terminal snapshot; retry the calculation',
+            l_leaf.o_leaf_ordinal, i_run_id, l_boundary_count,
+            CASE WHEN l_terminal_key IS NULL THEN 'no ' ELSE 'a ' END
+            USING ERRCODE = '55000';
+    END IF;
+
     UPDATE dml_utils_data.migration_run_leaf
     SET state                = 'calculated',
         boundary_count       = l_boundary_count,
@@ -61,10 +78,15 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_migration_leaf(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_migration_leaf(
+    dml_utils_data.non_null_bigint
+    ) IS
     'Calculates one partition-wise leaf in the caller''s transaction: '
         'claim_next_migration_leaf claims and authorizes the first pending/failed/'
         'stale-calculating leaf, leaf_boundary_population_sql appends its chunk '
         'starts, and this routine records the boundary count, high-water snapshot '
         'and calculated state. Returns the ordinal, or NULL when the run is '
-        'finalized, cancelled or fully calculated.';
+        'finalized, cancelled or fully calculated. If the population and the '
+        'terminal snapshot disagree (either direction, for example a concurrent '
+        'insert, delete or truncate on the leaf) it raises 55000 and the leaf can '
+        'be retried.';

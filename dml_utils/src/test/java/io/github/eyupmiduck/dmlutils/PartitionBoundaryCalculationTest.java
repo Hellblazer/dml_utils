@@ -360,6 +360,36 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         assertArrayEquals(new String[]{"bigint"}, orderedKey.getOKeyKinds());
     }
 
+    /**
+     * When the population and the terminal snapshot disagree (here the boundary
+     * INSERTs are suppressed, so the leaf looks empty while its snapshot has a
+     * high-water key), the calculation fails with a descriptive 55000 instead of
+     * silently recording an empty leaf.
+     */
+    @Test
+    void reportsAPopulationSnapshotMismatch() throws Exception {
+        insertRows(0L, 1L, 2L);
+        long runId = createRun(ChunkingStrategy.primary_key, 2);
+
+        executeAsOwner("CREATE OR REPLACE FUNCTION dml_utils_fixtures.suppress_boundary()"
+                + " RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN"
+                + " IF NEW.run_id = " + runId + " THEN RETURN NULL; END IF;"
+                + " RETURN NEW; END $fn$");
+        executeAsOwner("CREATE TRIGGER suppress_boundary BEFORE INSERT"
+                + " ON dml_utils_data.migration_boundary FOR EACH ROW"
+                + " EXECUTE FUNCTION dml_utils_fixtures.suppress_boundary()");
+        try {
+            assertSqlState("55000", () -> calculate(runId));
+        } finally {
+            executeAsOwner("DROP TRIGGER IF EXISTS suppress_boundary"
+                    + " ON dml_utils_data.migration_boundary");
+            executeAsOwner("DROP FUNCTION IF EXISTS dml_utils_fixtures.suppress_boundary()");
+        }
+
+        assertNull(leaf(runId, 1).getCalculatedAt(),
+                "the failed leaf transaction rolled back its state");
+    }
+
     private long createRun(ChunkingStrategy chunkBy, int chunkSize) {
         boolean ordered = chunkBy == ChunkingStrategy.ordered_key;
         Long runId = dsl.insertInto(MIGRATION_RUN)

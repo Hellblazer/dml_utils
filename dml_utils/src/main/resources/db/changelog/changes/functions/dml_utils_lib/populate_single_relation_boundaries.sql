@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
-    i_run_id bigint,
+    i_run_id dml_utils_data.non_null_bigint,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_chunk_by dml_utils_data.chunking_strategy,
@@ -13,27 +13,60 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
 AS
 $$
 DECLARE
+    l_run     record;
     l_updated integer;
 BEGIN
-    -- Only a fresh run can be populated. A repeat call against an empty source
-    -- would silently move boundaries_calculated_at forward; against a non-empty
-    -- source it would fail with a raw duplicate-key error from the boundary
-    -- INSERT. The run's state is checked here so both paths fail the same way.
-    IF NOT EXISTS (SELECT 1
-                   FROM dml_utils_data.migration_run AS run
-                   WHERE run.run_id = i_run_id)
-    THEN
+    -- Lock the run row before checking its state: a concurrent population or
+    -- cancellation must serialize here, or the loser would fail with a raw
+    -- duplicate-key error from the boundary INSERT instead of the controlled
+    -- 55000. The lock also covers the final UPDATE below.
+    SELECT run.chunk_by,
+           run.chunk_size,
+           run.driving_table_schema_name,
+           run.driving_table_name,
+           run.boundaries_calculated_at,
+           run.cancelled_at
+    INTO l_run
+    FROM dml_utils_data.migration_run AS run
+    WHERE run.run_id = i_run_id
+        FOR UPDATE;
+
+    IF NOT FOUND THEN
         RAISE EXCEPTION 'migration run % does not exist', i_run_id
             USING ERRCODE = 'P0002';
     END IF;
-    IF EXISTS (SELECT 1
-               FROM dml_utils_data.migration_run AS run
-               WHERE run.run_id = i_run_id
-                 AND (run.boundaries_calculated_at IS NOT NULL
-                   OR run.cancelled_at IS NOT NULL))
-    THEN
+    IF l_run.boundaries_calculated_at IS NOT NULL OR l_run.cancelled_at IS NOT NULL THEN
         RAISE EXCEPTION 'run % is already calculated or cancelled', i_run_id
             USING ERRCODE = '55000';
+    END IF;
+
+    -- The caller supplies the configuration to render with, but the run row is
+    -- what the runner later reads. A direct caller must not be able to populate
+    -- a run it did not create with a different strategy, chunk size or key.
+    IF i_schema_name IS DISTINCT FROM l_run.driving_table_schema_name::text
+        OR i_table_name IS DISTINCT FROM l_run.driving_table_name::text
+    THEN
+        RAISE EXCEPTION 'run % drives %.%, not %.%',
+            i_run_id,
+            l_run.driving_table_schema_name, l_run.driving_table_name,
+            i_schema_name, i_table_name
+            USING ERRCODE = '22023';
+    END IF;
+    IF i_chunk_by IS DISTINCT FROM l_run.chunk_by THEN
+        RAISE EXCEPTION 'run % chunks by %, not %', i_run_id, l_run.chunk_by, i_chunk_by
+            USING ERRCODE = '22023';
+    END IF;
+    IF i_chunk_size::bigint IS DISTINCT FROM l_run.chunk_size THEN
+        RAISE EXCEPTION 'run % has chunk size %, not %', i_run_id,
+            l_run.chunk_size, i_chunk_size
+            USING ERRCODE = '22023';
+    END IF;
+    IF (SELECT boundary_key.o_key_columns IS DISTINCT FROM i_key_columns
+                   OR boundary_key.o_key_kinds IS DISTINCT FROM i_key_kinds
+        FROM dml_utils_lib.migration_run_boundary_key(i_run_id => i_run_id) AS boundary_key)
+    THEN
+        RAISE EXCEPTION 'key columns/kinds do not match run %''s boundary key', i_run_id
+            USING ERRCODE = '22023';
     END IF;
 
     -- The boundary scan runs as the definer, so the effective caller must still
@@ -76,7 +109,8 @@ BEGIN
                                     FROM dml_utils_data.migration_boundary
                                     WHERE run_id = i_run_id)
     WHERE run_id = i_run_id
-      AND boundaries_calculated_at IS NULL;
+      AND boundaries_calculated_at IS NULL
+      AND cancelled_at IS NULL;
 
     GET DIAGNOSTICS l_updated = ROW_COUNT;
     IF l_updated <> 1 THEN
@@ -87,7 +121,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,

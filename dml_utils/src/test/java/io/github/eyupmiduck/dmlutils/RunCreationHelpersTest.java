@@ -203,6 +203,34 @@ class RunCreationHelpersTest extends PartitionTestBase {
                 ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
     }
 
+    /**
+     * A direct call cannot populate a run with a different relation, strategy,
+     * chunk size or key than the run stores.
+     */
+    @Test
+    void rejectsAMismatchedSingleRelationDescriptor() {
+        long runId = insertRunRow(ChunkingStrategy.primary_key, false, 2);
+
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.ordered_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 3));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id", "id2"},
+                new String[]{"bigint", "bigint"}, 2));
+
+        // The matching descriptor still works.
+        Routines.populateSingleRelationBoundaries(dsl.configuration(), runId,
+                schema(TEST_BIGINT), name(TEST_BIGINT), ChunkingStrategy.primary_key,
+                new String[]{"id"}, new String[]{"bigint"}, 2);
+    }
+
     private long insertRunRow(ChunkingStrategy chunkBy, boolean partitionWise, int chunkSize) {
         String table = partitionWise ? "test_partitioned_range" : name(TEST_BIGINT);
         String tableSchema = partitionWise ? PARTITION_SCHEMA : schema(TEST_BIGINT);

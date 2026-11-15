@@ -16,8 +16,11 @@ DECLARE
     l_ordinal        integer;
 BEGIN
 
-    SELECT run.partition_wise, run.cancelled_at, run.paused_at
-    INTO l_partition_wise, l_cancelled_at, l_paused_at
+    SELECT run.partition_wise,
+           run.cancelled_at,
+           run.paused_at,
+           run.boundaries_calculated_at
+    INTO l_partition_wise, l_cancelled_at, l_paused_at, l_calculated_at
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id;
 
@@ -46,10 +49,6 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT run.boundaries_calculated_at
-    INTO l_calculated_at
-    FROM dml_utils_data.migration_run AS run
-    WHERE run.run_id = i_run_id;
     IF l_calculated_at IS NOT NULL THEN
         RETURN;
     END IF;

@@ -533,8 +533,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_terminal_boundary_id(
     bigint,
     integer
     ) TO public;
-REVOKE EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(bigint) FROM dml_utils_caller;
-GRANT EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(bigint) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(dml_utils_data.non_null_bigint) FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.calculate_migration_leaf(dml_utils_data.non_null_bigint) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.finalize_migration_boundaries(
     dml_utils_data.non_null_bigint
     ) FROM dml_utils_caller;
@@ -1176,7 +1176,7 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
     name
     ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
@@ -1185,7 +1185,7 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     dml_utils_data.positive_integer
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,

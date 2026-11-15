@@ -1641,8 +1641,10 @@ RETURNS TABLE
 
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key a run chunks by: NULL for
 `blocks`, the stored ordered-key descriptor for `ordered_key`, and the driving
-parent's primary key for `primary_key`. Resolved once so every leaf uses the same
-key order.
+parent's primary key for `primary_key`. Every leaf of a run must use the same key
+order. The ordered-key descriptor is snapshotted at creation, but a primary-key
+run re-reads the live parent key on every call, so that key must not change for
+the run's lifetime.
 
 ### `dml_utils_lib.assert_migration_leaf_unchanged(i_run_id, i_leaf_ordinal)`
 
@@ -1676,7 +1678,7 @@ in the run's key order, or the one-past-end block number for `blocks`. Used by
 ### `dml_utils_lib.calculate_migration_leaf(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS integer
 ```
 
@@ -1687,7 +1689,9 @@ stale `calculating` leaf in manifest order, re-checks it with
 `assert_migration_leaf_unchanged`, checks the effective caller's `SELECT` on the
 leaf, appends its chunk starts and marks it `calculated` with its boundary count
 and a snapshot of the leaf's high-water key. Returns the ordinal. The run-row lock
-serializes calculation for the run.
+serializes calculation for the run. If the boundary population and the terminal
+snapshot disagree in either direction (for example a concurrent insert, delete or
+truncate on the leaf), it raises `55000` and the leaf can be retried.
 
 ### `dml_utils_lib.finalize_migration_boundaries(i_run_id)`
 

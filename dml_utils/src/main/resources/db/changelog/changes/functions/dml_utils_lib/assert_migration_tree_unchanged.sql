@@ -13,6 +13,7 @@ DECLARE
     l_schema_name    text;
     l_table_name     text;
     l_mismatch       integer;
+    l_reason         text;
 BEGIN
     SELECT run.partition_wise,
            run.chunk_by,
@@ -35,8 +36,32 @@ BEGIN
     -- Compare the live enumeration with the manifest in one set-based query: a
     -- missing/extra ordinal, or any changed identity/bound/filepath, is the first
     -- mismatching row.
-    SELECT coalesce(live.leaf_ordinal, manifest.leaf_ordinal)
-    INTO l_mismatch
+    SELECT coalesce(live.leaf_ordinal, manifest.leaf_ordinal),
+           CASE
+               WHEN live.leaf_ordinal IS NULL
+                   THEN pg_catalog.format('manifest leaf %s is missing from the live tree',
+                                          manifest.leaf_ordinal)
+               WHEN manifest.leaf_ordinal IS NULL
+                   THEN pg_catalog.format('live leaf %s is missing from the manifest',
+                                          live.leaf_ordinal)
+               WHEN manifest.leaf_schema_name::text IS DISTINCT FROM live.leaf_schema_name
+                   THEN pg_catalog.format('schema changed (stored %s, live %s)',
+                                          manifest.leaf_schema_name, live.leaf_schema_name)
+               WHEN manifest.leaf_name::text IS DISTINCT FROM live.leaf_name
+                   THEN pg_catalog.format('name changed (stored %s, live %s)',
+                                          manifest.leaf_name, live.leaf_name)
+               WHEN manifest.leaf_oid IS DISTINCT FROM live.leaf_oid
+                   THEN pg_catalog.format('oid changed (stored %s, live %s)',
+                                          manifest.leaf_oid, live.leaf_oid)
+               WHEN manifest.leaf_bound IS DISTINCT FROM live.leaf_bound
+                   THEN pg_catalog.format('partition bound changed (stored %s, live %s)',
+                                          manifest.leaf_bound, live.leaf_bound)
+               WHEN l_chunk_by = 'blocks'
+                   THEN pg_catalog.format('blocks filepath changed (stored %s, live %s)',
+                                          manifest.relation_filepath, live.relation_filepath)
+               ELSE 'leaf identity changed'
+               END
+    INTO l_mismatch, l_reason
     FROM dml_utils_lib.leaf_partitions(
                  i_schema_name => l_schema_name,
                  i_table_name => l_table_name,
@@ -62,8 +87,8 @@ BEGIN
     LIMIT 1;
 
     IF FOUND THEN
-        RAISE EXCEPTION 'partition tree changed for run %: leaf ordinal % no longer matches the manifest',
-            i_run_id, l_mismatch
+        RAISE EXCEPTION 'partition tree changed for run %: leaf ordinal %: %',
+            i_run_id, l_mismatch, l_reason
             USING ERRCODE = '55000';
     END IF;
 END;
