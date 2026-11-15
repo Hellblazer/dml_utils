@@ -30,10 +30,15 @@ done
 # dataset and sweep independent of config.env's published defaults and of
 # config.local.env.
 BENCH_IGNORE_LOCAL_CONFIG=1
-BENCH_CONTAINER=dml_utils_benchmark_smoke_pg
-BENCH_VOLUME=dml_utils_benchmark_smoke_pgdata
-BENCH_NETWORK=dml_utils_benchmark_smoke_net
-BENCH_HOST_PORT=55434
+# Scope the names to this invocation so two concurrent smoke runs (or a run next
+# to a developer's benchmark stack) cannot stop each other's database.
+suffix="$$"
+BENCH_CONTAINER="dml_utils_benchmark_smoke_pg_$suffix"
+BENCH_VOLUME="dml_utils_benchmark_smoke_pgdata_$suffix"
+BENCH_NETWORK="dml_utils_benchmark_smoke_net_$suffix"
+# No published port: the names are the isolation point, and two concurrent runs
+# must not collide on a fixed host port.
+BENCH_HOST_PORT=
 BENCH_ROWS=2000
 BENCH_PK_COLUMNS=3
 BENCH_CHUNK_SIZE=500
@@ -45,10 +50,11 @@ BENCH_PARTITIONED_LEAVES=3
 # Pin the output directory so an exported BENCH_RESULTS_DIR/BENCH_REPORT cannot
 # send the smoke rows somewhere the assertions do not read.
 BENCH_RESULTS_DIR=results
+BENCH_REPORT=report.md
 export BENCH_IGNORE_LOCAL_CONFIG BENCH_CONTAINER BENCH_VOLUME BENCH_NETWORK \
     BENCH_HOST_PORT BENCH_ROWS BENCH_PK_COLUMNS BENCH_CHUNK_SIZE \
     BENCH_THREADS_FROM BENCH_THREADS_TO BENCH_RUNS BENCH_WARMUP_RUNS \
-    BENCH_PARTITIONED_LEAVES BENCH_RESULTS_DIR
+    BENCH_PARTITIONED_LEAVES BENCH_RESULTS_DIR BENCH_REPORT
 
 cleanup() {
     status=$?
@@ -73,7 +79,7 @@ results_dir="$here/$BENCH_RESULTS_DIR"
 rm -f "$results_dir/smoke-"*.csv
 
 for strategy in primary_key blocks ordered_key; do
-    BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" \
+    BENCH_PARTITION_WISE=0 BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" \
         "$here/run.sh" --reset
 done
 
@@ -94,17 +100,29 @@ mkdir -p "$report_dir"
 {
     head -n 1 "$results_dir/smoke-primary_key.csv"
     tail -n +2 "$results_dir/smoke-primary_key.csv"
-    tail -n +2 "$results_dir/smoke-partitioned-primary_key.csv"
+    tail -n +2 "$results_dir/smoke-blocks.csv"
     tail -n +2 "$results_dir/smoke-ordered_key.csv"
+    tail -n +2 "$results_dir/smoke-partitioned-primary_key.csv"
+    tail -n +2 "$results_dir/smoke-partitioned-blocks.csv"
     tail -n +2 "$results_dir/smoke-partitioned-ordered_key.csv"
 } > "$report_dir/combined.csv"
 BENCH_RESULTS_DIR="$BENCH_RESULTS_DIR/smoke-report" BENCH_CSV=combined.csv \
     "$here/report.sh" >/dev/null
-grep -q '^### strategy `primary_key`' "$report_dir/report.md"
+# A non-partitioned group must exist (the first loop pins
+# BENCH_PARTITION_WISE=0), and the partition-wise groups must stay separate.
+grep -q '^### strategy `primary_key`, key k1+k2+k3, chunk_size 500 rows$' \
+    "$report_dir/report.md"
+grep -q '^### strategy `blocks`, key k1+k2+k3, chunk_size 500 blocks$' \
+    "$report_dir/report.md"
 grep -q '(partition-wise)' "$report_dir/report.md"
 grep -q '^### strategy `ordered_key`, key created_at+id, chunk_size 500 rows (partition-wise)' \
     "$report_dir/report.md"
-grep -q '^| 2 |' "$report_dir/report.md"
+# Every group's table carries both thread values (a page-wide grep would pass
+# even if one group lost a row).
+awk '/^### strategy `/{group = $0; threads[group] = 0; next}
+     /^\| [12] \|/{threads[group]++}
+     END { for (g in threads) if (threads[g] != 2) { print "missing thread row in " g > "/dev/stderr"; exit 1 } }' \
+    "$report_dir/report.md"
 rm -rf "$report_dir"
 
 rm -f "$results_dir/smoke-primary_key.csv" "$results_dir/smoke-blocks.csv" \

@@ -11,8 +11,8 @@ DROP TABLE IF EXISTS :"schema".:"target_table";
 
 CREATE TABLE :"schema".:"target_table"
 (
-    id         uuid,
-    created_at timestamptz,
+    id         uuid        NOT NULL,
+    created_at timestamptz NOT NULL,
     payload    text NOT NULL
 );
 

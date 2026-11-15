@@ -27,15 +27,18 @@ command -v docker >/dev/null 2>&1 || {
     exit 1
 }
 
-if ! docker inspect "$BENCH_CONTAINER" >/dev/null 2>&1 \
-    || [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" != "true" ]; then
+# One inspect: it exits non-zero when the container is missing, and prints
+# nothing when it is stopped, so the combined check covers both cases without a
+# second docker round trip or a gap between the two.
+if [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" != "true" ]; then
     echo "benchmark container $BENCH_CONTAINER is not running; run benchmark/setup.sh first" >&2
     exit 1
 fi
 
-# Allocate a TTY only when attached to one, so a piped invocation (for example
-# `echo 'SELECT 1' | benchmark/psql.sh`) still works.
-if [ -t 0 ]; then
+# Allocate a TTY only when both stdin and stdout are terminals. `docker exec -it`
+# allocates a PTY for stdout too, so redirecting output would otherwise get CRLF
+# line endings and psql's interactive formatting.
+if [ -t 0 ] && [ -t 1 ]; then
     exec docker exec -it "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" "$@"
 else
     exec docker exec -i "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" "$@"

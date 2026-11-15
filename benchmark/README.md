@@ -289,8 +289,10 @@ database:
 - **Image**: `dml-utils-postgres:17-alpine` (the custom image with the
   `dml_utils_owner` / `dml_utils_caller` roles, `plpgsql_check` and
   `pg_background`).
-- **Container / volume / network / port**: `BENCH_CONTAINER`, `BENCH_VOLUME`,
-  `BENCH_NETWORK`, `BENCH_HOST_PORT` in `config.env`.
+- **Container / volume / network**: `BENCH_CONTAINER`, `BENCH_VOLUME`,
+  `BENCH_NETWORK` in `config.env`. `BENCH_HOST_PORT` is optional (empty by
+  default): set it to publish a loopback port for inspection, at the cost of
+  preventing concurrent benchmark stacks from sharing the host.
 - **`max_worker_processes`**: set to `BENCH_MAX_WORKER_PROCESSES` (default 30).
   `run_migration_chunks` refuses a thread count above `max_worker_processes`, so
   this must be at least `BENCH_THREADS_TO` plus headroom for autovacuum and other

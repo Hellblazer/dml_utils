@@ -37,7 +37,7 @@ SELECT pg_catalog.format(
                'CREATE TABLE %I.%I PARTITION OF %I.%I FOR VALUES WITH (MODULUS %s, REMAINDER %s)',
                :'schema', :'source_table' || '_p' || i,
                :'schema', :'source_table',
-               :'leaves', i)
+               :'leaves'::integer, i)
 FROM pg_catalog.generate_series(0, :'leaves'::integer - 1) AS i
 ORDER BY i
 \gexec
@@ -52,12 +52,6 @@ FROM pg_catalog.generate_series(0, :'leaves'::integer - 1) AS i
 ORDER BY i
 \gexec
 
-CREATE UNIQUE INDEX :"index"
-    ON :"schema".:"source_table" (created_at, id);
-
-COMMENT ON INDEX :"schema".:"index" IS
-    'The partition-wise ordered-key index: (created_at, id), with id as the tiebreaker.';
-
 -- The UUID is deterministic: md5 of the row number with the version (4) and
 -- variant (8) nibbles set, so a refresh reproduces the table exactly. The
 -- timestamp pairs ten rows per second, so id is the tiebreaker.
@@ -69,3 +63,23 @@ SELECT pg_catalog.overlay(
            + ((g - 1) / 10) * interval '1 second',
        pg_catalog.md5(g::text)
 FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;
+
+-- Build the index once after the bulk load: maintaining it row by row during
+-- the INSERT costs more than one sorted build per partition.
+CREATE UNIQUE INDEX :"index"
+    ON :"schema".:"source_table" (created_at, id);
+
+COMMENT ON INDEX :"schema".:"index" IS
+    'The partition-wise ordered-key index: (created_at, id), with id as the tiebreaker.';
+
+-- Refresh planner statistics (see create-source.sql).
+ANALYZE :"schema".:"source_table";
+-- ANALYZE on the partitioned parent does not refresh the leaves, and the
+-- partition-wise chunks are planned per leaf, so analyze each storage leaf too.
+SELECT pg_catalog.format('ANALYZE %I.%I', n.nspname, c.relname)
+FROM pg_catalog.pg_partition_tree((:'schema' || '.' || :'source_table')::regclass) AS leaf
+         JOIN pg_catalog.pg_class AS c ON c.oid = leaf.relid
+         JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE leaf.isleaf
+\gexec
+
