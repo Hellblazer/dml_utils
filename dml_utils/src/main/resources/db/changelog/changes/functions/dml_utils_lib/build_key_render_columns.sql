@@ -46,12 +46,14 @@ BEGIN
                     USING ERRCODE = '22023';
             END IF;
 
-            -- A NULL or empty column name would render a degenerate %I token and
-            -- only fail later when a worker parses the chunk SQL; reject it here.
+            -- A NULL, empty or whitespace-only column name would render a
+            -- degenerate %I token and only fail later when a worker parses the
+            -- chunk SQL; reject it here. Trim the same whitespace set the
+            -- dml_utils_data.non_null_text domain uses, not just spaces.
             IF i_key_columns[l_position] IS NULL
-                OR i_key_columns[l_position] = ''
+                OR pg_catalog.btrim(i_key_columns[l_position]::text, E' \t\n\r\f\013') = ''
             THEN
-                RAISE EXCEPTION 'key column name must not be NULL or empty at position %',
+                RAISE EXCEPTION 'key column name must not be NULL or blank at position %',
                     l_position
                     USING ERRCODE = '22023';
             END IF;
@@ -63,19 +65,23 @@ BEGIN
             -- Precompute the text column's collation once (the other kinds do not
             -- order by collation). NULL means the column is not in the catalog (a
             -- renderer unit test with a synthetic table), so
-            -- render_prepared_chunk_sql falls back to the default operator;
-            -- 'default' is the default collation; any other value is the quoted
-            -- collation name.
+            -- render_prepared_chunk_sql falls back to the default operator. The
+            -- name is schema-qualified: the consumer interpolates it into a
+            -- COLLATE clause executed later, where an unqualified name would
+            -- resolve against the executing session's search_path and could bind a
+            -- different collation (or none).
             IF l_kind = 'text' THEN
                 l_collation := NULL;
                 SELECT CASE
-                           WHEN a.attcollation = 0 THEN 'default'
-                           ELSE pg_catalog.quote_ident(c.collname)
+                           WHEN a.attcollation = 0 THEN 'pg_catalog."default"'
+                           ELSE pg_catalog.format('%I.%I', cn.nspname, c.collname)
                            END
                 INTO l_collation
                 FROM pg_catalog.pg_attribute AS a
                          LEFT JOIN pg_catalog.pg_collation AS c
                                    ON c.oid = a.attcollation
+                         LEFT JOIN pg_catalog.pg_namespace AS cn
+                                   ON cn.oid = c.collnamespace
                 WHERE a.attrelid = pg_catalog.to_regclass(
                         pg_catalog.format('%I.%I', i_schema_name, i_table_name))
                   AND a.attname = i_key_columns[l_position];
@@ -98,6 +104,6 @@ COMMENT ON FUNCTION dml_utils_lib.build_key_render_columns(
     text[]
     ) IS
     'Validates a chunk render key and returns the alias-qualified quoted column '
-        'names plus the collation to use for each text column (NULL when the '
-        'column is not in the catalog). Shared by prepare_chunk_sql_render so the '
-        'render context is built once per run.';
+        'names plus the schema-qualified collation to use for each text column (NULL '
+        'when the column is not in the catalog). Shared by prepare_chunk_sql_render '
+        'so the render context is built once per run.';

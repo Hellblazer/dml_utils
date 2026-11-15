@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 /**
  * Verifies {@code dml_utils_lib.build_key_render_columns}: key columns are
  * validated, qualified with the requested alias, and paired with the collation
- * to use for each text column (the quoted column collation, 'default', or NULL
+ * to use for each text column (the schema-qualified column collation, or NULL
  * when the column is not in the catalog). Malformed keys are rejected with
  * {@code 22023}.
  */
@@ -45,7 +45,7 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
                 new String[]{"a", "b"}, new String[]{"bigint", "text"});
 
         assertArrayEquals(new String[]{"t.a", "t.b"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null, "\"default\""}, result.getOKeyCollations());
+        assertArrayEquals(new String[]{null, "pg_catalog.\"default\""}, result.getOKeyCollations());
     }
 
     /**
@@ -57,7 +57,7 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
                 new String[]{"a", "b"}, new String[]{"bigint", "text"});
 
         assertArrayEquals(new String[]{"t.a", "t.b"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null, "\"en-x-icu\""}, result.getOKeyCollations());
+        assertArrayEquals(new String[]{null, "pg_catalog.\"en-x-icu\""}, result.getOKeyCollations());
     }
 
     /**
@@ -95,6 +95,10 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
                 new String[]{null}, new String[]{"bigint"}));
         assertSqlState("22023", () -> columns("t", "test_bigint",
                 new String[]{""}, new String[]{"bigint"}));
+        // A whitespace-only name is blank, not just empty: it would render a
+        // degenerate quoted identifier and only fail in a worker.
+        assertSqlState("22023", () -> columns("t", "test_bigint",
+                new String[]{" \t"}, new String[]{"bigint"}));
     }
 
     /**

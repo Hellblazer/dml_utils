@@ -184,6 +184,26 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
                 new String[]{"1"}, new String[]{"2", "y"}, false));
     }
 
+    /**
+     * The collation array must be present and aligned with the column names; a
+     * missing or shorter array would silently compare under the wrong collation.
+     */
+    @Test
+    void rejectsMissingOrMisalignedKeyCollations() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a", "b"}, new String[]{"text", "text"});
+
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                prepared.getOColumnNames(), new String[]{"text", "text"}, null,
+                new String[]{"a", "x"}, new String[]{"b", "y"}, false));
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                prepared.getOColumnNames(), new String[]{"text", "text"},
+                new String[]{null}, new String[]{"a", "x"}, new String[]{"b", "y"}, false));
+    }
+
     private String renderPrepared(PrepareChunkSqlRender prepared, String[] kinds,
                                   String[] start, String[] end, boolean isFinal) {
         return Routines.renderPreparedChunkSql(

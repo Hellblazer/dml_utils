@@ -77,6 +77,23 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A key column literally named {@code id1} collides with the generated alias,
+     * so the select list aliases in key order, the window order by keeps the raw
+     * (input) column names, and only the top-level descending order by uses the
+     * idN aliases.
+     */
+    @Test
+    void describesAKeyColumnThatCollidesWithAnIdAlias() {
+        BoundaryKeyDescriptorSqlRecord row = describe(
+                new String[]{"x", "id1"}, new String[]{"bigint", "bigint"});
+
+        assertEquals("x AS id1, id1 AS id2", row.getOSelectList());
+        assertEquals("id1, id2", row.getOIdList());
+        assertEquals("x, id1", row.getOOrderBy());
+        assertEquals("id1 DESC, id2 DESC", row.getOOrderByDesc());
+    }
+
+    /**
      * A missing or empty column or kind array, a length mismatch and a key of
      * more than three columns are rejected.
      */

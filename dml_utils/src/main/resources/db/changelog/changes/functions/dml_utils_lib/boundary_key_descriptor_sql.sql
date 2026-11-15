@@ -74,6 +74,14 @@ BEGIN
             l_key_id_list := l_key_id_list || pg_catalog.format('%sid%s',
                                                                 CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
                                                                 l_position);
+            -- The ascending fragment uses the raw (quoted) column names and is
+            -- only valid inside a window ORDER BY, which is where the boundary
+            -- builders use it (`row_number() OVER (ORDER BY ...)`): a window
+            -- definition resolves input columns and does not see the select list's
+            -- output aliases. Do not reuse it as a top-level ORDER BY over the
+            -- aliased select, where a key column named id1 at another position
+            -- would resolve to the wrong output alias; that is what o_order_by_desc
+            -- (idN aliases) is for.
             l_order_by := l_order_by || pg_catalog.format('%s%s',
                                                           CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
                                                           pg_catalog.quote_ident(i_key_columns[l_position]));
@@ -106,7 +114,11 @@ COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
     text[]
     ) IS
     'Validates a one-to-three-column boundary key and returns the SQL fragments '
-        'that read, order and pack it (idN aliases, ascending ORDER BY, descending '
-        'ORDER BY and the migration_key row expression from '
+        'that read, order and pack it: o_select_list (each column quoted and '
+        'aliased id1..idN), o_id_list (the same aliases), o_order_by (raw quoted '
+        'column names, for a window ORDER BY only, where output aliases are not '
+        'resolved), o_order_by_desc (idN aliases, for a top-level ORDER BY over '
+        'o_select_list, where an output alias would shadow a same-named input '
+        'column) and o_pack_expression (the migration_key row expression from '
         'boundary_key_pack_expression). Shared by the single-relation and per-leaf '
         'boundary builders so both render the same key logic.';

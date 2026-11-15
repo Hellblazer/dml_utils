@@ -1584,8 +1584,13 @@ RETURNS TABLE
 known kinds) and returns the SQL
 fragments that read, order and pack it: the `idN`-aliased select list, the `idN`
 list, the ascending and descending `ORDER BY`, and the `migration_key` row
-expression. Shared by the single-relation and per-leaf boundary builders so the
-key logic cannot drift.
+expression. The two `ORDER BY` fragments have different consumption contexts:
+`o_order_by` uses the raw quoted column names and is only valid in a window
+`ORDER BY` (where PostgreSQL resolves input columns and does not see output
+aliases), while `o_order_by_desc` uses the `idN` aliases and is only valid as a
+top-level `ORDER BY` over `o_select_list` (where a same-named output alias would
+otherwise shadow the key column). Shared by the single-relation and per-leaf
+boundary builders so the key logic cannot drift.
 
 ###
 
@@ -1795,10 +1800,12 @@ RETURNS record
 ```
 
 `STABLE`, `SECURITY INVOKER`. Validates the key columns and kinds once, returns the
-alias-qualified quoted column names and the collation to use for each text column (the quoted column collation,
-`"default"`, or NULL when the column is not in the
-catalog). `prepare_chunk_sql_render` uses it to build the run-invariant render
-context.
+alias-qualified quoted column names and the schema-qualified collation to use for
+each text column (`pg_catalog."default"`, `pg_catalog."en-x-icu"`, or NULL when
+the column is not in the catalog). Qualifying it matters: the consumer
+interpolates the name into a `COLLATE` clause executed later, where an
+unqualified name would resolve against that session's `search_path`.
+`prepare_chunk_sql_render` uses it to build the run-invariant render context.
 
 ###
 
@@ -1817,9 +1824,10 @@ RETURNS record
 
 `STABLE`, `SECURITY INVOKER`. Validates the start/end boundary values, renders
 their typed SQL literals and reports the first differing column with its
-direction (zero when all values are equal). A NULL value, an invalid literal for
-its kind or a malformed array raises `22023`. Shared by
-`render_prepared_chunk_sql`.
+direction (zero when all values are equal), comparing text under the column's own
+collation. A NULL value, an invalid literal for its kind, a malformed or
+misaligned array, or a collation that is not a plain/quoted identifier raises
+`22023`. Shared by `render_prepared_chunk_sql`.
 
 ###
 
@@ -1871,8 +1879,12 @@ RETURNS text
 `STABLE`, `SECURITY INVOKER`. Returns the single-relation boundary-population
 statement from the key descriptor fragments: it streams the boundary key in
 index order, materialises only the chunk starts and takes the terminal boundary
-from a backward index scan. Shared by `build_boundary_population_sql` so the
-runner and the explain path use the identical SQL.
+from a backward index scan. The five text fragments are interpolated raw, so they
+must be trusted SQL produced by `boundary_key_descriptor_sql`, never
+caller-supplied text. The boundary key must be unique and `i_order_by_desc` its
+exact inverse; otherwise the row chosen by the backward scan can differ from the
+last row in the ascending window order. Shared by `build_boundary_population_sql`
+so the runner and the explain path use the identical SQL.
 
 ### `dml_utils_lib.assert_ordered_key_index_usable(i_index_oid, i_schema_name, i_table_name, i_index_name)`
 

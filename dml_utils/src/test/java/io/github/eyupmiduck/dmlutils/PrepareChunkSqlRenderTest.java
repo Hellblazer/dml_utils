@@ -63,7 +63,8 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
         String[] collations = prepared.getOKeyCollations();
         assertEquals(2, collations.length, "one collation entry per key column");
         assertNull(collations[0], "a bigint column has no collation entry");
-        assertEquals("\"en-x-icu\"", collations[1], "the text column's ICU collation");
+        assertEquals("pg_catalog.\"en-x-icu\"", collations[1],
+                "the text column's ICU collation, schema-qualified");
     }
 
     /**

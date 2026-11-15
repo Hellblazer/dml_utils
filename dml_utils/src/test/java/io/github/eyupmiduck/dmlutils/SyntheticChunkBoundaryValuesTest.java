@@ -98,6 +98,17 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL element is rejected with a message that names its position, rather
+     * than falling through the kind chain with an empty value.
+     */
+    @Test
+    void rejectsANullKeyKindAtItsPosition() {
+        assertSqlState("22023", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "ARRAY['bigint', NULL]::text[], 10::bigint)"));
+    }
+
+    /**
      * A non-positive chunk size is rejected with {@code 22023}: it would render
      * an empty or reversed bigint range.
      */

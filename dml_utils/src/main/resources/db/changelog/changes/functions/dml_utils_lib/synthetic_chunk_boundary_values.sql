@@ -48,8 +48,14 @@ BEGIN
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would fall through every comparison; reject it here so
-            -- the message names the bad value rather than a silent ELSE.
+            -- A NULL kind would fall through every comparison and render as an
+            -- empty token in the ELSE message; reject it here so the error names
+            -- the position.
+            IF l_kind IS NULL THEN
+                RAISE EXCEPTION 'key kind at position % is NULL', l_position
+                    USING ERRCODE = '22023';
+            END IF;
+
             IF l_kind = 'bigint' THEN
                 l_start := '0';
                 l_end := i_chunk_size::text;
@@ -74,10 +80,13 @@ BEGIN
     -- Two rows: the non-final range (half-open) and the final range (inclusive).
     -- The values are identical; only the caller's i_is_final, and so the range
     -- operator render_chunk_sql emits, differs.
+    -- The caller and the tests rely on the non-final row coming first; a UNION
+    -- ALL alone has no defined order, so make it explicit.
     RETURN QUERY
         SELECT false, l_start_values, l_end_values
         UNION ALL
-        SELECT true, l_start_values, l_end_values;
+        SELECT true, l_start_values, l_end_values
+        ORDER BY 1;
 END;
 $$;
 

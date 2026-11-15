@@ -71,6 +71,19 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- The prepared context carries one collation per key column (NULL for a kind
+    -- that does not order by collation). A missing or misaligned array would make
+    -- the helper compare a text key under the default collation instead of the
+    -- column's, so reject it here where the parameter is still named.
+    IF i_key_collations IS NULL
+        OR pg_catalog.array_ndims(i_key_collations) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_key_collations, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_length(i_key_collations, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+    THEN
+        RAISE EXCEPTION 'key collations must be a one-dimensional, 1-based array aligned with the column names'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- Validate the boundary values and build their typed literals. The helper
     -- also rejects malformed column/kind/value arrays, so the array length below
     -- is safe to use.

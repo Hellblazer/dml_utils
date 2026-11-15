@@ -20,6 +20,23 @@ BEGIN
     -- min()/max() on the key: PostgreSQL defines those aggregates for the integer
     -- and text types but not for uuid.
     --
+    -- The five text fragments (select list, ascending and descending ORDER BY, id
+    -- list and pack expression) are interpolated raw, because they are the key
+    -- descriptor's own SQL, not identifiers: they must come from
+    -- dml_utils_lib.boundary_key_descriptor_sql (which quotes every catalog name)
+    -- and never from caller-supplied text. This is the final rendering layer and
+    -- it cannot validate fragments without re-parsing SQL, so it documents the
+    -- trust boundary instead. Identifiers are the only %I arguments.
+    --
+    -- The terminal high-water boundary is the last row of the descending scan, so
+    -- the contract is: the boundary key is unique, and i_order_by_desc is the exact
+    -- inverse of i_order_by (every term reversed, same NULLS ordering). With ties
+    -- the row picked by ... DESC LIMIT 1 can differ from the row that is last in
+    -- the ascending window order. The descriptor builds both from the primary key
+    -- or a unique ordered index, so the precondition holds for every shipped
+    -- caller; an ordered key that is not unique would need a tiebreaker added
+    -- before this is safe.
+    --
     -- The shape matters on production-sized tables:
     --   * numbered is referenced once, so it is inlined and the row_number()
     --     WindowAgg streams over the boundary-key index instead of sorting or
@@ -95,5 +112,7 @@ COMMENT ON FUNCTION dml_utils_lib.format_boundary_population_sql(
     'Returns the single-relation boundary-population statement from the key '
         'descriptor fragments. The statement streams the boundary key in index '
         'order, materialises only the chunk starts and takes the terminal from a '
-        'backward index scan. Shared by build_boundary_population_sql so execute '
-        'and explain run the identical SQL.';
+        'backward index scan. The fragments must be trusted SQL produced by '
+        'boundary_key_descriptor_sql, and the boundary key must be unique with '
+        'i_order_by_desc its exact inverse. Shared by build_boundary_population_sql '
+        'so execute and explain run the identical SQL.';

@@ -40,8 +40,13 @@ BEGIN
             i_key_kinds => i_key_kinds);
 
     -- One leaf's chunk starts, appended after every boundary already committed
-    -- for the run. The base number comes from the existing rows (the snapshot
-    -- before this statement), so concurrent-looking appends stay contiguous.
+    -- for the run. The base number comes from max(boundary_no) in this statement's
+    -- snapshot, which does NOT make concurrent appends contiguous: two overlapping
+    -- executions read the same base and collide on the (run_id, boundary_no)
+    -- primary key. Contiguity rests on the caller serializing leaves:
+    -- calculate_migration_run_boundaries holds the run's calculation advisory lock
+    -- and launches one leaf transaction at a time, waiting for each. A future
+    -- parallel leaf calculation would need its own serialization here.
     -- There is deliberately no per-leaf terminal: the only terminal boundary is
     -- written by finalize_migration_boundaries from the last non-empty leaf.
     RETURN pg_catalog.format(
