@@ -268,9 +268,9 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
      */
     @Test
     void rejectsNullArguments() {
-        assertSqlState("22023", () -> Routines.explainMigrationRunChunk(
+        assertDomainViolation(() -> Routines.explainMigrationRunChunk(
                 dsl.configuration(), (Long) null, 0L));
-        assertSqlState("22023", () -> Routines.explainMigrationRunChunk(
+        assertDomainViolation(() -> Routines.explainMigrationRunChunk(
                 dsl.configuration(), 1L, (Long) null));
     }
 

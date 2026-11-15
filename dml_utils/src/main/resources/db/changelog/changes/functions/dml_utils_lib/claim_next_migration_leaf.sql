@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.claim_next_migration_leaf(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS TABLE
             (
@@ -19,11 +19,6 @@ DECLARE
     l_leaf   record;
     l_caller name;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'run id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- The run row lock serializes leaf calculation for this run: a second worker
     -- waits here, then sees the committed leaf state instead of appending the
     -- same leaf twice. The coordinator also holds the run-level advisory lock.
@@ -112,7 +107,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.claim_next_migration_leaf(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.claim_next_migration_leaf(dml_utils_data.non_null_bigint) IS
     'Locks the run and claims the first pending/failed/stale-calculating leaf in '
         'manifest order, verifies it still matches the manifest, checks the '
         'effective caller can SELECT it and marks it calculating. Returns the leaf '

@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_calculated_run(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -56,7 +56,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.finalize_calculated_run(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.finalize_calculated_run(dml_utils_data.non_null_bigint) IS
     'Finalizes a partition-wise run after every leaf is calculated: re-checks '
         'the live tree against the manifest and writes the terminal boundary and '
         'totals in an autonomous worker transaction. A cancelled or already '

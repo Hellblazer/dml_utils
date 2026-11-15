@@ -40,7 +40,7 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
         seedBigint(1, 2, 3);
         long runId = populate();
 
-        assertSqlState("22023", () -> Routines.completeMigrationBoundary(
+        assertDomainViolation(() -> Routines.completeMigrationBoundary(
                 dsl.configuration(), runId, 0L, null, 0L));
     }
 
@@ -52,7 +52,7 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
         seedBigint(1, 2, 3);
         long runId = populate();
 
-        assertSqlState("22023", () -> Routines.completeMigrationBoundary(
+        assertDomainViolation(() -> Routines.completeMigrationBoundary(
                 dsl.configuration(), runId, 0L, OffsetDateTime.now(), null));
     }
 
@@ -64,7 +64,7 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
         seedBigint(1, 2, 3);
         long runId = populate();
 
-        assertSqlState("22023", () -> Routines.completeMigrationBoundary(
+        assertDomainViolation(() -> Routines.completeMigrationBoundary(
                 dsl.configuration(), runId, 0L, OffsetDateTime.now(), -1L));
     }
 

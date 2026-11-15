@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     i_chunk_by dml_utils_data.chunking_strategy,
-    i_leaf_schema_name text,
-    i_leaf_name text,
-    i_leaf_oid oid,
+    i_leaf_schema_name dml_utils_data.non_null_text,
+    i_leaf_name dml_utils_data.non_null_text,
+    i_leaf_oid dml_utils_data.non_null_oid,
     i_leaf_bound text,
     i_relation_filepath text
 )
@@ -18,17 +18,11 @@ DECLARE
     l_live_bound    text;
     l_live_filepath text;
 BEGIN
-    -- A NULL strategy would make both guards below NULL and the function would
-    -- fail open (a recorded filepath would go unverified). Manifest columns are
-    -- NOT NULL, but the function is directly callable, so reject it.
+    -- A NULL strategy would make both filepath guards below NULL and the function
+    -- would fail open (a recorded filepath would go unverified). Manifest columns
+    -- are NOT NULL, but the function is directly callable, so reject it.
     IF i_chunk_by IS NULL THEN
         RAISE EXCEPTION 'chunk strategy must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-    -- A NULL name would make format() produce NULL and EXECUTE fail with the
-    -- opaque "query string argument of EXECUTE is null"; reject it here.
-    IF i_leaf_schema_name IS NULL OR i_leaf_name IS NULL THEN
-        RAISE EXCEPTION 'leaf schema name and leaf name must not be NULL'
             USING ERRCODE = '22023';
     END IF;
 
@@ -107,7 +101,9 @@ BEGIN
             i_leaf_schema_name, i_leaf_name, i_relation_filepath, l_live_filepath
             USING ERRCODE = '55000';
     END IF;
-    IF i_chunk_by <> 'blocks' AND i_relation_filepath IS NOT NULL THEN
+    IF i_chunk_by <> 'blocks'
+        AND i_relation_filepath IS NOT NULL
+    THEN
         RAISE EXCEPTION 'leaf %.% records a filepath for a key-strategy run',
             i_leaf_schema_name, i_leaf_name
             USING ERRCODE = '55000';
@@ -117,9 +113,9 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     dml_utils_data.chunking_strategy,
-    text,
-    text,
-    oid,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_oid,
     text,
     text
     ) IS

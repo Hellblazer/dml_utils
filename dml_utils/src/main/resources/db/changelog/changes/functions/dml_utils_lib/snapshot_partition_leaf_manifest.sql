@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
-    i_run_id bigint,
+    i_run_id dml_utils_data.non_null_bigint,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_chunk_by dml_utils_data.chunking_strategy,
@@ -17,11 +17,6 @@ DECLARE
     l_leaf_schema text;
     l_leaf_name   text;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'i_run_id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- The run row is the authority for the driving table and strategy. A
     -- SECURITY DEFINER function must not let a caller attach another relation's
     -- leaves (or choose a different strategy) for an arbitrary run id.
@@ -142,7 +137,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,

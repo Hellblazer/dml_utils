@@ -143,11 +143,11 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
      */
     @Test
     void rejectsBadRunIdOrOrdinal() {
-        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+        assertDomainViolation(() -> Routines.appendTerminalBoundary(
                 dsl.configuration(), null, 1));
-        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+        assertDomainViolation(() -> Routines.appendTerminalBoundary(
                 dsl.configuration(), 1L, null));
-        assertSqlState("22023", () -> Routines.appendTerminalBoundary(
+        assertDomainViolation(() -> Routines.appendTerminalBoundary(
                 dsl.configuration(), 1L, 0));
         assertSqlState("P0002", () -> Routines.appendTerminalBoundary(
                 dsl.configuration(), -1L, 1));

@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.synthetic_chunk_boundary_values(
     i_key_kinds text[],
-    i_chunk_size bigint
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS TABLE
             (
@@ -33,10 +33,6 @@ BEGIN
     END IF;
 
     -- A non-positive chunk size would make the bigint range empty or reversed.
-    IF i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'chunk size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- Build one representative start/end literal per position, in key order.
     -- Each kind gets a pair whose start sorts before its end: bigint spans one

@@ -713,7 +713,7 @@ Use `migration_run_leaves` for the manifest rows.
 ### `dml_utils.migration_run_leaves(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS TABLE
 (run_id, leaf_ordinal, leaf_schema_name, leaf_name, leaf_oid, leaf_bound,
     relation_filepath, state, boundary_count, terminal_boundary_id,
@@ -732,7 +732,7 @@ manifest and returns no rows.
 ### `dml_utils.migration_run_progress(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS TABLE
 (run_id, label, chunk_by, partition_wise, status,
     total_chunks, completed_chunks, remaining_chunks, percent_complete,
@@ -761,7 +761,7 @@ current throughput continues on an active run.
 ### `dml_utils.migration_errors(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS TABLE
     (error_id, boundary_no, sqlstate, message, created_at)
 ```
@@ -772,7 +772,7 @@ RETURNS TABLE
 ### `dml_utils.migration_boundaries(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS TABLE
 (boundary_no, boundary_id, leaf_ordinal, rows_affected,
     started_at, completed_at, cancelled_at, duration_ms)
@@ -1046,7 +1046,7 @@ kinds in key order, delegating validation to
 ### `dml_utils_lib.assert_partitioned_ordered_key_leaves(i_run_id, i_index_name)`
 
 ```sql
-i_run_id     bigint
+i_run_id     dml_utils_data.non_null_bigint
 i_index_name dml_utils_data.non_null_text
 RETURNS void
 ```
@@ -1417,7 +1417,7 @@ serializes boundary calculation for a run, derived from the run id with a
 ### `dml_utils_lib.calculate_migration_run_boundaries(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS void
 ```
 
@@ -1477,7 +1477,7 @@ text itself lives in `format_boundary_population_sql`.
 
 ```sql
 i_key_kinds  text[]
-i_chunk_size bigint
+i_chunk_size dml_utils_data.positive_bigint
 RETURNS TABLE
     (o_is_final boolean, o_start_values text [], o_end_values text [])
 ```
@@ -1492,13 +1492,13 @@ Rejects malformed kinds or a non-positive chunk size (`22023`).
 ### `dml_utils_lib.explain_query_plan(i_sql_text)`
 
 ```sql
-i_sql_text text
+i_sql_text dml_utils_data.non_null_text
 RETURNS json
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Returns `EXPLAIN (FORMAT JSON)` of `i_sql_text`
 as a json value, without executing it (no `ANALYZE`): an INSERT or UPDATE only
-plans. Rejects a NULL, empty or blank statement (`22023`). It is `VOLATILE`
+plans. The statement is a non-null, non-blank domain. It is `VOLATILE`
 because PostgreSQL forbids `EXPLAIN` in a non-volatile function.
 
 ###
@@ -1558,8 +1558,8 @@ the shared implementation of `dml_utils.explain_migration_chunk` and
 ```sql
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
-i_run_id      bigint
-i_chunk_size  bigint
+i_run_id      dml_utils_data.non_null_bigint
+i_chunk_size  dml_utils_data.positive_bigint
 RETURNS text
 ```
 
@@ -1692,7 +1692,7 @@ serializes calculation for the run.
 ### `dml_utils_lib.finalize_migration_boundaries(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS void
 ```
 
@@ -2004,8 +2004,9 @@ RETURNS void
 `VOLATILE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
 relation and raises `55000` when it is missing, replaced (different OID),
 detached or rebound (different partition bound), not a plain table, or (for
-blocks) a rewritten heap. A NULL strategy or NULL leaf name is `22023` instead
-of failing open. It takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the verified
+blocks) a rewritten heap. The leaf name is a non-null domain and a NULL
+strategy is rejected with `22023`, so neither can fail open. It takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the
+verified
 identity cannot change before the caller's transaction uses it, and reports a
 concurrent modification (or a dropped relation/schema) as the same `55000`.
 
@@ -2069,7 +2070,7 @@ synthetic ranges. No run or boundary is read or written. Shared by
 ### `dml_utils_lib.claim_next_migration_leaf(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS TABLE
 (o_leaf_ordinal integer, o_leaf_schema_name text, o_leaf_name text,
     o_chunk_by dml_utils_data.chunking_strategy, o_chunk_size integer)
@@ -2114,7 +2115,7 @@ transaction before the worker error is re-raised.
 ### `dml_utils_lib.finalize_calculated_run(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS void
 ```
 
@@ -2126,7 +2127,7 @@ transaction. A cancelled or already finalized run is left untouched.
 ### `dml_utils_lib.terminal_leaf_for_run(i_run_id)`
 
 ```sql
-i_run_id bigint
+i_run_id dml_utils_data.non_null_bigint
 RETURNS record
     (o_leaf_ordinal integer, o_leaf_schema_name text, o_leaf_name text,
      o_bigint_values bigint[], o_text_values text[], o_uuid_values uuid[],
@@ -2140,8 +2141,8 @@ every leaf is empty.
 ### `dml_utils_lib.append_terminal_boundary(i_run_id, i_leaf_ordinal)`
 
 ```sql
-i_run_id       bigint
-i_leaf_ordinal integer
+i_run_id       dml_utils_data.non_null_bigint
+i_leaf_ordinal dml_utils_data.positive_integer
 RETURNS bigint
 ```
 
@@ -2154,8 +2155,8 @@ as the end of
 the leaf's last chunk). It serializes on the run row, re-checks the stored leaf
 identity, rejects a run with uncalculated leaves, records
 `boundaries_calculated_at`/`total_chunks` itself (a repeat call is `55000`), and
-rejects a cancelled run (`55000`), a NULL run id or ordinal (`22023`) and a leaf
-without a snapshot (`55000`).
+rejects a cancelled run (`55000`) and a leaf without a snapshot (`55000`); the
+run id and ordinal are non-null/positive domains.
 
 ### `dml_utils_lib.assert_caller_can_select_relation(i_schema_name, i_table_name)`
 

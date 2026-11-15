@@ -97,7 +97,7 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullFinalFlag() {
-        assertSqlState("22023", () -> boxes(new String[]{"t.c1"},
+        assertDomainViolation(() -> boxes(new String[]{"t.c1"},
                 new String[]{"'1'"}, new String[]{"'5'"}, 1, null));
     }
 }

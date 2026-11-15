@@ -114,11 +114,11 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadInputs() {
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), null, 1L));
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), 1L, 0L));
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), 1L, -1L));
     }
 

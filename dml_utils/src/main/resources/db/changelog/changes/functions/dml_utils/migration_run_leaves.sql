@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils.migration_run_leaves(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS TABLE
             (
@@ -44,7 +44,7 @@ WHERE l.run_id = i_run_id
 ORDER BY l.leaf_ordinal;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_run_leaves(bigint) IS
+COMMENT ON FUNCTION dml_utils.migration_run_leaves(dml_utils_data.non_null_bigint) IS
     'Returns one row per manifest leaf of a partition-wise run, in deterministic '
         'leaf order, with the leaf identity, calculation state, boundary count, '
         'high-water snapshot and any calculation error. A non-partition-wise run '

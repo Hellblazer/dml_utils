@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_migration_run_boundaries(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -15,10 +15,6 @@ DECLARE
     l_lock_key       bigint;
     l_ordinal        integer;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'run id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     SELECT run.partition_wise, run.cancelled_at, run.paused_at
     INTO l_partition_wise, l_cancelled_at, l_paused_at
@@ -133,7 +129,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(dml_utils_data.non_null_bigint) IS
     'Calculates a partition-wise run''s boundaries one leaf per pg_background '
         'transaction until every leaf is calculated, then finalizes the run in its '
         'own worker transaction. Serialized by a transaction-scoped advisory lock '

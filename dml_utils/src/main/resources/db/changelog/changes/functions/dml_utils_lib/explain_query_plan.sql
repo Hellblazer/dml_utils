@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.explain_query_plan(
-    i_sql_text text
+    i_sql_text dml_utils_data.non_null_text
 )
     RETURNS json
     LANGUAGE plpgsql
@@ -13,10 +13,6 @@ BEGIN
     -- A NULL would concatenate to the literal "EXPLAIN (FORMAT JSON) " with no
     -- statement, and a blank statement would fail with a syntax error; reject
     -- both up front with a message that names the argument.
-    IF i_sql_text IS NULL OR pg_catalog.btrim(i_sql_text) = '' THEN
-        RAISE EXCEPTION 'i_sql_text must not be NULL or empty'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- EXPLAIN (FORMAT JSON) returns one row with a single json column. Without
     -- ANALYZE it only plans, so the statement is never executed: an INSERT or

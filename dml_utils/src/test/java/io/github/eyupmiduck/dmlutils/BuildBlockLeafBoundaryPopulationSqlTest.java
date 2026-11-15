@@ -118,17 +118,17 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
     void rejectsBadInputs() {
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, null, 1L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, null, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 0L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, -1L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 1L, null));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 1L, 0));
     }
 

@@ -32,13 +32,13 @@ class RenderBlockChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadRanges() {
-        assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", null, 10L));
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 10L));
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 5L));
-        assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", -1L, 5L));
     }
 

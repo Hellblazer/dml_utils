@@ -32,7 +32,21 @@ BEGIN
     -- Populate the boundaries in a worker so the run and its boundaries commit
     -- autonomously and become visible to the processing workers.
     l_handle := public.pg_background_launch(pg_catalog.format(
-            'SELECT dml_utils_lib.populate_migration_boundaries(%L, %L, %L, %L, %s, %s, %L, %L, %s, %L, %L, %s, %s) AS run_id',
+            'SELECT dml_utils_lib.populate_migration_boundaries(
+    %L,
+    %L,
+    %L,
+    %L,
+    %s,
+    %s,
+    %L,
+    %L,
+    %s,
+    %L,
+    %L,
+    %s,
+    %s
+    ) AS run_id',
             i_schema_name,
             i_table_name,
             i_label,

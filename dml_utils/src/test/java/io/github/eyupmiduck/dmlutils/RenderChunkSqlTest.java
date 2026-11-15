@@ -533,7 +533,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullFinalFlag() {
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertDomainViolation(() -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id"}, new String[]{"bigint"},
                 new String[]{"1"}, new String[]{"2"}, null));

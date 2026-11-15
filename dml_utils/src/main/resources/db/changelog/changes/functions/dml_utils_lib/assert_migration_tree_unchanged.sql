@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_migration_tree_unchanged(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -69,7 +69,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_migration_tree_unchanged(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_migration_tree_unchanged(dml_utils_data.non_null_bigint) IS
     'Re-enumerates a partition-wise run''s live leaf tree and compares it with the '
         'manifest (leaf count, order, schema/name/OID, partition bound and, for '
         'blocks, per-leaf filepath). Raises object_not_in_prerequisite_state (55000) on '

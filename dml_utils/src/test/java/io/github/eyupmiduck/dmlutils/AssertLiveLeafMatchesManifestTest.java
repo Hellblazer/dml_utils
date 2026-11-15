@@ -131,10 +131,10 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
                 populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
                         ChunkingStrategy.primary_key, 2, null));
 
-        assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
+        assertDomainViolation(() -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), leaf.getOChunkBy(), null, leaf.getOLeafName(),
                 leaf.getOLeafOid(), leaf.getOLeafBound(), leaf.getORelationFilepath()));
-        assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
+        assertDomainViolation(() -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), leaf.getOChunkBy(), leaf.getOLeafSchemaName(), null,
                 leaf.getOLeafOid(), leaf.getOLeafBound(), leaf.getORelationFilepath()));
     }

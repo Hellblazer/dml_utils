@@ -114,22 +114,22 @@ class BuildLeafBoundaryPopulationSqlTest extends PartitionTestBase {
     void rejectsBadInputs() {
         long runId = populatePartitionWise("leaf-builder-primary_key", "test_partitioned_range", TEMPLATE, ChunkingStrategy.primary_key, 1, null);
 
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, null, 1L, 1));
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, runId, null, 1));
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, runId, 0L, 1));
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, runId, -1L, 1));
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, runId, 1L, null));
-        assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, "test_partitioned_range_low",
                 new String[]{"id"}, new String[]{"bigint"}, runId, 1L, 0));
         assertSqlState("22023", () -> Routines.buildLeafBoundaryPopulationSql(

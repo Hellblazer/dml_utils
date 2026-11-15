@@ -45,6 +45,9 @@ DECLARE
     l_effective record;
     l_key       record;
 BEGIN
+    -- A NULL strategy would fall through the resume/create branches and behave
+    -- like primary_key; the column is NOT NULL, so it can only come from a direct
+    -- caller.
     IF i_chunk_by IS NULL THEN
         RAISE EXCEPTION 'i_chunk_by must not be NULL'
             USING ERRCODE = '22023';

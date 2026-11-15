@@ -92,9 +92,9 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadInputs() {
-        assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, null, 2L));
-        assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, 1L, 0L));
         assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id", "id2"}, new String[]{"bigint"}, 1L, 2L));

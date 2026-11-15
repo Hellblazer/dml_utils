@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.complete_migration_run(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -8,11 +8,6 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.complete_migration_run(
 AS
 $$
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'i_run_id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- The coordinator calls this after every boundary is claimed. It is
     -- idempotent and leaves a cancelled run unchanged. The boundary calculation
     -- must be finished first: a partition-wise run is committed by phase 1 with
@@ -32,6 +27,6 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.complete_migration_run IS
     'Marks a run complete only when its boundaries are calculated and completed '
-        'chunks cover total_chunks, clearing any pause in the same update. Rejects '
-        'a NULL run id with 22023. SECURITY DEFINER so the invoker-owned '
+        'chunks cover total_chunks, clearing any pause in the same update. The run '
+        'id parameter is a non-null domain. SECURITY DEFINER so the invoker-owned '
         'coordinator does not need metadata write privileges.';

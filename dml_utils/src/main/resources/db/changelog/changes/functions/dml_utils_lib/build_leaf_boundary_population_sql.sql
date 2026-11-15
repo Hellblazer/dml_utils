@@ -3,9 +3,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
     i_table_name dml_utils_data.non_null_text,
     i_key_columns name[],
     i_key_kinds text[],
-    i_run_id bigint,
-    i_chunk_size bigint,
-    i_leaf_ordinal integer
+    i_run_id dml_utils_data.non_null_bigint,
+    i_chunk_size dml_utils_data.positive_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -17,17 +17,9 @@ DECLARE
     l_descriptor record;
 BEGIN
     -- The run id, chunk size and leaf ordinal are inlined (all integers, so no
-    -- injection surface). A NULL run id renders an empty token, a non-positive
-    -- chunk size renders a degenerate divisor and an ordinal below 1 violates
+    -- injection surface); their parameter domains reject a NULL or non-positive
+    -- value before the body runs.
     -- the manifest key.
-    IF i_run_id IS NULL OR i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'run id must not be NULL and chunk size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
-    IF i_leaf_ordinal IS NULL OR i_leaf_ordinal < 1 THEN
-        RAISE EXCEPTION 'leaf ordinal must be at least 1'
-            USING ERRCODE = '22023';
-    END IF;
 
     SELECT o_select_list,
            o_id_list,
@@ -97,9 +89,9 @@ COMMENT ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
     dml_utils_data.non_null_text,
     name[],
     text[],
-    bigint,
-    bigint,
-    integer
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_bigint,
+    dml_utils_data.positive_integer
     ) IS
     'Returns the statement that scans one leaf in boundary-key order and inserts '
         'its chunk starts (no per-leaf terminal) after the boundaries already '

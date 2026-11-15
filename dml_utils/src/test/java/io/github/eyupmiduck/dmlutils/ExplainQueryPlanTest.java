@@ -55,9 +55,9 @@ class ExplainQueryPlanTest extends PostgresTestBase {
      */
     @Test
     void rejectsNullOrEmptyStatements() {
-        assertSqlState("22023", () -> Routines.explainQueryPlan(dsl.configuration(), null));
-        assertSqlState("22023", () -> Routines.explainQueryPlan(dsl.configuration(), ""));
-        assertSqlState("22023", () -> Routines.explainQueryPlan(dsl.configuration(), "   "));
+        assertDomainViolation(() -> Routines.explainQueryPlan(dsl.configuration(), null));
+        assertDomainViolation(() -> Routines.explainQueryPlan(dsl.configuration(), ""));
+        assertDomainViolation(() -> Routines.explainQueryPlan(dsl.configuration(), "   "));
     }
 
     /**

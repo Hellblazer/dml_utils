@@ -115,7 +115,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
      */
     @Test
     void rejectsANullRunId() {
-        assertSqlState("22023",
+        assertDomainViolation(
                 () -> Routines.completeMigrationRun(dsl.configuration(), (Long) null));
     }
 

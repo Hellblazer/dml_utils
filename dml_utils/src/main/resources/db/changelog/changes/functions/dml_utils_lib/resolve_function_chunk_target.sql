@@ -65,7 +65,9 @@ BEGIN
       AND NOT p.proretset
       AND p.pronargs = pg_catalog.cardinality(l_argument_oids)
       AND (SELECT pg_catalog.array_agg(x ORDER BY o)
-           FROM pg_catalog.unnest(p.proargtypes::oid[]) WITH ORDINALITY AS u(x, o)) IS NOT DISTINCT FROM l_argument_oids;
+           FROM pg_catalog.unnest(
+                        p.proargtypes::oid[]) WITH ORDINALITY AS u(x,
+                                                                   o)) IS NOT DISTINCT FROM l_argument_oids;
 
     IF NOT FOUND THEN
         SELECT pg_catalog.string_agg(t::pg_catalog.regtype::text, ', ' ORDER BY o)

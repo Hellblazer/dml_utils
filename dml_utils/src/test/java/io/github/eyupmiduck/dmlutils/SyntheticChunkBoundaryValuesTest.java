@@ -114,9 +114,9 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
      */
     @Test
     void rejectsANonPositiveChunkSize() {
-        assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
+        assertDomainViolation(() -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"bigint"}, 0L));
-        assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
+        assertDomainViolation(() -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"bigint"}, -1L));
     }
 }

@@ -3,8 +3,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.build_boundary_population_sql(
     i_table_name dml_utils_data.non_null_text,
     i_key_columns name[],
     i_key_kinds text[],
-    i_run_id bigint,
-    i_chunk_size bigint
+    i_run_id dml_utils_data.non_null_bigint,
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -16,12 +16,8 @@ DECLARE
     l_descriptor record;
 BEGIN
     -- The run id and chunk size are inlined (both bigint, so no injection
-    -- surface). A NULL run id would render an empty token and a non-positive
-    -- chunk size would render a degenerate divisor.
-    IF i_run_id IS NULL OR i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'run id must not be NULL and chunk size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
+    -- surface); their parameter domains reject a NULL run id and a NULL or
+    -- non-positive chunk size before the body runs.
 
     -- The shared helper validates the key descriptor and renders the select,
     -- order and pack fragments. Both the single-relation and per-leaf builders

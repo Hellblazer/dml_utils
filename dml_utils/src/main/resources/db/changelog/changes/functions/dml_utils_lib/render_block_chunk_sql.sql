@@ -3,8 +3,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.render_block_chunk_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_start_block bigint,
-    i_end_block bigint
+    i_start_block dml_utils_data.non_negative_bigint,
+    i_end_block dml_utils_data.non_negative_bigint
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -27,10 +27,6 @@ BEGIN
     -- A NULL boundary would render a degenerate tid literal; a reversed or empty
     -- range would render a predicate that matches no rows while the chunk is
     -- still marked complete.
-    IF i_start_block IS NULL OR i_end_block IS NULL THEN
-        RAISE EXCEPTION 'block boundaries must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     IF i_start_block < 0 OR i_end_block <= i_start_block THEN
         RAISE EXCEPTION 'block range must satisfy 0 <= start < end'

@@ -69,7 +69,9 @@ BEGIN
 
             l_key_select_list := l_key_select_list || pg_catalog.format('%s%s AS id%s',
                                                                         CASE WHEN l_position > 1 THEN ', ' ELSE '' END,
-                                                                        pg_catalog.quote_ident(i_key_columns[l_position]),
+                                                                        pg_catalog.quote_ident(
+                                                                                i_key_columns[l_position]
+                                                                        ),
                                                                         l_position);
             l_key_id_list := l_key_id_list || pg_catalog.format('%sid%s',
                                                                 CASE WHEN l_position > 1 THEN ', ' ELSE '' END,

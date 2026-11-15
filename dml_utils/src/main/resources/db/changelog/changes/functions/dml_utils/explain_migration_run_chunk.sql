@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils.explain_migration_run_chunk(
-    i_run_id bigint,
-    i_boundary_no bigint
+    i_run_id dml_utils_data.non_null_bigint,
+    i_boundary_no dml_utils_data.non_negative_bigint
 )
     RETURNS TABLE
             (
@@ -48,10 +48,6 @@ DECLARE
     l_sql                   text;
     l_plan                  json;
 BEGIN
-    IF i_run_id IS NULL OR i_boundary_no IS NULL THEN
-        RAISE EXCEPTION 'run id and boundary number must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     SELECT run.sql_text,
            run.driving_table_schema_name::text,
@@ -236,7 +232,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.explain_migration_run_chunk(bigint, bigint) IS
+COMMENT ON FUNCTION dml_utils.explain_migration_run_chunk(
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.non_negative_bigint
+    ) IS
     'Returns the EXPLAIN (FORMAT JSON) plan for one real stored chunk of a run, '
         'selected by run id and boundary number, without decoding the boundary key '
         'or selecting a leaf. It resolves the boundary and its successor exactly as '

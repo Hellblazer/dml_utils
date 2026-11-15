@@ -27,6 +27,40 @@ COMMENT ON DOMAIN dml_utils_data.non_null_text IS
         'ASCII whitespace characters (space, tab, LF, CR, FF, vertical tab); '
         'non-ASCII whitespace such as NBSP is not trimmed.';
 
+CREATE DOMAIN dml_utils_data.non_null_bigint AS bigint
+    CONSTRAINT non_null_bigint_check CHECK (value IS NOT NULL);
+
+COMMENT ON DOMAIN dml_utils_data.non_null_bigint IS
+    'bigint that is NOT NULL, for identifiers and counters whose zero/negative '
+        'values are meaningful but whose NULL is not.';
+
+CREATE DOMAIN dml_utils_data.non_negative_bigint AS bigint
+    CONSTRAINT non_negative_bigint_check CHECK (value IS NOT NULL AND value >= 0);
+
+COMMENT ON DOMAIN dml_utils_data.non_negative_bigint IS
+    'bigint that is NOT NULL and greater than or equal to 0; used for boundary '
+        'numbers, row counts and block ranges.';
+
+CREATE DOMAIN dml_utils_data.positive_bigint AS bigint
+    CONSTRAINT positive_bigint_check CHECK (value IS NOT NULL AND value > 0);
+
+COMMENT ON DOMAIN dml_utils_data.positive_bigint IS
+    'bigint that is NOT NULL and greater than 0; used where a chunk size stays '
+        'bigint-sized rather than the integer-bounded positive_integer.';
+
+CREATE DOMAIN dml_utils_data.non_null_timestamptz AS timestamptz
+    CONSTRAINT non_null_timestamptz_check CHECK (value IS NOT NULL);
+
+COMMENT ON DOMAIN dml_utils_data.non_null_timestamptz IS
+    'timestamptz that is NOT NULL, for a timestamp an argument must carry rather '
+        'than an optional one.';
+
+CREATE DOMAIN dml_utils_data.non_null_oid AS oid
+    CONSTRAINT non_null_oid_check CHECK (value IS NOT NULL);
+
+COMMENT ON DOMAIN dml_utils_data.non_null_oid IS
+    'oid that is NOT NULL, for an object identifier argument.';
+
 -- A boolean whose explicit NULL is rejected. Function signatures may still give
 -- it a DEFAULT, so omitting the argument is fine; passing NULL is not, and it
 -- cannot silently fall through SQL three-valued logic.

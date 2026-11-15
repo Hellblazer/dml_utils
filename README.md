@@ -45,7 +45,9 @@ anything above it:
   the internal routines that populate boundaries, run one chunk and record
   errors. It may use `dml_utils_data`, never `dml_utils`.
 - **`dml_utils_data`** — the data layer: the shared domains (`non_null_text`,
-  `positive_integer`, `non_negative_integer`, `non_null_boolean`), the
+  `positive_integer`, `non_negative_integer`, `non_null_boolean`,
+  `non_null_bigint`, `non_negative_bigint`, `positive_bigint`,
+  `non_null_timestamptz`, `non_null_oid`), the
   `migration_key` composite type that packs a boundary's key value (position-aligned arrays, one per key kind, including
   `timestamptz`), and the
   fixed-row chunk migration tables `migration_run` / `migration_boundary` /

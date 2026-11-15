@@ -82,7 +82,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void rejectsMissingAndNonPartitionWiseRuns() {
-        assertSqlState("22023", () -> claim(null));
+        assertDomainViolation(() -> claim(null));
         assertSqlState("P0002", () -> claim(-1L));
         long plain = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, TABLE, uniqueLabel("claim-plain"), TEMPLATE, 2, 1,

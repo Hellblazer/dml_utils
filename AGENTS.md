@@ -222,8 +222,15 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   compatibility changesets — a fresh database (and every test and CI database)
   defines only the new signature.
 - Type routine arguments with the `dml_utils_data` domains (for example
-  `non_null_text`, `positive_integer`) so null or invalid inputs fail fast with
-  a check-constraint violation.
+  `non_null_text`, `positive_integer`, `non_null_bigint`, `positive_bigint`,
+  `non_negative_bigint`, `non_null_timestamptz`, `non_null_oid`) so null or
+  invalid inputs fail fast with a check-constraint violation instead of a manual
+  `IS NULL` guard. Keep the plain type only where NULL is meaningful (an optional
+  label, filter, index name or filepath) and document that meaning.
+- Do not wrap the `chunking_strategy` enum in a domain: jOOQ's generated
+  `Domains` -> enum -> schema class -> tables -> `Domains` initialisation cycle
+  fails at class load (the same reason composite types are not wrapped). Keep the
+  plain enum type and reject a NULL strategy explicitly.
 - Use `SECURITY INVOKER` (the default). A routine must never require callers to
   hold privileges beyond what they would need to run its SQL directly: if a
   caller could run the statement itself, calling the routine must just work.

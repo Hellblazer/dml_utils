@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.render_prepared_chunk_sql(
-    i_template text,
+    i_template dml_utils_data.non_null_text,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
@@ -8,7 +8,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     i_key_collations text[],
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean
+    i_is_final dml_utils_data.non_null_boolean
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -34,10 +34,6 @@ DECLARE
 BEGIN
     -- The per-chunk render consumes only the run-invariant context prepared once
     -- by prepare_chunk_sql_render; it reads no catalog and validates no template.
-    IF i_template IS NULL THEN
-        RAISE EXCEPTION 'prepared template must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- The prepared template must carry exactly the clause sentinel, or the
     -- substituted clause would never be placed and the chunk would render with no
@@ -66,10 +62,6 @@ BEGIN
 
     -- i_is_final selects the upper bound (inclusive for the final chunk, exclusive
     -- otherwise); a NULL would silently take the non-final branch, so reject it.
-    IF i_is_final IS NULL THEN
-        RAISE EXCEPTION 'i_is_final must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- The prepared context carries one collation per key column (NULL for a kind
     -- that does not order by collation). A missing or misaligned array would make

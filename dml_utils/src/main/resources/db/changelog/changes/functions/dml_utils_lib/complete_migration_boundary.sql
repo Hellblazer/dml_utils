@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.complete_migration_boundary(
-    i_run_id bigint,
-    i_boundary_no bigint,
-    i_started_at timestamptz,
-    i_rows_affected bigint
+    i_run_id dml_utils_data.non_null_bigint,
+    i_boundary_no dml_utils_data.non_negative_bigint,
+    i_started_at dml_utils_data.non_null_timestamptz,
+    i_rows_affected dml_utils_data.non_negative_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -14,16 +14,6 @@ DECLARE
     l_updated      integer;
     l_completed_at timestamptz;
 BEGIN
-    IF i_started_at IS NULL THEN
-        RAISE EXCEPTION 'i_started_at must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
-    IF i_rows_affected IS NULL OR i_rows_affected < 0 THEN
-        RAISE EXCEPTION 'i_rows_affected must be a non-negative bigint'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- Use one timestamp for both columns and clamp a caller-supplied future
     -- start, so a clock-skewed caller cannot violate
     -- migration_boundary_time_order_check and abort an already-executed chunk.
@@ -57,10 +47,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.complete_migration_boundary(
-    bigint,
-    bigint,
-    timestamptz,
-    bigint
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.non_negative_bigint,
+    dml_utils_data.non_null_timestamptz,
+    dml_utils_data.non_negative_bigint
     ) IS
     'Records started_at/completed_at and rows_affected for one pending boundary '
         'and advances the run''s completed-chunk and total-rows-affected counters '

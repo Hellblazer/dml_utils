@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
-    i_run_id bigint,
+    i_run_id dml_utils_data.non_null_bigint,
     OUT o_leaf_ordinal integer,
     OUT o_leaf_schema_name text,
     OUT o_leaf_name text,
@@ -15,11 +15,6 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
 AS
 $$
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'i_run_id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- Distinguish an unknown run and a run without a manifest from the
     -- legitimate "every leaf is empty" result (all-NULL OUT fields).
     IF NOT EXISTS (SELECT 1
@@ -56,7 +51,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run(dml_utils_data.non_null_bigint) IS
     'Returns the last non-empty manifest leaf of a partition-wise run with its '
         'stored high-water key arrays, or NULL fields when every leaf is empty. '
         'Raises P0002 for an unknown run and 55000 for a run with no leaf '

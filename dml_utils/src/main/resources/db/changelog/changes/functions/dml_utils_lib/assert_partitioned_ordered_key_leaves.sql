@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_partitioned_ordered_key_leaves(
-    i_run_id bigint,
+    i_run_id dml_utils_data.non_null_bigint,
     i_index_name dml_utils_data.non_null_text
 )
     RETURNS void
@@ -92,7 +92,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_leaves(
-    bigint,
+    dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_text
     ) IS
     'Validates the ordered-key child index of every leaf already snapshotted in a '
