@@ -38,22 +38,22 @@ BEGIN
         AND (pg_catalog.array_ndims((i_key).bigint_values) IS DISTINCT FROM 1
             OR pg_catalog.array_lower((i_key).bigint_values, 1) IS DISTINCT FROM 1
             OR pg_catalog.cardinality((i_key).bigint_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+                 <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_key).text_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_key).text_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_key).text_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_key).text_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_key).text_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_key).text_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_key).text_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_key).uuid_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_key).uuid_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_key).uuid_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_key).uuid_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_key).uuid_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_key).uuid_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_key).uuid_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_key).timestamptz_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_key).timestamptz_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_key).timestamptz_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_key).timestamptz_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_key).timestamptz_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_key).timestamptz_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_key).timestamptz_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
     THEN
         RAISE EXCEPTION 'migration key arrays must be one-dimensional, 1-based and match the key kinds'
             USING ERRCODE = '22023';

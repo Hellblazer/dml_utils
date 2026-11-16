@@ -103,8 +103,8 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
      * Inserts an ordered-key partition-wise run with no manifest, so the parent
      * check is the only thing that can validate anything.
      *
-     * @param label  the run label
-     * @param index  the ordered-key index name to store
+     * @param label the run label
+     * @param index the ordered-key index name to store
      * @return the run id
      */
     private long insertOrderedRun(String label, String index) {

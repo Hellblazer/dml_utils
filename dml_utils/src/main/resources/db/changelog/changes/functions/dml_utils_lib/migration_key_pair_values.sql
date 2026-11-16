@@ -38,42 +38,42 @@ BEGIN
         AND (pg_catalog.array_ndims((i_start_key).bigint_values) IS DISTINCT FROM 1
             OR pg_catalog.array_lower((i_start_key).bigint_values, 1) IS DISTINCT FROM 1
             OR pg_catalog.cardinality((i_start_key).bigint_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+                 <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_start_key).text_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_start_key).text_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_start_key).text_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_start_key).text_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_start_key).text_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).text_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).text_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_start_key).uuid_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_start_key).uuid_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_start_key).uuid_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_start_key).uuid_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_start_key).uuid_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).uuid_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).uuid_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_start_key).timestamptz_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_start_key).timestamptz_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_start_key).timestamptz_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_start_key).timestamptz_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_start_key).timestamptz_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).timestamptz_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).timestamptz_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_end_key).bigint_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_end_key).bigint_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_end_key).bigint_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_end_key).bigint_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_end_key).bigint_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).bigint_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).bigint_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_end_key).text_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_end_key).text_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_end_key).text_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_end_key).text_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_end_key).text_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).text_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).text_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_end_key).uuid_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_end_key).uuid_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_end_key).uuid_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_end_key).uuid_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_end_key).uuid_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).uuid_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).uuid_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_end_key).timestamptz_values IS NOT NULL
-        AND (pg_catalog.array_ndims((i_end_key).timestamptz_values) IS DISTINCT FROM 1
-            OR pg_catalog.array_lower((i_end_key).timestamptz_values, 1) IS DISTINCT FROM 1
-            OR pg_catalog.cardinality((i_end_key).timestamptz_values)
-            <> pg_catalog.cardinality(i_key_kinds)))
+            AND (pg_catalog.array_ndims((i_end_key).timestamptz_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).timestamptz_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).timestamptz_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
     THEN
         RAISE EXCEPTION 'migration key arrays must be one-dimensional, 1-based and match the key kinds'
             USING ERRCODE = '22023';
@@ -112,9 +112,8 @@ BEGIN
                 -- The whitelist above admits exactly these four kinds, so this
                 -- arm is only a structural backstop: it must not silently leave
                 -- l_start/l_end at their previous value if the whitelist changes.
-                ELSE
-                    RAISE EXCEPTION 'unsupported key kind %', l_kind
-                        USING ERRCODE = '22023';
+                ELSE RAISE EXCEPTION 'unsupported key kind %', l_kind
+                    USING ERRCODE = '22023';
                 END CASE;
 
             o_start_values := o_start_values || l_start;

@@ -206,7 +206,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
                 .archiveMigrationRun(dsl.configuration(), label);
         assertEquals(1, io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
-                        .deleteArchivedMigrationRuns2(dsl.configuration(), label),
+                        .deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),
                 "the archived terminal run is deleted");
 
         long startedAt = System.nanoTime();

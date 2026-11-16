@@ -800,12 +800,8 @@
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/delete_archived_migration_runs.sql"
                          relativeToChangelogFile="true"/>
-        <createProcedure path="functions/dml_utils/delete_archived_migration_runs_by_label.sql"
-                         relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/delete_archived_migration_runs-rollback.sql"
-                     relativeToChangelogFile="true"/>
-            <sqlFile path="functions-rollback/dml_utils/delete_archived_migration_runs_by_label-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>

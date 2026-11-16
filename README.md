@@ -653,12 +653,19 @@ archive the current run first; then the label is free again:
 SELECT dml_utils.archive_migration_run(i_label => 'events-region-backfill');
 ```
 
-Archived runs can be deleted — all of them, or just one label's:
+Archived runs can be deleted — all of them, or just one label's — in bounded
+batches; call it in a loop until it returns 0 (0 can also mean the remaining
+candidates are locked by another session, so retry later):
 
 ```sql
-SELECT dml_utils.delete_archived_migration_runs();
-SELECT dml_utils.delete_archived_migration_runs(i_label => 'events-region-backfill');
+SELECT dml_utils.delete_archived_migration_runs();  -- up to 1000 runs
+SELECT dml_utils.delete_archived_migration_runs(
+        i_label => 'events-region-backfill', i_limit => 100);
 ```
+
+A cancelled run whose claimed boundary was never marked (the coordinator died
+between cancelling and marking it) is skipped; recover it with
+`dml_utils_lib.mark_migration_run_cancelled(run_id)` and retry.
 
 ## Requirements
 

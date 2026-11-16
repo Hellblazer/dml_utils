@@ -267,7 +267,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
 
             assertEquals(runId, Routines.cancelMigrationRun(caller.configuration(), label));
             assertEquals(runId, Routines.archiveMigrationRun(caller.configuration(), label));
-            assertTrue(Routines.deleteArchivedMigrationRuns1(caller.configuration()) >= 1,
+            assertTrue(Routines.deleteArchivedMigrationRuns(caller.configuration(), null, 1000) >= 1,
                     "the caller should be able to delete the archived run");
         } finally {
             dsl.execute("DROP FUNCTION IF EXISTS public.caller_mark(bigint)");

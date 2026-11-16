@@ -42,7 +42,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         assertEquals(archivedRun, Routines.archiveMigrationRun(dsl.configuration(), archivedLabel));
         long activeRun = populateRun("maint-all-active", 2, 1, 2);
 
-        long deleted = Routines.deleteArchivedMigrationRuns1(dsl.configuration());
+        long deleted = Routines.deleteArchivedMigrationRuns(dsl.configuration(), null, 1000);
 
         assertEquals(1, deleted, "only the archived run should be deleted");
         assertNull(runRow(archivedLabel), "the archived run should be gone");
@@ -68,8 +68,8 @@ class MigrationMaintenanceTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
 
-        assertEquals(0, Routines.deleteArchivedMigrationRuns2(
-                        dsl.configuration(), "maint-nonterminal"),
+        assertEquals(0, Routines.deleteArchivedMigrationRuns(
+                        dsl.configuration(), "maint-nonterminal", 1000),
                 "a non-terminal archived run must not be deleted");
         assertNotNull(runRow("maint-nonterminal"), "the run remains");
 
@@ -77,9 +77,100 @@ class MigrationMaintenanceTest extends PostgresTestBase {
                 .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
-        assertEquals(1, Routines.deleteArchivedMigrationRuns2(
-                        dsl.configuration(), "maint-nonterminal"),
+        // The direct cancellation above skipped the boundary pass that
+        // cancel_migration_run performs; mark them as the coordinator would, so no
+        // boundary looks like an in-flight one.
+        dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.CANCELLED_AT, OffsetDateTime.now())
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .and(MIGRATION_BOUNDARY.COMPLETED_AT.isNull())
+                .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())
+                .execute();
+        assertEquals(1, Routines.deleteArchivedMigrationRuns(
+                        dsl.configuration(), "maint-nonterminal", 1000),
                 "once terminal, the archived run is deleted");
+    }
+
+    /**
+     * A completed-then-archived run is deleted like a cancelled one; the terminal
+     * filter is not restricted to cancellations.
+     */
+    @Test
+    void deletesACompletedThenArchivedRun() {
+        String label = "maint-completed";
+        long runId = populateRun(label, 2, 1, 2);
+        // Complete the single chunk (boundaries 0 and the terminal 1) and the run.
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
+                dsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L);
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationRun(
+                dsl.configuration(), runId);
+        assertNotNull(dsl.select(MIGRATION_RUN.COMPLETED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT), "the run completed");
+        assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
+
+        assertEquals(1, Routines.deleteArchivedMigrationRuns(
+                dsl.configuration(), label, 1000));
+        assertNull(runRow(label), "the completed archived run is deleted");
+        assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID.eq(runId)),
+                "its boundaries are cascaded");
+    }
+
+    /**
+     * The delete is bounded by i_limit, so a caller can clean up a large backlog in
+     * batches; a loop until it returns 0 removes everything.
+     */
+    @Test
+    void deletesAtMostTheBatchLimitPerCall() {
+        populateRun("maint-batch-a", 2, 1);
+        Routines.archiveMigrationRun(dsl.configuration(), "maint-batch-a");
+        populateRun("maint-batch-b", 2, 2);
+        Routines.archiveMigrationRun(dsl.configuration(), "maint-batch-b");
+
+        assertEquals(1, Routines.deleteArchivedMigrationRuns(dsl.configuration(), null, 1),
+                "the first call deletes one run");
+        assertEquals(1, runCount("maint-batch-a") + runCount("maint-batch-b"),
+                "one archived run remains");
+
+        assertEquals(1, Routines.deleteArchivedMigrationRuns(dsl.configuration(), null, 1),
+                "the second call deletes the other run");
+        assertEquals(0, runCount("maint-batch-a") + runCount("maint-batch-b"));
+        assertEquals(0, Routines.deleteArchivedMigrationRuns(dsl.configuration(), null, 1),
+                "a drained backlog returns 0");
+    }
+
+    /**
+     * A terminal run with a pending boundary is skipped: cancel leaves exactly the
+     * boundaries an in-flight worker had claimed pending, so deleting such a run
+     * could cascade into rows that worker still locks.
+     */
+    @Test
+    void skipsARunWithAnInFlightBoundary() {
+        String label = "maint-in-flight";
+        long runId = populateRun(label, 2, 1, 2);
+        assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
+        assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
+
+        // Simulate the boundary a worker had claimed when the run was cancelled:
+        // cancel marks the unclaimed ones, leaving this one pending.
+        dsl.execute("""
+                INSERT INTO dml_utils_data.migration_boundary (run_id, boundary_no, boundary_id)
+                VALUES (?, 99, ROW(ARRAY[99::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key)
+                """, runId);
+
+        assertEquals(0, Routines.deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),
+                "a pending boundary defers the delete");
+        assertNotNull(runRow(label), "the run is kept");
+
+        // The documented recovery for a stranded run: the metadata helper marks the
+        // pending boundary (and is idempotent for the already-cancelled run).
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
+                .markMigrationRunCancelled(dsl.configuration(), runId);
+
+        assertEquals(1, Routines.deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),
+                "the run is deleted once no boundary is pending");
     }
 
     /**
@@ -100,7 +191,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         long activeB = populateRun("maint-label-b", 2, 7, 8);
         recordError(activeB, 0L, "22012", "keep");
 
-        long deleted = Routines.deleteArchivedMigrationRuns2(dsl.configuration(), "maint-label-a");
+        long deleted = Routines.deleteArchivedMigrationRuns(dsl.configuration(), "maint-label-a", 1000);
 
         assertEquals(2, deleted, "both archived runs for label-a should be deleted");
         assertEquals(0, runCount("maint-label-a"), "label-a's archived runs should be gone");

@@ -682,21 +682,30 @@ claim sees the cancellation and writes none. A cancelled run is
 terminal: archive it with `archive_migration_run` and create a new run to
 resume.
 
-### `dml_utils.delete_archived_migration_runs()` and `dml_utils.delete_archived_migration_runs(i_label)`
+### `dml_utils.delete_archived_migration_runs(i_label, i_limit)`
 
 ```sql
--- delete_archived_migration_runs(): no arguments
--- delete_archived_migration_runs(i_label):
-i_label dml_utils_data.non_null_text
+i_label text DEFAULT NULL
+i_limit dml_utils_data.positive_integer DEFAULT 1000
 RETURNS bigint
 ```
 
-`SECURITY DEFINER`. Deletes terminal (completed or cancelled) archived runs —
-every one, or only those for the label — and returns the number deleted. A
-non-terminal archived run is left in place; `archive_migration_run` cancels
-unfinished runs, so that state is normally unreachable. Deleting a run cascades
-to its `migration_boundary` and `migration_error` rows. The overloads share a
-changeset (`function-dml_utils.delete_archived_migration_runs`).
+`SECURITY DEFINER`. Deletes up to `i_limit` terminal (completed or cancelled)
+archived runs — every label when `i_label` is NULL, otherwise only that label's
+— with their boundaries, errors and leaf manifest, returning the number deleted.
+Call it in a loop until it returns 0 to clean up incrementally: the batch bounds
+the transaction, not one run's cascade. A cancelled run with a pending (neither
+completed nor cancelled) boundary is skipped, because a worker may still be
+winding it down: `cancel_migration_run` marks every unclaimed boundary, so a
+pending one is exactly a boundary a worker had claimed; the coordinator marks it
+once the worker is gone. A completed run has no in-flight worker and is deleted
+regardless. A run row locked by another session is also skipped (`SKIP LOCKED`),
+so a return of 0 also means "every remaining candidate is locked", not only
+"drained"; retry later. If a coordinator died between cancelling and marking a
+claimed boundary, that run is skipped on every call: recover it with
+`dml_utils_lib.mark_migration_run_cancelled(run_id)` (granted to the caller role)
+and retry. A non-terminal archived run is left in place; `archive_migration_run`
+cancels unfinished runs, so that state is normally unreachable.
 
 ### `dml_utils.migration_run_summary(i_label)`
 
