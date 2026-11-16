@@ -35,13 +35,13 @@
         <testcontainers-jooq-codegen.version>0.0.4</testcontainers-jooq-codegen.version>
         <liquibase-validation.version>1.11.0</liquibase-validation.version>
         <flatten.version>1.9.0</flatten.version>
-        <build-helper.version>3.7.0</build-helper.version>
+        <build-helper.version>3.8.0</build-helper.version>
         <maven-jar-plugin.version>3.5.1</maven-jar-plugin.version>
         <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
         <!-- The published ddl_utils release whose changelog the test/codegen
              install path unpacks. Production installs ddl_utils separately. -->
-        <ddl-utils.version>1.4.0</ddl-utils.version>
+        <ddl-utils.version>1.6.0</ddl-utils.version>
         <skip.sqlfluff>false</skip.sqlfluff>
         <sqlfluff.executable>sqlfluff</sqlfluff.executable>
         <skip.liquibase-linter>false</skip.liquibase-linter>
