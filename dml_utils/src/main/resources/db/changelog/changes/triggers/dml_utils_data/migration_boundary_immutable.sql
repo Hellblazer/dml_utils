@@ -5,4 +5,6 @@ CREATE OR REPLACE TRIGGER migration_boundary_immutable
 EXECUTE FUNCTION dml_utils_data.reject_migration_boundary_update();
 
 COMMENT ON TRIGGER migration_boundary_immutable ON dml_utils_data.migration_boundary IS
-    'Rejects updates to the migration_boundary columns fixed when the boundaries are computed.';
+    'Rejects updates to the migration_boundary columns fixed when the boundaries '
+        'are computed or when the chunk completed, including started_at once '
+        'completed_at is set.';

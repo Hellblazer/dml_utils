@@ -39,8 +39,22 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    -- rows_affected is written with completed_at, and only then. A completed
-    -- boundary cannot have its count changed later.
+    -- started_at is written by complete_migration_boundary in the same UPDATE
+    -- that sets completed_at, and migration_boundaries.duration_ms is
+    -- completed_at - started_at. Moving it after completion would silently
+    -- rewrite the duration the run reports, so freeze it with completed_at.
+    IF OLD.completed_at IS NOT NULL
+        AND NEW.started_at IS DISTINCT FROM OLD.started_at
+    THEN
+        RAISE EXCEPTION 'migration_boundary.started_at is immutable once completed'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- The two pairing checks below deliberately duplicate the nullability half of
+    -- the table-level migration_boundary_rows_affected_check. The constraint is
+    -- the only guard on INSERT; on UPDATE it would report a bare 23514, so these
+    -- report the specific cause with 22023 and a message that names the column.
+    -- Keep them in step with the constraint (and with the trigger comment).
     IF NEW.completed_at IS NULL AND NEW.rows_affected IS NOT NULL THEN
         RAISE EXCEPTION 'migration_boundary.rows_affected requires completed_at'
             USING ERRCODE = '22023';
@@ -66,6 +80,7 @@ COMMENT ON FUNCTION dml_utils_data.reject_migration_boundary_update IS
     'BEFORE UPDATE trigger that rejects any change to '
         'migration_boundary.run_id, boundary_no, boundary_id or leaf_ordinal, '
         'and rejects rewriting a migration_boundary.cancelled_at or '
-        'migration_boundary.completed_at that is already set. It also requires '
-        'rows_affected to be set exactly when completed_at is set, and rejects '
-        'changing the count after completion.';
+        'migration_boundary.completed_at that is already set, or its started_at '
+        'once completed_at is set (duration_ms is derived from the pair). It also '
+        'requires rows_affected to be set exactly when completed_at is set, and '
+        'rejects changing the count after completion.';
