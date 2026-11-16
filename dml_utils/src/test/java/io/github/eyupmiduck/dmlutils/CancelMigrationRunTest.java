@@ -7,6 +7,9 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.Migratio
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -158,6 +161,93 @@ class CancelMigrationRunTest extends PostgresTestBase {
                 Routines.migrationRunSummary(dsl.configuration(), label);
         assertEquals(1, summary.size());
         assertNotNull(summary.get(0).getCancelledAt(), "the summary exposes cancelled_at");
+    }
+
+    /**
+     * A boundary claimed by an in-flight worker (locked by its
+     * {@code SELECT ... FOR UPDATE}) is skipped instead of blocking the cancel;
+     * it stays pending for the coordinator to mark after it stops the worker.
+     */
+    @Test
+    void leavesAClaimedBoundaryForTheCoordinator() throws Exception {
+        seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        String label = uniqueLabel("cancel-claimed");
+        Long runId = populate(label);
+        assertNotNull(runId);
+
+        try (Connection holder = openTestConnection()) {
+            holder.setAutoCommit(false);
+            try (Statement claim = holder.createStatement()) {
+                claim.execute("SELECT 1 FROM dml_utils_data.migration_boundary"
+                        + " WHERE run_id = " + runId + " AND boundary_no = 0 FOR UPDATE");
+            }
+
+            assertEquals(runId, Routines.cancelMigrationRun(dsl.configuration(), label),
+                    "the cancel does not wait for the claimed boundary");
+
+            assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                            MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                                    .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                                    .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNotNull())),
+                    "the claimed boundary is left pending");
+            assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                            MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                                    .and(MIGRATION_BOUNDARY.BOUNDARY_NO.ne(0L))
+                                    .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())),
+                    "every unclaimed boundary is marked");
+        }
+
+        // The coordinator's post-cancel pass picks up the boundary the worker held.
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
+                .markMigrationRunCancelled(dsl.configuration(), runId);
+        assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                                .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())),
+                "the coordinator marks the boundary the cancel skipped");
+    }
+
+    /**
+     * A leaf transaction that claimed the run before the cancel commits its
+     * boundaries first: the cancel waits on the run row, then marks them. A
+     * claim that starts later sees {@code cancelled_at} and writes nothing.
+     */
+    @Test
+    void waitsForAnInFlightLeafBeforeMarkingItsBoundaries() throws Exception {
+        seedBigint(1, 2, 3, 4, 5);
+        String label = uniqueLabel("cancel-in-flight");
+        Long runId = populate(label);
+        assertNotNull(runId);
+
+        try (Connection holder = openTestConnection()) {
+            holder.setAutoCommit(false);
+            try (Statement claim = holder.createStatement()) {
+                // What claim_next_migration_leaf does: lock the run row, then write
+                // the leaf's boundaries in the same transaction.
+                claim.execute("SELECT 1 FROM dml_utils_data.migration_run"
+                        + " WHERE run_id = " + runId + " FOR UPDATE");
+                claim.execute("INSERT INTO dml_utils_data.migration_boundary"
+                        + " (run_id, boundary_no, boundary_id)"
+                        + " VALUES (" + runId + ", 999,"
+                        + " ROW(ARRAY[999::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key)");
+            }
+
+            try (Connection caller = openTestConnection();
+                 Statement cancel = caller.createStatement()) {
+                cancel.execute("SET lock_timeout = '1s'");
+                SQLException error = assertThrows(SQLException.class, () -> cancel.execute(
+                        "SELECT dml_utils.cancel_migration_run('" + label + "')"));
+                assertEquals("55P03", error.getSQLState(),
+                        () -> "unexpected error: " + error.getMessage());
+            }
+
+            holder.commit();
+        }
+
+        assertEquals(runId, Routines.cancelMigrationRun(dsl.configuration(), label));
+        assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                                .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())),
+                "the boundary committed by the in-flight leaf is marked");
     }
 
     /**

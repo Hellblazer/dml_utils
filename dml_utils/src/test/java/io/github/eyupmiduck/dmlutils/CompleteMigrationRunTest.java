@@ -116,7 +116,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
     @Test
     void rejectsANullRunId() {
         assertDomainViolation(
-                () -> Routines.completeMigrationRun(dsl.configuration(), (Long) null));
+                () -> Routines.completeMigrationRun(dsl.configuration(), null));
     }
 
     private long populateSingleRelation(int chunkSize) {

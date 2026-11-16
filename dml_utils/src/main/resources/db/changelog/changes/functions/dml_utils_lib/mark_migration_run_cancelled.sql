@@ -7,6 +7,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.mark_migration_run_cancelled(
     SET search_path = pg_catalog
 AS
 $$
+DECLARE
+    l_completed_at timestamptz;
 BEGIN
     -- Lock pending boundaries first, then the run row. This matches the chunk
     -- worker's acquisition order (claim locks the boundary, completion then
@@ -18,19 +20,18 @@ BEGIN
       AND cancelled_at IS NULL
         FOR UPDATE;
 
-    PERFORM 1
-    FROM dml_utils_data.migration_run
-    WHERE run_id = i_run_id
+    -- Lock and read the run in one statement: a separate lock followed by a
+    -- read would let the state change between them under READ COMMITTED.
+    SELECT run.completed_at
+    INTO l_completed_at
+    FROM dml_utils_data.migration_run AS run
+    WHERE run.run_id = i_run_id
         FOR UPDATE;
 
     -- completed_at wins for a chunk that finished before cancellation reached
-    -- it. A completed run is left untouched, so it cannot acquire cancelled
-    -- boundaries after the fact.
-    IF NOT EXISTS (SELECT 1
-                   FROM dml_utils_data.migration_run AS r
-                   WHERE r.run_id = i_run_id
-                     AND r.completed_at IS NULL)
-    THEN
+    -- it. A completed (or vanished) run is left untouched, so it cannot acquire
+    -- cancelled boundaries after the fact.
+    IF NOT FOUND OR l_completed_at IS NOT NULL THEN
         RETURN;
     END IF;
 

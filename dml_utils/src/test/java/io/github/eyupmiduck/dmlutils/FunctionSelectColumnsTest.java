@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -56,8 +57,7 @@ class FunctionSelectColumnsTest {
         for (String statement : List.of(
                 "SELECT count(*) FROM t",
                 "SELECT id, payload FROM t")) {
-            assertTrue(!SELECT_STAR.matcher(statement).find(),
-                    "should not detect a star select in: " + statement);
+            assertFalse(SELECT_STAR.matcher(statement).find(), "should not detect a star select in: " + statement);
         }
     }
 }

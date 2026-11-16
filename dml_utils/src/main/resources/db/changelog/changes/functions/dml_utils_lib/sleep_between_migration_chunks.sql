@@ -28,6 +28,11 @@ BEGIN
             INTO l_cancelled_at, l_paused_at
             FROM dml_utils_data.migration_run AS run
             WHERE run.run_id = i_run_id;
+
+            -- The run row can be deleted (an archived terminal run) while the
+            -- sleep is in progress. Stop rather than looping on the previous
+            -- iteration's values; a missing row has nothing left to wait for.
+            EXIT WHEN NOT FOUND;
             EXIT WHEN l_cancelled_at IS NOT NULL OR l_paused_at IS NOT NULL;
         END LOOP;
 
@@ -41,4 +46,6 @@ COMMENT ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
     ) IS
     'Sleeps the run''s per-chunk delay in 100ms slices and returns the run''s '
         'cancelled_at if cancellation was noticed. A pause also interrupts the '
-        'sleep; the caller re-reads the run state to see paused_at.';
+        'sleep; the caller re-reads the run state to see paused_at. A run row that '
+        'disappears during the sleep ends it, so the caller stops instead of '
+        'looping over a vanished run.';

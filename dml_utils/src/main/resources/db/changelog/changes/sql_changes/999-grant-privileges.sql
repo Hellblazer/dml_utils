@@ -412,6 +412,12 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_no_active_run_for_label(
 GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_no_active_run_for_label(
     dml_utils_data.non_null_text
     ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_threads_within_max_worker_processes(
+    dml_utils_data.positive_integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_threads_within_max_worker_processes(
+    dml_utils_data.positive_integer
+    ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_migration_boundaries(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,

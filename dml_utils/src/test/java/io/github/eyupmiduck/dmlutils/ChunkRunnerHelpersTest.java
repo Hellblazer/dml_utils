@@ -191,6 +191,32 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         assertNotNull(Routines.sleepBetweenMigrationChunks(dsl.configuration(), runId, 10));
     }
 
+    /**
+     * A run row deleted through the supported path (archive, then delete the
+     * archived terminal run) ends the sleep at the next slice instead of making
+     * it loop on a vanished run.
+     */
+    @Test
+    void sleepEndsWhenTheRunRowDisappears() {
+        seedBigint(1, 2);
+        String label = uniqueLabel("sleep-deleted");
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), label,
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                .archiveMigrationRun(dsl.configuration(), label);
+        assertEquals(1, io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .deleteArchivedMigrationRuns2(dsl.configuration(), label),
+                "the archived terminal run is deleted");
+
+        long startedAt = System.nanoTime();
+        assertNull(Routines.sleepBetweenMigrationChunks(dsl.configuration(), runId, 10_000));
+
+        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000;
+        assertTrue(elapsedMillis < 2_000,
+                () -> "the sleep should stop at the first slice, took " + elapsedMillis + "ms");
+    }
+
     private NextMigrationChunk next(long runId, boolean partitionWise, Long[] inFlight) {
         return Routines.nextMigrationChunk(dsl.configuration(), runId, partitionWise,
                 new String[]{"bigint"}, inFlight, schema(TEST_BIGINT), name(TEST_BIGINT));

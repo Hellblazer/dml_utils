@@ -44,6 +44,7 @@ DECLARE
     l_run       dml_utils_data.migration_run%ROWTYPE;
     l_effective record;
     l_key       record;
+    l_run_found boolean;
 BEGIN
     -- A NULL strategy would fall through the resume/create branches and behave
     -- like primary_key; the column is NOT NULL, so it can only come from a direct
@@ -87,7 +88,12 @@ BEGIN
     INTO l_run
     FROM dml_utils_lib.find_active_migration_run(i_label => i_label);
 
-    IF FOUND AND l_run.completed_at IS NOT NULL THEN
+    -- Keep the lookup outcome: later statements (the thread-ceiling check, the
+    -- resume SELECT) reset FOUND, and every branch below depends on whether the
+    -- run already existed.
+    l_run_found := FOUND;
+
+    IF l_run_found AND l_run.completed_at IS NOT NULL THEN
         RAISE NOTICE 'run for label % already completed at %', i_label, l_run.completed_at;
         o_run_id := l_run.run_id;
         o_already_completed := true;
@@ -97,24 +103,21 @@ BEGIN
     -- A run that is not already complete is resumed or created below.
     o_already_completed := false;
 
-    -- The stored thread count wins for a resumed run. Each chunk is one
-    -- background worker; max_worker_processes is a cluster-wide ceiling, not the
-    -- free capacity for this call (other workers may hold slots), so this is a
-    -- cheap early sanity check, not a capacity guarantee. A launch that still
-    -- fails partway leaves the launched chunks committed and the run resumable,
-    -- which the caller retries.
-    o_effective_threads := CASE WHEN FOUND THEN l_run.threads::integer ELSE i_threads::integer END;
-    o_effective_sleep_ms := CASE WHEN FOUND THEN l_run.sleep_ms::integer ELSE i_sleep_ms::integer END;
-    o_effective_max_retries := CASE WHEN FOUND THEN l_run.max_retries::integer ELSE i_max_retries::integer END;
+    -- A background worker per chunk: max_worker_processes is a cluster-wide
+    -- ceiling, not the free capacity for this call (other workers may hold slots),
+    -- so this is a cheap early sanity check, not a capacity guarantee. A launch
+    -- that still fails partway leaves the launched chunks committed and the run
+    -- resumable, which the caller retries. The setter uses the same check, so a
+    -- stored count cannot be one this call would reject.
+    o_effective_threads := CASE WHEN l_run_found THEN l_run.threads::integer ELSE i_threads::integer END;
+    o_effective_sleep_ms := CASE WHEN l_run_found THEN l_run.sleep_ms::integer ELSE i_sleep_ms::integer END;
+    o_effective_max_retries := CASE WHEN l_run_found THEN l_run.max_retries::integer ELSE i_max_retries::integer END;
     o_effective_retry_backoff_ms :=
-            CASE WHEN FOUND THEN l_run.retry_backoff_ms::integer ELSE i_retry_backoff_ms::integer END;
-    IF o_effective_threads > pg_catalog.current_setting('max_worker_processes')::integer THEN
-        RAISE EXCEPTION 'threads (%) exceeds max_worker_processes (%)',
-            o_effective_threads, pg_catalog.current_setting('max_worker_processes')
-            USING ERRCODE = '22023';
-    END IF;
+            CASE WHEN l_run_found THEN l_run.retry_backoff_ms::integer ELSE i_retry_backoff_ms::integer END;
+    PERFORM dml_utils_lib.assert_threads_within_max_worker_processes(
+            i_threads => o_effective_threads::dml_utils_data.positive_integer);
 
-    IF FOUND THEN
+    IF l_run_found THEN
         SELECT effective.o_effective_sql_text,
                effective.o_effective_schema_name,
                effective.o_effective_table_name,

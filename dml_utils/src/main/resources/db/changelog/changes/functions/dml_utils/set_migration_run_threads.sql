@@ -9,6 +9,13 @@ CREATE OR REPLACE FUNCTION dml_utils.set_migration_run_threads(
 AS
 $$
 BEGIN
+    -- max_worker_processes is the cluster-wide ceiling every run_migration_chunks
+    -- call checks (resolve_migration_run). Reject a value the next call could
+    -- never use here, instead of accepting it and failing the run later. Both go
+    -- through one helper so the two checks cannot drift.
+    PERFORM dml_utils_lib.assert_threads_within_max_worker_processes(
+            i_threads => i_threads);
+
     -- Only an unfinished run can have its thread count adjusted: a completed
     -- run's chunks are already processed.
     --
@@ -33,6 +40,7 @@ $$;
 
 COMMENT ON FUNCTION dml_utils.set_migration_run_threads IS
     'Replaces the recorded threads of the unfinished run for the label, so the '
-        'next run_migration_chunks call uses the adjusted worker count. A '
-        'coordinator already processing the run keeps the count it read at its '
-        'start, so adjust between runs.';
+        'next run_migration_chunks call uses the adjusted worker count. A count '
+        'above max_worker_processes is rejected with 22023, as run_migration_chunks '
+        'would reject it. A coordinator already processing the run keeps the count '
+        'it read at its start, so adjust between runs.';

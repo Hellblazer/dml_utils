@@ -651,6 +651,81 @@ class RunMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
+     * {@code set_migration_run_threads} rejects a count above
+     * {@code max_worker_processes} with {@code 22023} at set time and leaves the
+     * recorded count unchanged.
+     */
+    @Test
+    void setMigrationRunThreadsRejectsMoreThanMaxWorkerProcesses() {
+        createSource(1, 2, 3, 4);
+        String label = label("threads-over-max");
+        long runId = populate(TEST_BIGINT, label, TEMPLATE, 2, 2);
+        int max = dsl.fetchOne("SELECT current_setting('max_worker_processes')::integer")
+                .get(0, Integer.class);
+
+        assertSqlState("22023", () -> Routines.setMigrationRunThreads(
+                dsl.configuration(), label, max + 1));
+
+        assertEquals(2, dsl.select(MIGRATION_RUN.THREADS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.THREADS),
+                "the rejected value is not stored");
+
+        // The ceiling itself is legal: the guard is >, not >=.
+        Routines.setMigrationRunThreads(dsl.configuration(), label, max);
+        assertEquals(max, dsl.select(MIGRATION_RUN.THREADS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.THREADS),
+                "max_worker_processes itself is accepted and stored");
+    }
+
+    /**
+     * {@code set_migration_run_sql_text} rejects a completed, cancelled or
+     * archived run with {@code P0002} and leaves the stored SQL unchanged.
+     */
+    @Test
+    void setMigrationRunSqlTextRejectsTerminalRuns() {
+        createSource(1, 2, 3, 4);
+        String adjusted =
+                "UPDATE <driving_table> SET payload = 'adjusted' WHERE <chunking_clause>";
+
+        String completed = label("set-sql-completed");
+        long completedRun = populate(TEST_BIGINT, completed, TEMPLATE, 2);
+        dsl.execute("UPDATE dml_utils_data.migration_run"
+                        + " SET completed_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
+                completedRun);
+
+        String cancelled = label("set-sql-cancelled");
+        long cancelledRun = populate(TEST_BIGINT, cancelled, TEMPLATE, 2);
+        Routines.cancelMigrationRun(dsl.configuration(), cancelled);
+
+        String archived = label("set-sql-archived");
+        long archivedRun = populate(TEST_BIGINT, archived, TEMPLATE, 2);
+        // Archive without cancelling: archive_migration_run would cancel first, so
+        // completed_at/cancelled_at would reject the update and the archived_at
+        // guard would never be exercised.
+        dsl.execute("UPDATE dml_utils_data.migration_run"
+                        + " SET archived_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
+                archivedRun);
+
+        for (long runId : List.of(completedRun, cancelledRun, archivedRun)) {
+            String terminalLabel = dsl.select(MIGRATION_RUN.LABEL)
+                    .from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                    .fetchOne(MIGRATION_RUN.LABEL);
+            assertSqlState("P0002", () -> Routines.setMigrationRunSqlText(
+                    dsl.configuration(), terminalLabel, adjusted));
+            assertEquals(TEMPLATE, dsl.select(MIGRATION_RUN.SQL_TEXT)
+                            .from(MIGRATION_RUN)
+                            .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                            .fetchOne(MIGRATION_RUN.SQL_TEXT),
+                    "a rejected terminal run keeps its SQL");
+        }
+    }
+
+    /**
      * A null SQL text is rejected by the non-null text domain.
      */
     @Test
