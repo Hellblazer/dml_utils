@@ -12,6 +12,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 BEGIN

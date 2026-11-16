@@ -454,9 +454,14 @@ run. The function's argument types must equal the primary-key column types in ke
 order and it must return `void`; a missing function, a non-`void` return, or
 mismatched argument types raise `invalid_parameter_value` (`22023`) before any
 run is created. When `i_label` is NULL a deterministic label is derived from the
-driving table, function, filter and chunking strategy, so re-running the same
-call resumes the same run and calls that differ only in those derive different
-runs. A non-NULL `i_filter` is ANDed onto every chunk's range predicate (referencing the driving table through the fixed
+driving table, function, filter, chunking strategy, ordered-key index and
+partition flag, so re-running the same call resumes the same run and calls that
+differ only in those derive different runs. The strategy is rendered as its bare
+text label (not the enum value), so the derived label is identical from any
+session; `search_path` is not pinned here because the routine forwards the
+caller's session to `run_migration_chunks`, whose `pg_background` calls rely on
+their own unqualified type names. A non-NULL `i_filter` is ANDed onto every chunk's range predicate (referencing the
+driving table through the fixed
 alias `t`), so only the rows it
 matches are passed to the function; a filter that contains `<driving_table>` or
 `<chunking_clause>` is rejected when the template is validated. `i_chunk_by`

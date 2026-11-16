@@ -10,6 +10,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.render_block_chunk_sql(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE
