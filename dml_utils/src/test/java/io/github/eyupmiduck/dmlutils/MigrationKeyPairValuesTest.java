@@ -33,6 +33,33 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     }
 
     /**
+     * Both boundaries are validated like i_key_kinds: a non-1-based,
+     * multidimensional or short present array raises {@code 22023} instead of
+     * yielding the wrong element or a NULL.
+     */
+    @Test
+    void rejectsMalformedValueArrays() {
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW('[0:1]={1,2}'::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW(ARRAY[1, 2]::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW('[1:1][1:1]={{1}}'::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
+    }
+
+    /**
      * A two-column, mixed-kind key keeps each bound's values at their key
      * positions.
      */

@@ -20,6 +20,14 @@ $$
 DECLARE
     l_parent_index oid;
 BEGIN
+    -- The strategy is a plain enum (no domain, for the jOOQ initialisation
+    -- cycle), so a NULL would make both IF/ELSIF predicates NULL and fall
+    -- through to the primary-key branch below.
+    IF i_chunk_by IS NULL THEN
+        RAISE EXCEPTION 'i_chunk_by must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- A range run reads its key columns and kinds from the primary key or the
     -- named ordered-key index. A non-partition-wise block run instead records the
     -- driving table's physical filepath so a resume can detect a heap rewrite,
@@ -57,18 +65,24 @@ BEGIN
                          i_table_name => i_table_name,
                          i_index_name => i_boundary_key_index) AS a;
         ELSE
-            PERFORM dml_utils_lib.assert_usable_ordered_key(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
-            o_key_columns := dml_utils_lib.ordered_key_columns(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
-            o_key_kinds := dml_utils_lib.ordered_key_kinds(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
+            -- One traversal validates the index and yields both arrays; the
+            -- helper's table checks and shape checks run once, not three times.
+            SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                   pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+            INTO o_key_columns, o_key_kinds
+            FROM dml_utils_lib.ordered_key_attributes(
+                         i_schema_name => i_schema_name,
+                         i_table_name => i_table_name,
+                         i_index_name => i_boundary_key_index) AS a;
+
+            -- array_agg over no rows yields one NULL row, not an empty array, so
+            -- keep the fail-closed gate the assert gate provided: never build an
+            -- ordered run with a NULL descriptor.
+            IF o_key_columns IS NULL OR o_key_kinds IS NULL THEN
+                RAISE EXCEPTION 'index %.% has no usable ordered-key attributes',
+                    i_schema_name, i_boundary_key_index
+                    USING ERRCODE = '55000';
+            END IF;
         END IF;
     ELSE
         o_key_columns := dml_utils_lib.primary_key_columns(
@@ -100,4 +114,5 @@ COMMENT ON FUNCTION dml_utils_lib.resolve_migration_creation_key(
         'for primary_key, the ordered descriptor for ordered_key (validating the '
         'parent index for a partition-wise run) and the relation filepath for a '
         'single-relation blocks run. Partition-wise blocks leaves the run-level '
-        'filepath NULL.';
+        'filepath NULL. Raises 22023 for a NULL strategy; ordered-key validation '
+        'raises 42704/0A000/55000/22023 from ordered_key_attributes.';

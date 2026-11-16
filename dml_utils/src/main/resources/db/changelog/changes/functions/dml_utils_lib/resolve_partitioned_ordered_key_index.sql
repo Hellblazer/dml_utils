@@ -60,5 +60,9 @@ COMMENT ON FUNCTION dml_utils_lib.resolve_partitioned_ordered_key_index(
     ) IS
     'Resolves the named unique index on a declarative partitioned parent, checks '
         'the parent relkind and validates the parent index shape, returning its '
-        'OID for the leaf walk. A missing index is 42704, a non-partitioned parent '
-        'is 0A000 and an unusable parent index is 0A000/55000.';
+        'OID for the leaf walk. Raises invalid_schema_name (3F000) for a missing '
+        'schema, undefined_table (42P01) or wrong_object_type (42809) for the '
+        'parent relation, 42704 when the named index does not exist on the '
+        'table, 0A000 when the parent is not a partitioned table, and '
+        '0A000/22023/55000 from the parent index validator (non-btree, '
+        'non-unique, unsupported key type, invalid or ON ONLY index).';

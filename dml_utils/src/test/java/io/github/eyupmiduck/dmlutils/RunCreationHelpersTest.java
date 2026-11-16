@@ -87,6 +87,17 @@ class RunCreationHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * A NULL strategy is rejected instead of falling through to the primary-key
+     * branch: the plain enum has no domain, so the body must guard it.
+     */
+    @Test
+    void rejectsANullStrategy() {
+        assertSqlState("22023", () -> Routines.resolveMigrationCreationKey(
+                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT),
+                null, null, false));
+    }
+
+    /**
      * A partition-wise blocks run leaves the run-level filepath NULL, while a
      * partition-wise ordered run records the parent descriptor.
      */

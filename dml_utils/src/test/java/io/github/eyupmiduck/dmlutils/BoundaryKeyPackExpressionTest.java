@@ -1,9 +1,12 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies {@code dml_utils_lib.boundary_key_pack_expression}: each key kind is
@@ -72,6 +75,19 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
         assertSqlState("22023", () -> pack(new String[]{null}));
         assertSqlState("22023", () -> pack(new String[]{"integer"}));
         assertSqlState("22023", () -> pack(new String[]{"BIGINT"}));
+    }
+
+    /**
+     * A NULL kind names the NULL explicitly instead of rendering an empty kind in
+     * the error message.
+     */
+    @Test
+    void namesANullKindInTheError() {
+        DataAccessException error = assertThrows(DataAccessException.class,
+                () -> pack(new String[]{null}));
+
+        assertTrue(error.getMessage().contains("must not be NULL"),
+                () -> "unexpected message: " + error.getMessage());
     }
 
     /**

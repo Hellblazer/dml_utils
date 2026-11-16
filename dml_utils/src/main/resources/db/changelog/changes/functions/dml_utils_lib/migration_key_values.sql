@@ -30,14 +30,47 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- The value arrays are indexed with l_position exactly like i_key_kinds, so
+    -- a present array must have the same one-dimensional, 1-based shape and the
+    -- same arity. A short or reshaped array would otherwise yield a NULL (and
+    -- shift the rendered predicate) instead of failing.
+    IF ((i_key).bigint_values IS NOT NULL
+        AND (pg_catalog.array_ndims((i_key).bigint_values) IS DISTINCT FROM 1
+            OR pg_catalog.array_lower((i_key).bigint_values, 1) IS DISTINCT FROM 1
+            OR pg_catalog.cardinality((i_key).bigint_values)
+            <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_key).text_values IS NOT NULL
+        AND (pg_catalog.array_ndims((i_key).text_values) IS DISTINCT FROM 1
+            OR pg_catalog.array_lower((i_key).text_values, 1) IS DISTINCT FROM 1
+            OR pg_catalog.cardinality((i_key).text_values)
+            <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_key).uuid_values IS NOT NULL
+        AND (pg_catalog.array_ndims((i_key).uuid_values) IS DISTINCT FROM 1
+            OR pg_catalog.array_lower((i_key).uuid_values, 1) IS DISTINCT FROM 1
+            OR pg_catalog.cardinality((i_key).uuid_values)
+            <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_key).timestamptz_values IS NOT NULL
+        AND (pg_catalog.array_ndims((i_key).timestamptz_values) IS DISTINCT FROM 1
+            OR pg_catalog.array_lower((i_key).timestamptz_values, 1) IS DISTINCT FROM 1
+            OR pg_catalog.cardinality((i_key).timestamptz_values)
+            <> pg_catalog.cardinality(i_key_kinds)))
+    THEN
+        RAISE EXCEPTION 'migration key arrays must be one-dimensional, 1-based and match the key kinds'
+            USING ERRCODE = '22023';
+    END IF;
+
     FOR l_position IN 1..pg_catalog.cardinality(i_key_kinds)
         LOOP
             l_kind := i_key_kinds[l_position];
 
             -- A NULL kind would make every comparison below NULL (not true) and
             -- fall through to the ELSE branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
+            IF l_kind IS NULL THEN
+                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
+                    USING ERRCODE = '22023';
+            END IF;
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+                RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
@@ -63,4 +96,4 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.migration_key_values IS
     'Flattens a position-aligned migration_key into one text value per '
         'primary-key column, in key order, using the key kinds from '
-        'primary_key_kinds.';
+        'primary_key_kinds. Raises 22023 for a malformed kinds or value array.';

@@ -1076,9 +1076,12 @@ RETURNS void
 leaf already snapshotted in a partition-wise run's manifest, walking the
 multi-level index inheritance tree once. Because it uses the manifest rather
 than a fresh enumeration, a leaf attached between the descriptor read and the
-manifest insert cannot be stored without its child index being validated. Raises
-`42704` for a missing parent index, `0A000` for a leaf without a matching child
-index, and `0A000`/`55000` for an unusable child index.
+manifest insert cannot be stored without its child index being validated. The
+resolved parent index is validated before the leaf walk, so an ON ONLY/invalid
+parent (or an empty manifest) fails with the parent-level `0A000`/`55000` rather
+than a misleading missing-child error. Raises `42704` for a missing parent index,
+`0A000` for a leaf without a matching child index, and `0A000`/`55000` for an
+unusable parent or child index.
 
 ### `dml_utils_lib.assert_boundary_key_index(i_chunk_by, i_boundary_key_index)`
 
@@ -1118,7 +1121,8 @@ RETURNS text[]
 into one text value per key column, in key order, using `i_key_kinds` to
 pick the array for each position. The chunk predicate re-casts each value. It is
 `STABLE` rather than `IMMUTABLE` because `timestamptz::text` depends on the
-session time zone.
+session time zone. Raises `22023` for a malformed `i_key_kinds` and for a present
+value array that is not one-dimensional, 1-based and the same arity.
 
 ### `dml_utils_lib.migration_key_pair_values(i_start_key, i_end_key, i_key_kinds)`
 
@@ -1135,7 +1139,8 @@ column for each, in key order. It is the two-key form of
 `migration_key_values`, so the coordinator extracts both bounds with a single
 call per chunk instead of two. It is `STABLE` for the same
 `timestamptz::text` session-time-zone reason. Rejects malformed kinds or an
-unsupported kind with `22023`.
+unsupported kind with `22023`, and any present value array (in either key) that
+is not one-dimensional, 1-based and the same arity.
 
 ###
 
@@ -1988,8 +1993,10 @@ RETURNS oid
 
 `STABLE`, `SECURITY INVOKER`. Resolves the named unique index on a declarative
 partitioned parent, checks the parent relkind and validates the parent index
-shape, returning its OID for the leaf walk. Missing index `42704`,
-non-partitioned parent `0A000`, unusable parent `0A000`/`55000`.
+shape, returning its OID for the leaf walk. Raises `3F000` for a missing schema,
+`42P01`/`42809` for the parent relation, `42704` for a missing index, `0A000` for
+a non-partitioned parent, and `0A000`/`22023`/`55000` from the parent index
+validator (non-btree, non-unique, unsupported key type, invalid or ON ONLY).
 
 ### `dml_utils_lib.assert_partitioned_ordered_key_child_indexes(i_index_oid, i_schema_name, i_table_name, i_index_name)`
 

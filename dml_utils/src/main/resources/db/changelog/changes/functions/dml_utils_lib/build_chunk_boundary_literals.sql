@@ -80,8 +80,12 @@ BEGIN
 
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL, not
             -- true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
+            IF l_kind IS NULL THEN
+                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
+                    USING ERRCODE = '22023';
+            END IF;
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+                RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
