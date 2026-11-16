@@ -4,6 +4,9 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static org.junit.jupiter.api.Assertions.fail;
+
 /**
  * Shared call helpers for the tests of {@code dml_utils.run_migration_chunks_committing}.
  *
@@ -133,5 +136,52 @@ abstract class CommittingRunTestBase extends PostgresTestBase {
         try (Statement statement = connection.createStatement()) {
             statement.execute("SELECT dml_utils.run_migration_chunks(" + call.arguments() + ")");
         }
+    }
+
+    /**
+     * Returns the backend pid of a connection, so a test can terminate it.
+     */
+    protected static int backendPid(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+            rows.next();
+            return rows.getInt(1);
+        }
+    }
+
+    /**
+     * Waits until the run for the label has completed at least the given number of
+     * chunks.
+     */
+    protected void awaitCompletedChunks(String label, long chunks) throws InterruptedException {
+        for (int attempt = 0; attempt < 600; attempt++) {
+            Long completed = dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED).from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.LABEL.eq(label)).fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+            if (completed != null && completed >= chunks) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        fail("the run did not complete " + chunks + " chunks");
+    }
+
+    /**
+     * Waits until no chunk worker is left running, so a resumed run starts from
+     * committed state.
+     */
+    protected void awaitNoChunkWorkers() throws InterruptedException {
+        for (int attempt = 0; attempt < 600; attempt++) {
+            Integer running = dsl.fetchOne(
+                            "SELECT count(*)::int FROM pg_catalog.pg_stat_activity"
+                                    + " WHERE pid <> pg_backend_pid()"
+                                    + " AND query LIKE '%dml_utils_lib.process_migration_chunk%'"
+                                    + " AND state <> 'idle'")
+                    .get(0, Integer.class);
+            if (running != null && running == 0) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        fail("a chunk worker is still running");
     }
 }

@@ -206,11 +206,26 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
     }
 
     /**
-     * A key of more than three columns raises {@code 22023}.
+     * A key of more than four columns raises {@code 22023}.
      */
     @Test
-    void rejectsMoreThanThreeKeyColumns() {
-        assertRejected("22023", "test_ordered_key_four_idx");
+    void rejectsMoreThanFourKeyColumns() {
+        assertRejected("22023", "test_ordered_key_five_idx");
+    }
+
+    /**
+     * A four-column unique index, the supported maximum, resolves in index order
+     * with each column's collapsed kind.
+     */
+    @Test
+    void resolvesAFourColumnKey() {
+        List<OrderedKeyAttributesRecord> rows = attributes("test_ordered_key_four_idx");
+
+        assertEquals(4, rows.size());
+        assertAttribute(rows.get(0), 1, "created_at", "timestamptz");
+        assertAttribute(rows.get(1), 2, "id", "bigint");
+        assertAttribute(rows.get(2), 3, "external_id", "uuid");
+        assertAttribute(rows.get(3), 4, "label", "text");
     }
 
     /**

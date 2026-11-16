@@ -77,8 +77,31 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A four-column key, the supported maximum and the nexus chunks shape (text,
+     * text, bytea, text), keeps each kind in its position of the pack arrays,
+     * with the bytea column third.
+     */
+    @Test
+    void describesAFourColumnChunksKey() {
+        BoundaryKeyDescriptorSqlRecord row = describe(
+                new String[]{"tenant_id", "collection", "chash", "embedding_model"},
+                new String[]{"text", "text", "bytea", "text"});
+
+        assertEquals("tenant_id AS id1, collection AS id2, chash AS id3, embedding_model AS id4",
+                row.getOSelectList());
+        assertEquals("id1, id2, id3, id4", row.getOIdList());
+        assertEquals("tenant_id, collection, chash, embedding_model", row.getOOrderBy());
+        assertEquals("id1 DESC, id2 DESC, id3 DESC, id4 DESC", row.getOOrderByDesc());
+        assertEquals("ROW(NULL::bigint[],"
+                + " ARRAY[id1::text, id2::text, NULL, id4::text]::text[],"
+                + " NULL::uuid[], NULL::timestamptz[],"
+                + " ARRAY[NULL, NULL, id3::bytea, NULL]::bytea[])::dml_utils_data.migration_key",
+                row.getOPackExpression());
+    }
+
+    /**
      * A missing or empty column or kind array, a length mismatch and a key of
-     * more than three columns are rejected.
+     * more than four columns are rejected.
      */
     @Test
     void rejectsMissingEmptyMismatchedAndOversizedArrays() {
@@ -90,8 +113,8 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
         assertSqlState("22023", () -> describe(new String[]{"k1"},
                 new String[]{"bigint", "bigint"}));
         assertSqlState("22023", () -> describe(
-                new String[]{"k1", "k2", "k3", "k4"},
-                new String[]{"bigint", "bigint", "bigint", "bigint"}));
+                new String[]{"k1", "k2", "k3", "k4", "k5"},
+                new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"}));
         // A repeated column would render a non-unique boundary key.
         assertSqlState("22023", () -> describe(
                 new String[]{"k1", "k1"}, new String[]{"bigint", "bigint"}));

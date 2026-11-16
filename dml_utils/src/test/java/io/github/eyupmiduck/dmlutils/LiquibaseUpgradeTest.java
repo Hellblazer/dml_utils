@@ -124,6 +124,8 @@ class LiquibaseUpgradeTest extends UpgradeContract {
                 "the upgraded ordered-key shape check is validated");
         assertTrue(check.get("definition", String.class).contains("'bytea'::text"),
                 "the upgraded ordered-key shape check admits bytea");
+        assertTrue(check.get("definition", String.class).contains("<= 4"),
+                "the upgraded ordered-key shape check admits four columns");
         assertEquals(5, upgradeDsl().fetchOne(
                         "SELECT count(*) FROM pg_catalog.pg_attribute"
                                 + " WHERE attrelid = (SELECT typrelid FROM pg_catalog.pg_type"

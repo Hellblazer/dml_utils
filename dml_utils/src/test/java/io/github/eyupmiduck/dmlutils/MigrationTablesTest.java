@@ -774,8 +774,49 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * The ordered-key shape check is validated (changeset 010 validates the check
-     * that 009 adds NOT VALID, so a deleted 010 leaves it unvalidated) and its
+     * A four-column boundary key is canonical in every position, with the bytea
+     * column third as in the nexus chunks key, and a fourth array that disagrees
+     * with the arity or a fourth position held by two arrays is rejected.
+     */
+    @Test
+    void acceptsAFourColumnBoundaryKey() {
+        Long runId = insertRun();
+
+        dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 0L, new MigrationKeyRecord(
+                        null, new String[]{"t", "c", null, "m"}, null, null,
+                        new byte[][]{null, null, new byte[]{0x00, (byte) 0xff}, null}))
+                .values(runId, 1L, new MigrationKeyRecord(
+                        new Long[]{1L, null, null, 4L}, new String[]{null, "b", null, null},
+                        null, null, new byte[][]{null, null, new byte[]{0x01}, null}))
+                .execute();
+
+        MigrationKeyRecord key = dsl.select(MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .from(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(1L)))
+                .fetchOne(MIGRATION_BOUNDARY.BOUNDARY_ID);
+        assertEquals(4L, key.getBigintValues()[3]);
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 2L, new MigrationKeyRecord(
+                        new Long[]{1L, null, null, 4L}, new String[]{null, "b", null, "m"},
+                        null, null, new byte[][]{null, null, new byte[]{0x01}, null}))
+                .execute());
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 3L, new MigrationKeyRecord(
+                        new Long[]{1L, 2L, 3L, 4L}, null, null, null, new byte[][]{new byte[]{1}}))
+                .execute());
+    }
+
+    /**
+     * The ordered-key shape check is validated (changeset 012 validates the check
+     * that 011 adds NOT VALID, so a deleted 012 leaves it unvalidated) and its
      * stored definition lists every supported kind, bytea included.
      */
     @Test
@@ -787,10 +828,44 @@ class MigrationTablesTest extends PostgresTestBase {
 
         assertTrue(check.get("convalidated", Boolean.class), "the shape check is validated");
         String definition = check.get("definition", String.class);
+        assertTrue(definition.contains("<= 4"), "the shape check allows four columns: " + definition);
         for (String kind : List.of("bigint", "text", "uuid", "timestamptz", "bytea")) {
             assertTrue(definition.contains("'" + kind + "'::text"),
                     "the shape check admits " + kind + ": " + definition);
         }
+    }
+
+    /**
+     * The ordered-key shape check admits up to four key columns and rejects five
+     * or none, so an ordered-key run over the nexus chunks key can be recorded.
+     */
+    @Test
+    void allowsAnOrderedKeyOfFourColumnsButNotFive() {
+        dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-four", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key",
+                        new String[]{"embedding_model", "tenant_id", "collection", "chash"},
+                        new String[]{"text", "text", "text", "bytea"})
+                .execute();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-five", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key",
+                        new String[]{"a", "b", "c", "d", "e"},
+                        new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"})
+                .execute());
     }
 
     /**
@@ -889,7 +964,7 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * The boundary key check rejects a key of more than three columns (the
+     * The boundary key check rejects a key of more than four columns (the
      * arity cap) and a present-but-all-NULL array, which only the non-emptiness
      * guard rejects.
      */
@@ -900,7 +975,7 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L, 3L, 4L}, null, null, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L, 2L, 3L, 4L, 5L}, null, null, null, null))
                 .execute());
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
