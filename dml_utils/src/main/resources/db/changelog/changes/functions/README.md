@@ -1193,7 +1193,19 @@ ignoring differing inputs with a notice), whether the run is partition-wise, and
 the effective transient-retry policy (the caller's values for a new run; the
 stored values on resume), plus the boundary key columns and kinds (the stored ordered-key descriptor for `ordered_key`,
 the real primary key for
-`primary_key`, or a single `bigint` block number for `blocks`). For a new
+`primary_key`, or a single `bigint` block number for `blocks`). The lookup
+outcome is materialized in one flag before any other statement, and the whole
+`migration_run` row is read, so a later statement cannot flip the
+resume-vs-create branch. When two sessions resolve the same new label, the
+loser adopts the winner's run instead of surfacing the raw `23505`: a
+`unique_violation` from either create-time source (the label index insert or the
+worker's pre-insert active-run assert) is retried as a lookup, and if no winner
+is visible the original error is re-raised rather than masked. If the adopted run
+is already complete it reports the completed no-op. Creation commits in an
+autonomous worker, so the routine requires `READ COMMITTED` (the default) to
+observe the created or adopted row. On the already-completed path only
+`o_run_id` and `o_already_completed` are set; the other outputs are NULL because
+the caller stops on that flag. For a new
 partition-wise run the worker only creates the run and its pending leaf manifest;
 `run_migration_chunks` then calculates the leaves and finalizes. A resumed run
 keeps its stored `partition_wise` flag, ignoring a differing input with a notice.
@@ -2136,8 +2148,13 @@ RETURNS text
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the statement that appends one claimed
-leaf's chunk starts, using the blocks builder or the run's stored key descriptor.
-`calculate_migration_leaf` executes it.
+leaf's chunk starts, dispatching on the run's stored `chunk_by` (the same
+strategy that drives the key descriptor) and using the blocks builder or the
+stored key descriptor. Raises `invalid_parameter_value` (`22023`) when
+`i_chunk_by` is NULL or differs from the stored strategy, or when `i_chunk_size`
+differs from the stored size (a dual source of truth would render a statement
+for a strategy or stride the run does not use), and `no_data_found` (`P0002`)
+when the run does not exist. `calculate_migration_leaf` executes it.
 
 ### `dml_utils_lib.calculate_next_leaf_in_worker(i_run_id)`
 
@@ -2274,7 +2291,8 @@ RETURNS SETOF dml_utils_data.migration_run
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the active (not archived) run for a label,
-or no row.
+or no row, as the `migration_run` composite itself (a whole-row reference, not a
+copied column list), so the projection cannot drift from the table.
 
 ###
 

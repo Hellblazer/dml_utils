@@ -41,10 +41,11 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.resolve_migration_run(
 AS
 $$
 DECLARE
-    l_run       dml_utils_data.migration_run%ROWTYPE;
-    l_effective record;
-    l_key       record;
-    l_run_found boolean;
+    l_run        dml_utils_data.migration_run%ROWTYPE;
+    l_effective  record;
+    l_key        record;
+    l_run_found  boolean;
+    l_created_id bigint;
 BEGIN
     -- A NULL strategy would fall through the resume/create branches and behave
     -- like primary_key; the column is NOT NULL, so it can only come from a direct
@@ -57,67 +58,74 @@ BEGIN
     -- Reuse the active run for the label when there is one; otherwise create it
     -- by running populate_migration_boundaries in a worker so it commits
     -- autonomously and the boundaries become visible to the processing workers.
-    SELECT run_id,
-           label,
-           sql_text,
-           chunk_size,
-           chunk_by,
-           partition_wise,
-           threads,
-           sleep_ms,
-           paused_at,
-           max_retries,
-           retry_backoff_ms,
-           driving_table_schema_name,
-           driving_table_name,
-           driving_table_alias,
-           driving_table_relation_filepath,
-           ordered_key_index,
-           ordered_key_columns,
-           ordered_key_kinds,
-           created_at,
-           updated_at,
-           started_at,
-           boundaries_calculated_at,
-           total_chunks,
-           total_chunks_completed,
-           total_rows_affected,
-           completed_at,
-           cancelled_at,
-           archived_at
-    INTO l_run
-    FROM dml_utils_lib.find_active_migration_run(i_label => i_label);
+    --
+    -- The lookup outcome is materialized in l_run_found immediately: FOUND is
+    -- reset by every later statement, and the resume-vs-create decision must not
+    -- depend on it surviving. The whole row is selected, so a new migration_run
+    -- column cannot break this assignment the way a copied column list would.
+    l_run := (SELECT active_run
+              FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+    l_run_found := l_run.run_id IS NOT NULL;
 
-    -- Keep the lookup outcome: later statements (the thread-ceiling check, the
-    -- resume SELECT) reset FOUND, and every branch below depends on whether the
-    -- run already existed.
-    l_run_found := FOUND;
+    IF NOT l_run_found THEN
+        -- Validate the requested count before creating anything, so a rejected
+        -- value cannot leave a run (and its boundaries) behind.
+        PERFORM dml_utils_lib.assert_threads_within_max_worker_processes(
+                i_threads => i_threads);
 
+        -- Two sessions can resolve the same new label together. Both legitimate
+        -- 23505 sources are that race: the label index insert in the worker, and
+        -- the worker's pre-insert assert_no_active_run_for_label (a bare RAISE,
+        -- with no constraint name). Adopt the winner's run only when it is
+        -- actually visible; otherwise re-raise the original error rather than
+        -- masking it (pg_background may not forward the constraint name, so
+        -- filtering on it would also be unreliable).
+        BEGIN
+            l_created_id := dml_utils_lib.create_migration_run(
+                    i_schema_name => i_driving_table_schema_name,
+                    i_table_name => i_driving_table_name,
+                    i_label => i_label,
+                    i_sql_text => i_sql_text,
+                    i_chunk_size => i_chunk_size,
+                    i_threads => i_threads,
+                    i_chunk_by => i_chunk_by,
+                    i_driving_table_alias => i_driving_table_alias,
+                    i_sleep_ms => i_sleep_ms,
+                    i_boundary_key_index => i_boundary_key_index,
+                    i_partition_wise => i_partition_wise,
+                    i_max_retries => i_max_retries,
+                    i_retry_backoff_ms => i_retry_backoff_ms);
+        EXCEPTION
+            WHEN unique_violation THEN
+                l_run := (SELECT active_run
+                          FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+                l_run_found := l_run.run_id IS NOT NULL;
+                IF NOT l_run_found THEN
+                    -- No winner to adopt: keep the original unique violation.
+                    RAISE;
+                END IF;
+        END;
+    END IF;
+
+    -- The completed no-op covers both a pre-existing run and an adopted winner
+    -- that finished before this lookup.
     IF l_run_found AND l_run.completed_at IS NOT NULL THEN
         RAISE NOTICE 'run for label % already completed at %', i_label, l_run.completed_at;
         o_run_id := l_run.run_id;
         o_already_completed := true;
+        -- The remaining outputs stay NULL on this path: the caller stops at
+        -- o_already_completed, and this contract is part of the routine comment.
         RETURN;
     END IF;
 
-    -- A run that is not already complete is resumed or created below.
     o_already_completed := false;
 
-    -- A background worker per chunk: max_worker_processes is a cluster-wide
-    -- ceiling, not the free capacity for this call (other workers may hold slots),
-    -- so this is a cheap early sanity check, not a capacity guarantee. A launch
-    -- that still fails partway leaves the launched chunks committed and the run
-    -- resumable, which the caller retries. The setter uses the same check, so a
-    -- stored count cannot be one this call would reject.
-    o_effective_threads := CASE WHEN l_run_found THEN l_run.threads::integer ELSE i_threads::integer END;
-    o_effective_sleep_ms := CASE WHEN l_run_found THEN l_run.sleep_ms::integer ELSE i_sleep_ms::integer END;
-    o_effective_max_retries := CASE WHEN l_run_found THEN l_run.max_retries::integer ELSE i_max_retries::integer END;
-    o_effective_retry_backoff_ms :=
-            CASE WHEN l_run_found THEN l_run.retry_backoff_ms::integer ELSE i_retry_backoff_ms::integer END;
-    PERFORM dml_utils_lib.assert_threads_within_max_worker_processes(
-            i_threads => o_effective_threads::dml_utils_data.positive_integer);
-
     IF l_run_found THEN
+        -- A resumed run (pre-existing or the winner of a concurrent create) uses
+        -- its stored values, and only the stored thread count can be launched.
+        PERFORM dml_utils_lib.assert_threads_within_max_worker_processes(
+                i_threads => l_run.threads::dml_utils_data.positive_integer);
+
         SELECT effective.o_effective_sql_text,
                effective.o_effective_schema_name,
                effective.o_effective_table_name,
@@ -143,8 +151,8 @@ BEGIN
                      i_partition_wise => i_partition_wise,
                      i_max_retries => i_max_retries,
                      i_retry_backoff_ms => i_retry_backoff_ms) AS effective;
-        o_run_id := l_run.run_id;
 
+        o_run_id := l_run.run_id;
         o_effective_sql_text := l_effective.o_effective_sql_text;
         o_effective_schema_name := l_effective.o_effective_schema_name;
         o_effective_table_name := l_effective.o_effective_table_name;
@@ -156,21 +164,10 @@ BEGIN
         o_chunk_by := l_effective.o_chunk_by;
         o_partition_wise := l_effective.o_partition_wise;
     ELSE
-        o_run_id := dml_utils_lib.create_migration_run(
-                i_schema_name => i_driving_table_schema_name,
-                i_table_name => i_driving_table_name,
-                i_label => i_label,
-                i_sql_text => i_sql_text,
-                i_chunk_size => i_chunk_size,
-                i_threads => i_threads,
-                i_chunk_by => i_chunk_by,
-                i_driving_table_alias => i_driving_table_alias,
-                i_sleep_ms => i_sleep_ms,
-                i_boundary_key_index => i_boundary_key_index,
-                i_partition_wise => i_partition_wise,
-                i_max_retries => i_max_retries,
-                i_retry_backoff_ms => i_retry_backoff_ms);
-
+        -- Freshly created: the worker returns the id and stored exactly these
+        -- inputs, so no re-read is needed (and a re-read would depend on READ
+        -- COMMITTED, since the worker commits autonomously).
+        o_run_id := l_created_id;
         o_effective_sql_text := i_sql_text;
         o_effective_schema_name := i_driving_table_schema_name::text;
         o_effective_table_name := i_driving_table_name::text;
@@ -228,8 +225,15 @@ COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run(
         'ordered-key descriptor for ordered_key, the real primary key for '
         'primary_key, or a single bigint block number for blocks). '
         'find_active_migration_run, resume_migration_run and create_migration_run '
-        'own the lookup, resume validation and autonomous creation. A resumed run '
-        'fails closed if the driving table''s physical filepath changed, and a '
-        'resumed ordered-key run re-validates its stored index and descriptor, '
-        'raising object_not_in_prerequisite_state (55000) if the index no longer '
-        'matches.';
+        'own the lookup, resume validation and autonomous creation. A new label '
+        'that another session created concurrently resolves to the winner''s run: '
+        'a 23505 from the create is adopted when the winner is visible, and '
+        'otherwise the original error is re-raised. Creation commits in an '
+        'autonomous worker, so the routine requires READ COMMITTED (the default) '
+        'to observe the created or adopted row; under REPEATABLE READ or '
+        'SERIALIZABLE the lookup cannot see it. When the run is already complete, '
+        'only o_run_id and o_already_completed are set and the other outputs stay '
+        'NULL: the caller stops on that flag. A resumed run fails '
+        'closed if the driving table''s physical filepath changed, and a resumed '
+        'ordered-key run re-validates its stored index and descriptor, raising '
+        'object_not_in_prerequisite_state (55000) if the index no longer matches.';

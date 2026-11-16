@@ -85,6 +85,62 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     }
 
 
+    /**
+     * The argument must match the run's stored strategy: dispatching on a
+     * differing argument would render a statement for a strategy the run does not
+     * chunk by.
+     */
+    @Test
+    void rejectsAMismatchedStrategy() {
+        insertRangeRows(0L, 1L, 2L, 3L, 4L);
+        long runId = populatePartitionWise("leaf-builder-wrapper-mismatch", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+
+        assertSqlState("22023", () -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.blocks, 2, PARTITION_SCHEMA, "test_partitioned_range_low",
+                runId, 1));
+    }
+
+    /**
+     * A NULL strategy used to fall through to the primary-key builder; it is now
+     * rejected instead of silently rendering a statement for one strategy.
+     */
+    @Test
+    void rejectsANullStrategy() {
+        insertRangeRows(0L, 1L, 2L, 3L, 4L);
+        long runId = populatePartitionWise("leaf-builder-wrapper-null", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+
+        assertSqlState("22023", () -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                null, 2, PARTITION_SCHEMA, "test_partitioned_range_low", runId, 1));
+    }
+
+    /**
+     * A chunk size that differs from the run's stored size would build boundaries
+     * with a stride the run does not advertise.
+     */
+    @Test
+    void rejectsAMismatchedChunkSize() {
+        insertRangeRows(0L, 1L, 2L, 3L, 4L);
+        long runId = populatePartitionWise("leaf-builder-wrapper-size", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+
+        assertSqlState("22023", () -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 3, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, 1));
+    }
+
+    /**
+     * An unknown run id raises {@code P0002}, including the blocks path that now
+     * reads the run row to decide the strategy.
+     */
+    @Test
+    void rejectsAnUnknownRun() {
+        assertSqlState("P0002", () -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.blocks, 2, PARTITION_SCHEMA, "test_partitioned_range_low",
+                0L, 1));
+    }
+
     private void execute(long runId, ChunkingStrategy chunkBy, int chunkSize, int ordinal) {
         dsl.execute(Routines.leafBoundaryPopulationSql(dsl.configuration(), chunkBy,
                 chunkSize, PARTITION_SCHEMA, "test_partitioned_range_low", runId, ordinal));
