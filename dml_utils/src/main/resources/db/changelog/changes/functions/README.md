@@ -244,7 +244,28 @@ worker before re-checking (`pg_background_wait_any`): the default `1` keeps
 per-chunk detection latency low, and a larger value polls less often, cutting
 coordinator CPU for chunks that run in non-trivial time. It must be positive:
 `0` is rejected because `pg_background_wait_any` treats a non-positive timeout
-as wait-forever.
+as wait-forever. The function runs the whole migration as one statement, so its
+snapshot holds the vacuum horizon until it returns; `run_migration_chunks_committing`
+below does the same work without that.
+
+###
+
+`dml_utils.run_migration_chunks_committing(i_sql_text, i_driving_table_schema_name, i_driving_table_name, i_label [, i_chunk_size, i_threads, i_driving_table_alias, i_chunk_by, i_poll_timeout_ms, i_sleep_ms, i_boundary_key_index, i_partition_wise])`
+
+A `PROCEDURE` (`CALL`, not `SELECT`) with the same parameters, defaults and
+semantics as `run_migration_chunks`: labels, resume, threads, sleep,
+partition-wise, ordered key, error recording and cancellation. `SECURITY INVOKER`.
+It `COMMIT`s after every launch, wait and settle step, so the coordinator holds no
+snapshot across chunks (its `backend_xmin` is renewed every step) and `VACUUM` can reclaim the rows of
+every chunk already committed while the run goes on. Both entry points call one
+coordinator, `dml_utils_lib.coordinate_migration_chunks`, which is a procedure
+because only a procedure can `COMMIT`; the function passes `i_commit => false`.
+Because it `COMMIT`s it must be `CALL`ed at top level: not inside an explicit
+transaction block, not from a function, and not through a client that wraps the
+call in a transaction. Otherwise the first `COMMIT` fails with `2D000`
+(`invalid_transaction_termination`); the procedure issues a `COMMIT` as its first
+statement so that failure precedes the run's creation and a misplaced call
+changes nothing.
 
 ###
 
@@ -2086,6 +2107,24 @@ RETURNS void
 `dml_utils_data.migration_error` through an autonomous `pg_background`
 transaction, swallowing a recording failure so the caller can still re-raise
 the worker error.
+
+### `dml_utils_lib.coordinate_migration_chunks(i_sql_text, i_driving_table_schema_name, i_driving_table_name, i_label, i_chunk_size, i_threads, i_driving_table_alias, i_chunk_by, i_poll_timeout_ms, i_sleep_ms, i_boundary_key_index, i_partition_wise, i_commit)`
+
+A `PROCEDURE`, `SECURITY INVOKER`. Takes `run_migration_chunks`' parameters, with
+no defaults, plus `i_commit boolean` (not null). It is the one
+coordinator behind `dml_utils.run_migration_chunks` (`i_commit => false`) and
+`dml_utils.run_migration_chunks_committing` (`i_commit => true`): it resolves or
+resumes the run, then launches, waits for and settles the chunk workers, and
+records completion. With `i_commit` false it never `COMMIT`s, so the function can
+`CALL` it inside the caller's transaction. With `i_commit` true it `COMMIT`s after
+every pass of its loop, so it must itself be `CALL`ed at top level.
+
+The loop is a state machine (phases `launch`, `wait`, `settle`, `sleep`, `cancel`,
+`fail`, `finish`, one per pass) because PostgreSQL does not allow `COMMIT` inside
+a block that has an `EXCEPTION` clause: the clause drains the in-flight workers on
+an unexpected error, so it wraps a single step and the `COMMIT` follows the block.
+With `i_commit` the per-chunk delay is slept one 100ms slice per pass, so a `COMMIT`
+falls between slices.
 
 ### `dml_utils_lib.sleep_between_migration_chunks(i_run_id, i_sleep_ms)`
 
