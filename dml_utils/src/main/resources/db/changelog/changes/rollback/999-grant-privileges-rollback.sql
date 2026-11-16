@@ -625,6 +625,64 @@ GRANT EXECUTE ON FUNCTION dml_utils.run_migration_chunks(
     name,
     dml_utils_data.non_null_boolean
     ) TO public;
+REVOKE EXECUTE ON PROCEDURE dml_utils_lib.coordinate_migration_chunks(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean,
+    boolean
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON PROCEDURE dml_utils_lib.coordinate_migration_chunks(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean,
+    boolean
+    ) TO public;
+REVOKE EXECUTE ON PROCEDURE dml_utils.run_migration_chunks_committing(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) FROM dml_utils_caller;
+GRANT EXECUTE ON PROCEDURE dml_utils.run_migration_chunks_committing(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.positive_integer,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.chunking_strategy,
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_negative_integer,
+    name,
+    dml_utils_data.non_null_boolean
+    ) TO public;
 REVOKE EXECUTE ON FUNCTION dml_utils.run_function_over_table(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,

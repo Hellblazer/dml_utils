@@ -604,12 +604,35 @@
         </rollback>
     </changeSet>
 
+    <!-- The coordinator shared by run_migration_chunks and
+         run_migration_chunks_committing. It is a procedure because only a procedure
+         can COMMIT; the function calls it with i_commit false. -->
+    <changeSet id="function-dml_utils_lib.coordinate_migration_chunks" author="hellblazer"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/coordinate_migration_chunks.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/coordinate_migration_chunks-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils.run_migration_chunks" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/run_migration_chunks.sql"
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/run_migration_chunks-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils.run_migration_chunks_committing" author="hellblazer"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/run_migration_chunks_committing.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/run_migration_chunks_committing-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
