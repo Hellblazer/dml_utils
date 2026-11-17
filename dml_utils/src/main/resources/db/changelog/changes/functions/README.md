@@ -1173,7 +1173,7 @@ the value of key column i in the array matching that column's kind, and
 exactly one array element is non-NULL per index. The `migration_boundary_key_check`
 constraint enforces that: each present array must have a non-NULL element (so an
 all-NULL or empty array is rejected), present arrays must share one length of one
-to three, and exactly one of the five arrays holds a non-NULL value at each
+to four, and exactly one of the five arrays holds a non-NULL value at each
 index. Raises `23505` when
 an active (not archived) run already exists for the label. The
 `migration_boundary` rows are inserted with their own `started_at` and

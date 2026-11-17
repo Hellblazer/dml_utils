@@ -836,8 +836,8 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * The ordered-key shape check admits up to four key columns and rejects five
-     * or none, so an ordered-key run over the nexus chunks key can be recorded.
+     * The ordered-key shape check admits up to four key columns and rejects five,
+     * so an ordered-key run over the nexus chunks key can be recorded.
      */
     @Test
     void allowsAnOrderedKeyOfFourColumnsButNotFive() {
