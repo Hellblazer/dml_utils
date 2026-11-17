@@ -50,6 +50,26 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     }
 
     /**
+     * A single timestamptz key populates only the timestamptz array.
+     */
+    @Test
+    void packsASingleTimestamptzKey() {
+        assertEquals("ROW(NULL::bigint[], NULL::text[], NULL::uuid[],"
+                        + " ARRAY[id1::timestamptz]::timestamptz[])::dml_utils_data.migration_key",
+                pack(new String[]{"timestamptz"}));
+    }
+
+    /**
+     * A repeated kind fills successive positions of the same array.
+     */
+    @Test
+    void packsRepeatedKindsIntoOneArray() {
+        assertEquals("ROW(ARRAY[id1::bigint, id2::bigint]::bigint[], NULL::text[],"
+                        + " NULL::uuid[], NULL::timestamptz[])::dml_utils_data.migration_key",
+                pack(new String[]{"bigint", "bigint"}));
+    }
+
+    /**
      * A three-column key places uuid, bigint and text terms in their own arrays.
      */
     @Test

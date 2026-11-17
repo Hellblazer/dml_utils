@@ -72,6 +72,23 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL collation (a column not in the catalog) compares with the default
+     * collation and still reports the first differing text column.
+     */
+    @Test
+    void comparesTextWithTheDefaultCollationWhenNoneIsGiven() {
+        BuildChunkBoundaryLiterals result = literals(
+                new String[]{"t.a", "t.b"},
+                new String[]{"text", "bigint"},
+                new String[]{null, null},
+                new String[]{"a", "1"},
+                new String[]{"b", "2"});
+
+        assertEquals(-1, result.getOFirstDifference());
+        assertEquals(1, result.getOFirstDifferencePosition());
+    }
+
+    /**
      * The first differing column wins even when a later column also differs. (The
      * supplied collation is passed through to the comparison; the chosen values
      * differ under every collation, so the order here does not depend on it.)

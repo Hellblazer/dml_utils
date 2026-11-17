@@ -85,6 +85,28 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
     }
 
     /**
+     * Completing a boundary that was cancelled is the same completion-protocol
+     * failure as completing one twice, and does not advance the counters.
+     */
+    @Test
+    void rejectsACompletedCancelledBoundary() {
+        seedBigint(1, 2, 3);
+        long runId = populate();
+        dsl.execute("UPDATE dml_utils_data.migration_boundary"
+                + " SET cancelled_at = pg_catalog.clock_timestamp()"
+                + " WHERE run_id = ? AND boundary_no = 0", runId);
+
+        assertSqlState("P0C02", () -> Routines.completeMigrationBoundary(
+                dsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L));
+
+        assertEquals(0L, dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED),
+                "a cancelled boundary does not advance the counter");
+    }
+
+    /**
      * A future started_at is clamped to the completion timestamp, so the
      * boundary completes and the run counters advance.
      */

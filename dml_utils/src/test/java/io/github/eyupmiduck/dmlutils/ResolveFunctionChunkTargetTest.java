@@ -28,6 +28,9 @@ class ResolveFunctionChunkTargetTest extends PostgresTestBase {
             dsl.execute("DROP FUNCTION IF EXISTS public." + function);
         }
         dsl.execute("DROP PROCEDURE IF EXISTS public.target_mark_proc");
+        // An overload set cannot be dropped by bare name.
+        dsl.execute("DROP FUNCTION IF EXISTS public.target_mark_overload(bigint, bigint)");
+        dsl.execute("DROP FUNCTION IF EXISTS public.target_mark_overload(bigint, text)");
     }
 
     private ResolveFunctionChunkTarget resolve(String table, String function) {
@@ -38,6 +41,26 @@ class ResolveFunctionChunkTargetTest extends PostgresTestBase {
     private ResolveFunctionChunkTarget resolveBigint(String function) {
         return Routines.resolveFunctionChunkTarget(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), "public", function);
+    }
+
+    /**
+     * An overload chain with the same name and arity resolves the signature whose
+     * argument types match the primary key, ignoring the wrong-type sibling.
+     */
+    @Test
+    void resolvesTheMatchingOverload() {
+        // The decoy is non-void, so picking it would raise "must return void";
+        // both siblings otherwise produce the same key columns and call list.
+        dsl.execute("CREATE OR REPLACE FUNCTION public.target_mark_overload(a bigint, b bigint)"
+                + " RETURNS bigint LANGUAGE sql AS $$ SELECT a $$");
+        dsl.execute("CREATE OR REPLACE FUNCTION public.target_mark_overload(a bigint, b text)"
+                + " RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END $$");
+
+        ResolveFunctionChunkTarget target = resolve(name(TEST_COMPOSITE_MIXED),
+                "target_mark_overload");
+
+        assertArrayEquals(new String[]{"a", "b"}, target.getOPrimaryKeyColumns());
+        assertEquals("t.a, t.b", target.getOCallArguments());
     }
 
     /**
@@ -79,7 +102,9 @@ class ResolveFunctionChunkTargetTest extends PostgresTestBase {
         assertSqlState("22023", () -> resolve(name(TEST_COMPOSITE_MIXED),
                 "no_such_function"));
 
-        dsl.execute("CREATE OR REPLACE FUNCTION public.target_mark_wrong(a text)"
+        // Same arity, one wrong type: the lookup compares the argument type
+        // array, not just the number of arguments.
+        dsl.execute("CREATE OR REPLACE FUNCTION public.target_mark_wrong(a bigint, b bigint)"
                 + " RETURNS void LANGUAGE plpgsql AS $$ BEGIN NULL; END $$");
         assertSqlState("22023", () -> resolve(name(TEST_COMPOSITE_MIXED),
                 "target_mark_wrong"));

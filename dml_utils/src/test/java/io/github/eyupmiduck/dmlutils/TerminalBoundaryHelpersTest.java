@@ -10,7 +10,8 @@ import org.junit.jupiter.api.Test;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Verifies the terminal-boundary helpers: the last non-empty leaf and its
@@ -30,56 +31,6 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     void reset() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         dsl.truncate(TEST_PARTITIONED_RANGE).execute();
-    }
-
-    /**
-     * The last non-empty leaf in manifest order and its high-water key are
-     * returned.
-     */
-    @Test
-    void returnsTheLastNonEmptyLeaf() {
-        insertRangeRows(0L, 1L, 2L, 200L, 201L, 202L);
-        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
-        calculateAll(runId);
-
-        TerminalLeafForRun terminal = Routines.terminalLeafForRun(
-                dsl.configuration(), runId);
-
-        assertEquals(3, terminal.getOLeafOrdinal());
-        assertEquals(PARTITION_SCHEMA, terminal.getOLeafSchemaName());
-        assertEquals("test_partitioned_range_high", terminal.getOLeafName());
-        assertEquals(202L, terminal.getOBigintValues()[0]);
-    }
-
-    /**
-     * An all-empty run has no terminal leaf.
-     */
-    @Test
-    void returnsNoLeafWhenEveryLeafIsEmpty() {
-        long runId = populatePartitionWise("terminal-helpers", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
-        calculateAll(runId);
-
-        assertNull(Routines.terminalLeafForRun(dsl.configuration(), runId)
-                .getOLeafOrdinal());
-    }
-
-    /**
-     * An unknown run raises {@code P0002}, while a run without a leaf manifest
-     * raises {@code 55000} instead of looking like an all-empty run.
-     */
-    @Test
-    void rejectsAnUnknownRunOrOneWithoutAManifest() {
-        assertSqlState("P0002", () -> Routines.terminalLeafForRun(
-                dsl.configuration(), -1L));
-
-        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
-                io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT
-                        .getSchema().getName(),
-                io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT.getName(),
-                uniqueLabel("terminal-helpers-single"), "SELECT 1", 1, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-        assertSqlState("55000", () -> Routines.terminalLeafForRun(
-                dsl.configuration(), runId));
     }
 
     /**

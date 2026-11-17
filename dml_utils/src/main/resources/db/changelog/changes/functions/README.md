@@ -1250,6 +1250,25 @@ RETURNS void
 unless `i_sql_text` contains `<driving_table>` and `<chunking_clause>` exactly
 once each.
 
+### `dml_utils_lib.assert_single_statement(i_sql_text)`
+
+```sql
+i_sql_text dml_utils_data.non_null_text
+RETURNS void
+```
+
+`IMMUTABLE`, `SECURITY INVOKER`. Raises `invalid_parameter_value` (`22023`)
+unless `i_sql_text` is a single statement. The scan is lexical, so a semicolon
+separates statements only outside a quoted literal, a quoted identifier, a
+dollar-quoted body or a (nested) comment; a terminator followed by only
+whitespace and comments is accepted, so a trailing semicolon is allowed. A `$`
+that continues an identifier is text, not a dollar-quote opener, and a tag may
+contain non-ASCII letters as PostgreSQL allows. Text with no statement, and
+text that ends inside an unterminated literal, quoted identifier, dollar-quoted
+body or block comment, is rejected too. Used by `explain_query_plan`, because
+PL/pgSQL's `EXECUTE` would otherwise run the statements that follow the first
+one.
+
 ###
 
 `dml_utils_lib.render_chunk_sql(i_sql_text, i_schema_name, i_table_name, i_table_alias, i_key_columns, i_key_kinds, i_start_values, i_end_values, i_is_final)`
@@ -1566,7 +1585,9 @@ RETURNS json
 `VOLATILE`, `SECURITY INVOKER`. Returns `EXPLAIN (FORMAT JSON)` of `i_sql_text`
 as a json value, without executing it (no `ANALYZE`): an INSERT or UPDATE only
 plans. The statement is a non-null, non-blank domain. It is `VOLATILE`
-because PostgreSQL forbids `EXPLAIN` in a non-volatile function.
+because PostgreSQL forbids `EXPLAIN` in a non-volatile function. A
+multi-statement string is rejected (`22023`) by `assert_single_statement`, so
+PL/pgSQL's `EXECUTE` cannot run the statements after the first.
 
 ###
 

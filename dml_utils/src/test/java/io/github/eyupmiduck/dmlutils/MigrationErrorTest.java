@@ -1,10 +1,12 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationErrorsRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationErrorRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -143,6 +145,36 @@ class MigrationErrorTest extends PostgresTestBase {
                 "the parent run should remain");
         assertEquals(1, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(otherRunId)),
                 "another run's error should survive");
+    }
+
+    /**
+     * The public listing returns only the requested run's errors, in error-id
+     * order, with the recorded columns, and an unknown run yields no rows.
+     */
+    @Test
+    void listsTheRunsErrorsInErrorOrder() {
+        Long runId = insertRunWithBoundary();
+        Long otherRunId = insertRunWithBoundary();
+        Routines.recordMigrationError(dsl.configuration(), runId, 0L, "22012", "first");
+        Routines.recordMigrationError(dsl.configuration(), runId, 0L, "23505", "second");
+        Routines.recordMigrationError(dsl.configuration(), otherRunId, 0L, "42P01", "elsewhere");
+
+        List<MigrationErrorsRecord> errors =
+                io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.migrationErrors(
+                        dsl.configuration(), runId);
+
+        assertEquals(List.of("22012", "23505"),
+                errors.stream().map(MigrationErrorsRecord::getSqlstate).toList(),
+                "only this run's errors, ordered by error id");
+        assertEquals(List.of("first", "second"),
+                errors.stream().map(MigrationErrorsRecord::getMessage).toList());
+        assertEquals(0L, errors.getFirst().getBoundaryNo());
+        assertNotNull(errors.getFirst().getErrorId());
+        assertNotNull(errors.getFirst().getCreatedAt());
+
+        assertEquals(0, io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .migrationErrors(dsl.configuration(), Long.MAX_VALUE).size(),
+                "an unknown run has no errors");
     }
 
     private Long insertRunWithBoundary() {

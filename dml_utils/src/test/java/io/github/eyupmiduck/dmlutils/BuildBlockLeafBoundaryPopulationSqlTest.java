@@ -10,8 +10,7 @@ import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.build_block_leaf_boundary_population_sql}: the
@@ -25,6 +24,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
     private static final String LOW = "test_partitioned_range_low";
     private static final String HIGH = "test_partitioned_range_high";
+    private static final String QUOTED = "test partitioned \"odd\"";
 
     /**
      * Empties the range fixture and the migration metadata between tests.
@@ -96,6 +96,35 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
             assertEquals(lowStarts + i, boundary.getBoundaryNo().longValue());
             assertEquals(highOrdinal, boundary.getLeafOrdinal());
             assertEquals(i * 2L, boundary.getBoundaryId().getBigintValues()[0].longValue());
+        }
+    }
+
+    /**
+     * A leaf name that needs quoting survives the identifier round trip: the
+     * builder embeds {@code format('%I.%I')} as a literal and the server resolves
+     * it with {@code ::regclass}, so the space and embedded double quote stay part
+     * of the name instead of breaking the statement.
+     */
+    @Test
+    void quotesALeafNameThatNeedsIt() {
+        dsl.execute("INSERT INTO " + PARTITION_SCHEMA
+                + ".\"test partitioned \"\"odd\"\"\" (id, payload) VALUES (1, 'a'), (2, 'b')");
+        long runId = populatePartitionWise("block-leaf-quoted", "test_partitioned_quoted",
+                TEMPLATE, ChunkingStrategy.blocks, 1, null);
+        int ordinal = leafOrdinal(runId, QUOTED);
+
+        String sql = Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
+                PARTITION_SCHEMA, QUOTED, runId, 1L, ordinal);
+
+        assertTrue(sql.contains("\"test partitioned \"\"odd\"\"\""),
+                "the leaf name is identifier-quoted in the generated statement");
+        dsl.execute(sql);
+
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertFalse(boundaries.isEmpty(), "the quoted leaf has at least one block");
+        for (MigrationBoundaryRecord boundary : boundaries) {
+            assertEquals(ordinal, boundary.getLeafOrdinal(),
+                    "the quoted leaf's starts carry its manifest ordinal");
         }
     }
 

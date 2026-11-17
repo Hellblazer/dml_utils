@@ -207,6 +207,20 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
     }
 
     /**
+     * A valid three-column key is accepted: it is the documented maximum, and the
+     * mixed-kind primary key of the composite fixture is a genuine unique index.
+     */
+    @Test
+    void acceptsAThreeColumnKey() {
+        assertArrayEquals(new String[]{"b", "a", "c"},
+                Routines.orderedKeyColumns(dsl.configuration(), FIXTURE_SCHEMA,
+                        "test_composite_three", "test_composite_three_pkey"));
+        assertArrayEquals(new String[]{"bigint", "text", "uuid"},
+                Routines.orderedKeyKinds(dsl.configuration(), FIXTURE_SCHEMA,
+                        "test_composite_three", "test_composite_three_pkey"));
+    }
+
+    /**
      * A key of more than three columns raises {@code 22023}.
      */
     @Test

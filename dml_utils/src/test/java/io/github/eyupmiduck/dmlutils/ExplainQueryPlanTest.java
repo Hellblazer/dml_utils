@@ -84,6 +84,21 @@ class ExplainQueryPlanTest extends PostgresTestBase {
     }
 
     /**
+     * A multi-statement string is rejected with {@code 22023} and its trailing
+     * statements are not executed: PL/pgSQL's {@code EXECUTE} would otherwise run
+     * them after planning the first one.
+     */
+    @Test
+    void rejectsMultiStatementStringsWithoutExecutingThem() {
+        assertSqlState("22023", () -> Routines.explainQueryPlan(dsl.configuration(),
+                "SELECT 1; INSERT INTO dml_utils_fixtures.test_bigint (id, payload)"
+                        + " VALUES (2, 'x')"));
+
+        assertEquals(0, dsl.fetchCount(TEST_BIGINT),
+                "the statement after the terminator must not run");
+    }
+
+    /**
      * A statement that does not parse propagates PostgreSQL's syntax error
      * ({@code 42601}) rather than a misleading success.
      */

@@ -364,6 +364,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_single_statement" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_single_statement.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_single_statement-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.explain_query_plan" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/explain_query_plan.sql"

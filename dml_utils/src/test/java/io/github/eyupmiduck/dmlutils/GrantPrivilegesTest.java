@@ -24,7 +24,12 @@ class GrantPrivilegesTest extends PostgresTestBase {
             new String[]{"dml_utils_data", "positive_integer"},
             new String[]{"dml_utils_data", "non_negative_integer"},
             new String[]{"dml_utils_data", "non_null_boolean"},
-            new String[]{"dml_utils_data", "chunking_strategy"});
+            new String[]{"dml_utils_data", "chunking_strategy"},
+            // The implicit table row types must not be usable by PUBLIC either.
+            new String[]{"dml_utils_data", "migration_run"},
+            new String[]{"dml_utils_data", "migration_boundary"},
+            new String[]{"dml_utils_data", "migration_error"},
+            new String[]{"dml_utils_data", "migration_run_leaf"});
     private static final String CALLER = "dml_utils_caller";
 
     /**
@@ -74,9 +79,13 @@ class GrantPrivilegesTest extends PostgresTestBase {
             GrantAssertions.assertRoleHasExplicitUsageOnType(connection, "dml_utils_data", "migration_key", CALLER);
         }
 
-        assertEquals(Boolean.TRUE, dsl.fetchOne(
-                        "SELECT pg_catalog.has_table_privilege('" + CALLER + "',"
-                                + " 'dml_utils_data.migration_boundary', 'SELECT')")
-                .get(0, Boolean.class), "the caller should be able to select migration_boundary");
+        for (String table : List.of("migration_run", "migration_boundary",
+                "migration_error", "migration_run_leaf")) {
+            assertEquals(Boolean.TRUE, dsl.fetchOne(
+                                    "SELECT pg_catalog.has_table_privilege('" + CALLER + "', ?, 'SELECT')",
+                                    "dml_utils_data." + table)
+                            .get(0, Boolean.class),
+                    "the caller should be able to select " + table);
+        }
     }
 }

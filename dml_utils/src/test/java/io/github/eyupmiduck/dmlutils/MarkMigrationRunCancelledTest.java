@@ -60,6 +60,23 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     }
 
     /**
+     * Cancelling clears a pause, so a paused run becomes terminal rather than
+     * staying paused forever.
+     */
+    @Test
+    void clearsAPausedRun() {
+        seedBigint(1, 2);
+        long runId = populate(1);
+        dsl.execute("UPDATE dml_utils_data.migration_run"
+                + " SET paused_at = pg_catalog.clock_timestamp() WHERE run_id = ?", runId);
+
+        Routines.markMigrationRunCancelled(dsl.configuration(), runId);
+
+        assertNull(run(runId).getPausedAt(), "cancelling clears the pause");
+        assertNotNull(run(runId).getCancelledAt());
+    }
+
+    /**
      * A second call reuses the existing timestamps instead of rewriting them.
      */
     @Test

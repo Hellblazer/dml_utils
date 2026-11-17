@@ -387,6 +387,19 @@ class MigrationRunProgressTest extends PartitionTestBase {
             }
         }
         assertEquals(8L, rows, "the boundary row counts add up to the run total");
+
+        // duration_ms is derived from the two boundary timestamps, in whole
+        // milliseconds, so pin an exact value instead of only non-NULL.
+        // The terminal boundary is never claimed, so its timestamps are still
+        // unset (setting completed_at twice is rejected as immutable).
+        dsl.execute("UPDATE dml_utils_data.migration_boundary"
+                + " SET started_at = timestamptz '2026-01-01 00:00:00+00',"
+                + " completed_at = timestamptz '2026-01-01 00:00:01.25+00',"
+                + " rows_affected = 0"
+                + " WHERE run_id = ? AND completed_at IS NULL", runId);
+        assertEquals(1250L, Routines.migrationBoundaries(dsl.configuration(), runId)
+                        .getLast().getDurationMs(),
+                "duration_ms is the completed-started difference in milliseconds");
     }
 
     /**

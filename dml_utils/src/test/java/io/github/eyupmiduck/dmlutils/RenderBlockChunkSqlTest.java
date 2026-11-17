@@ -59,6 +59,25 @@ class RenderBlockChunkSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A reserved substitution character in the template or in a quoted identifier
+     * is rejected with {@code 22023}, so the sentinel substitution stays
+     * unambiguous. Only the template and the formatted identifiers can introduce
+     * one; the generated clause is built from integers.
+     */
+    @Test
+    void rejectsReservedSubstitutionCharacters() {
+        for (String sentinel : new String[]{"" + (char) 1, "" + (char) 2}) {
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    "SELECT 1 FROM <driving_table> WHERE <chunking_clause> /*" + sentinel + "*/",
+                    PUBLIC_SCHEMA, "some_table", "t", 0L, 10L));
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    TEMPLATE, PUBLIC_SCHEMA, "some" + sentinel + "_table", "t", 0L, 10L));
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    TEMPLATE, PUBLIC_SCHEMA, "some_table", "t" + sentinel, 0L, 10L));
+        }
+    }
+
+    /**
      * A NULL or empty table alias is rejected by the non-null text domain
      * before the body runs.
      */

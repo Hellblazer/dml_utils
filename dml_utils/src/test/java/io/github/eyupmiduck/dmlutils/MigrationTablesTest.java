@@ -1380,6 +1380,10 @@ class MigrationTablesTest extends PostgresTestBase {
                 .set(MIGRATION_BOUNDARY.RUN_ID, otherRunId)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.LEAF_ORDINAL, 1)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
 
         // The first completed_at write is allowed, in the order the time-order
         // check requires; it is then frozen.

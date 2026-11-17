@@ -34,6 +34,7 @@ class LiquibaseTrackingTablesTest extends TrackingTablesContract {
     protected Collection<String> applicationSchemas() {
         List<String> schemas = new ArrayList<>(TestSchemas.APPLICATION);
         schemas.add(PUBLIC_SCHEMA);
+        schemas.add("dml_utils_fixtures");
         return schemas;
     }
 }

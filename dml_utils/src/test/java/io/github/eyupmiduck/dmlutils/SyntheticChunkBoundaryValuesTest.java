@@ -95,6 +95,15 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
                 dsl.configuration(), new String[]{"bigint", "bigint", "bigint", "bigint"}, 10L));
         assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"numeric"}, 10L));
+        // Cardinality alone cannot detect these shapes: a multidimensional array
+        // and a zero-based array both have one entry, but indexing them would read
+        // a slice or the wrong element.
+        assertSqlState("22023", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "ARRAY[['bigint']]::text[], 10::bigint)"));
+        assertSqlState("22023", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "'[0:0]={bigint}'::text[], 10::bigint)"));
     }
 
     /**

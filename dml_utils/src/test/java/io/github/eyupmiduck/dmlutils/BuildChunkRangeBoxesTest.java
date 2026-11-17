@@ -93,6 +93,23 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * The same three-box shape with the final flag set only makes the upper
+     * tail's last-column bound inclusive (the middle box stays a strict open
+     * range), so the last chunk includes its end key.
+     */
+    @Test
+    void rendersInclusiveThreeBoxesForAFinalChunk() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a = '1' AND t.b > '2' AND t.b < '4'",
+                        "t.a = '1' AND t.b = '4' AND t.c <= '5'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'1'", "'4'", "'5'"},
+                        2, true));
+    }
+
+    /**
      * A NULL final flag is rejected with {@code 22023}.
      */
     @Test

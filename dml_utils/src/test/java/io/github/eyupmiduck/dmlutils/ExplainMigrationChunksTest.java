@@ -525,6 +525,11 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.explainMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), 10, "t",
                 ChunkingStrategy.primary_key, null, false, 1));
+        // Ordinal 0 is the plausible off-by-one value; leaves are 1-based.
+        assertSqlState("22023", () -> Routines.explainMigrationChunks(
+                dsl.configuration(), TEMPLATE, schema(TEST_PARTITIONED_RANGE),
+                name(TEST_PARTITIONED_RANGE), 10, "t", ChunkingStrategy.primary_key, null,
+                true, 0));
         assertSqlState("22023", () -> Routines.explainMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_PARTITIONED_RANGE),
                 name(TEST_PARTITIONED_RANGE), 10, "t", ChunkingStrategy.primary_key, null,
