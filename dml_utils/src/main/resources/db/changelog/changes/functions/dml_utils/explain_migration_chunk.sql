@@ -4,7 +4,7 @@ CREATE OR REPLACE FUNCTION dml_utils.explain_migration_chunk(
     i_driving_table_name dml_utils_data.non_null_text,
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean,
+    i_is_final dml_utils_data.non_null_boolean,
     i_driving_table_alias dml_utils_data.non_null_text DEFAULT 't',
     -- The strategy whose key the explicit values belong to. This single-chunk
     -- explain supports primary_key and ordered_key; use explain_migration_chunks
@@ -156,7 +156,7 @@ COMMENT ON FUNCTION dml_utils.explain_migration_chunk(
     dml_utils_data.non_null_text,
     text[],
     text[],
-    boolean,
+    dml_utils_data.non_null_boolean,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
     name,

@@ -10,9 +10,10 @@ $$
 DECLARE
     l_plan json;
 BEGIN
-    -- A NULL would concatenate to the literal "EXPLAIN (FORMAT JSON) " with no
-    -- statement, and a blank statement would fail with a syntax error; reject
-    -- both up front with a message that names the argument.
+    -- i_sql_text is a non_null_text, so the domain rejects NULL and a blank
+    -- statement (the same ASCII whitespace set the rest of the package uses)
+    -- before the body runs; the concatenation below therefore cannot produce an
+    -- empty statement.
 
     -- EXPLAIN (FORMAT JSON) returns one row with a single json column. Without
     -- ANALYZE it only plans, so the statement is never executed: an INSERT or

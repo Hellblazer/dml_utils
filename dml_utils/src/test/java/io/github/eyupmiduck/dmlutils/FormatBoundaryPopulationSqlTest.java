@@ -34,6 +34,26 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL run id, a non-positive chunk size or a blank order-by is rejected
+     * before rendering, instead of producing a statement that fails later.
+     */
+    @Test
+    void rejectsInvalidRunInputs() {
+        assertSqlState("22023", () -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", null, 2L));
+        assertSqlState("22023", () -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 0L));
+        assertSqlState("22023", () -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", " \t", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertSqlState("22023", () -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, " \t", 42L, 2L));
+    }
+
+    /**
      * The statement names the driving table and contains the supplied select,
      * order, id, pack and terminal fragments.
      */

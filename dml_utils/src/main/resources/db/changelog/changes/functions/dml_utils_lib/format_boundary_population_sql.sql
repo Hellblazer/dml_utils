@@ -16,6 +16,39 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.format_boundary_population_sql(
 AS
 $$
 BEGIN
+    -- The two identifiers rendered with %I and the numbers interpolated below are
+    -- validated here, like the descriptor's caller does: a NULL argument renders as
+    -- an empty string through format(), so a NULL run id, a non-positive chunk size
+    -- or a missing fragment would only fail when the statement is finally executed
+    -- (after the run and its boundaries exist). A blank ORDER BY is a syntax error.
+    -- The fragments are otherwise unvalidated trusted SQL (see the trust boundary
+    -- below).
+    IF i_run_id IS NULL THEN
+        RAISE EXCEPTION 'i_run_id must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+    IF i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
+        RAISE EXCEPTION 'i_chunk_size must be positive'
+            USING ERRCODE = '22023';
+    END IF;
+    IF i_select_list IS NULL
+        OR i_order_by IS NULL
+        OR i_schema_name IS NULL
+        OR i_table_name IS NULL
+        OR i_id_list IS NULL
+        OR i_pack_expression IS NULL
+        OR i_order_by_desc IS NULL
+    THEN
+        RAISE EXCEPTION 'the select list, order-by, identifiers, id list and pack expression must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+    IF pg_catalog.btrim(i_order_by, E' \t\n\r\f\013') = ''
+        OR pg_catalog.btrim(i_order_by_desc, E' \t\n\r\f\013') = ''
+    THEN
+        RAISE EXCEPTION 'i_order_by and i_order_by_desc must not be blank'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- Boundaries are picked by row position, so the computation never needs
     -- min()/max() on the key: PostgreSQL defines those aggregates for the integer
     -- and text types but not for uuid.
@@ -110,9 +143,11 @@ COMMENT ON FUNCTION dml_utils_lib.format_boundary_population_sql(
     bigint
     ) IS
     'Returns the single-relation boundary-population statement from the key '
-        'descriptor fragments. The statement streams the boundary key in index '
-        'order, materialises only the chunk starts and takes the terminal from a '
-        'backward index scan. The fragments must be trusted SQL produced by '
-        'boundary_key_descriptor_sql, and the boundary key must be unique with '
+        'descriptor fragments. Raises invalid_parameter_value (22023) for a NULL '
+        'run id, a non-positive chunk size, any NULL fragment or identifier, or a '
+        'blank ORDER BY; the fragments are otherwise trusted SQL produced by '
+        'boundary_key_descriptor_sql. The statement streams the boundary key in '
+        'index order, materialises only the chunk starts and takes the terminal from '
+        'a backward index scan. The boundary key must be unique with '
         'i_order_by_desc its exact inverse. Shared by build_boundary_population_sql '
         'so execute and explain run the identical SQL.';

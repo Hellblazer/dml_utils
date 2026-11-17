@@ -104,10 +104,10 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
                 FN_SCHEMA, "mark_mixed", 10, "t.b = 'x'", ChunkingStrategy.primary_key, null, false, null);
 
-        assertTrue(plans.get(1).getOSqlText().contains("AND (t.b = 'x')"),
-                "the non-final chunk ANDs the filter");
-        assertTrue(plans.get(2).getOSqlText().contains("AND (t.b = 'x')"),
-                "the final chunk ANDs the filter");
+        assertTrue(plans.get(1).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the non-final chunk ANDs the filter, closing paren included");
+        assertTrue(plans.get(2).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the final chunk ANDs the filter, closing paren included");
         assertFalse(plans.get(0).getOSqlText().contains("t.b = 'x'"),
                 "the boundary-population plan is unaffected");
     }
@@ -207,8 +207,8 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
                 FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"}, false, "t.b = 'x'", ChunkingStrategy.primary_key, null, false, null);
 
-        assertTrue(plans.get(0).getOSqlText().contains("AND (t.b = 'x')"),
-                "the chunk predicate ANDs the filter");
+        assertTrue(plans.get(0).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the chunk predicate ANDs the filter, closing paren included");
     }
 
     /**

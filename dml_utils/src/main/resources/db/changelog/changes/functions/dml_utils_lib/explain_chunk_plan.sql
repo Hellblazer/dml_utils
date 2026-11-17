@@ -21,9 +21,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plan(
 AS
 $$
 BEGIN
-    -- Validate the template up front, exactly as explain_chunk_plans does, so a
-    -- bad call fails before any plan is produced.
-    PERFORM dml_utils_lib.assert_chunking_template(i_sql_text => i_sql_text);
+    -- No separate template validation here: render_chunk_sql goes through
+    -- prepare_chunk_sql_render, which runs assert_chunking_template (and the key
+    -- checks) before rendering anything, so a bad call still fails before a plan.
 
     -- Render the caller's explicit range. render_chunk_sql validates and casts
     -- the boundary values and rejects a reversed or empty range, so the EXPLAIN

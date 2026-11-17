@@ -17,6 +17,15 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_block_chunk_plans(
 AS
 $$
 BEGIN
+    -- The plans use 0..chunk_size and chunk_size..2*chunk_size as the block
+    -- ranges, so a non-positive size renders an empty range and a size above
+    -- 2147483647 (= (2^32 - 1) / 2) makes 2 * i_chunk_size overflow tid's block
+    -- space or the bigint arithmetic in render_block_chunk_sql.
+    IF i_chunk_size IS NULL OR i_chunk_size < 1 OR i_chunk_size > 2147483647 THEN
+        RAISE EXCEPTION 'i_chunk_size must be between 1 and 2147483647'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- 1. The block boundary-population insert, with a synthetic run id (0):
     -- EXPLAIN plans the insert as a ModifyTable and does not evaluate the
     -- foreign key, so no run needs to exist and nothing is written.

@@ -69,6 +69,22 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL run id or boundary number is rejected by its domain before the
+     * completion protocol runs, so a caller argument bug is not reported as the
+     * P0C02 protocol failure.
+     */
+    @Test
+    void rejectsNullRunIdAndBoundaryNo() {
+        seedBigint(1, 2, 3);
+        long runId = populate();
+
+        assertDomainViolation(() -> Routines.completeMigrationBoundary(
+                dsl.configuration(), null, 0L, OffsetDateTime.now(), 0L));
+        assertDomainViolation(() -> Routines.completeMigrationBoundary(
+                dsl.configuration(), runId, null, OffsetDateTime.now(), 0L));
+    }
+
+    /**
      * A future started_at is clamped to the completion timestamp, so the
      * boundary completes and the run counters advance.
      */

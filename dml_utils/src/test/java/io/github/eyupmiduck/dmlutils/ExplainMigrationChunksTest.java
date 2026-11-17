@@ -146,6 +146,18 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL finality flag cannot reach the body: the non-null domain rejects it
+     * before any plan is rendered, so it cannot silently behave like "final".
+     */
+    @Test
+    void rejectsANullFinalityFlag() {
+        assertDomainViolation(() -> Routines.explainMigrationChunk(
+                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT),
+                new String[]{"0"}, new String[]{"10"}, null, "t",
+                ChunkingStrategy.primary_key, null, false, null));
+    }
+
+    /**
      * The block strategy plans the block boundary insert and two half-open ctid
      * ranges, without executing anything.
      */

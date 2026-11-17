@@ -32,6 +32,8 @@ BEGIN
             USING ERRCODE = 'P0002';
     END IF;
 
+    -- The strategy enum deliberately has no domain (a domain over it breaks
+    -- jOOQ's generated class initialisation), so NULL is rejected explicitly.
     IF i_chunk_by IS NULL THEN
         RAISE EXCEPTION 'i_chunk_by must not be NULL'
             USING ERRCODE = '22023';

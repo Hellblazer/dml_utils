@@ -20,6 +20,14 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plans(
 AS
 $$
 BEGIN
+    -- The strategy enum deliberately has no domain (a domain over it breaks
+    -- jOOQ's generated class initialisation), so a NULL would fall through to the
+    -- key branch and render key plans for a caller that asked for nothing.
+    IF i_chunk_by IS NULL THEN
+        RAISE EXCEPTION 'i_chunk_by must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- Validate the template once here, so both caller-facing explain functions
     -- (a raw template and the function wrapper) share the check.
     PERFORM dml_utils_lib.assert_chunking_template(i_sql_text => i_sql_text);

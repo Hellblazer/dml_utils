@@ -110,6 +110,22 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
     }
 
     /**
+     * An alias carrying a reserved substitution character is rejected: the alias is
+     * baked into every qualified column name, so it would be rewritten as a token.
+     */
+    @Test
+    void rejectsAnAliasWithASentinelCharacter() {
+        assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src",
+                "t" + DRIVING_TABLE_SENTINEL,
+                new String[]{"a"}, new String[]{"bigint"}));
+        assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src",
+                "t" + CLAUSE_SENTINEL,
+                new String[]{"a"}, new String[]{"bigint"}));
+    }
+
+    /**
      * Mismatched primary-key columns and kinds arrays are rejected.
      */
     @Test

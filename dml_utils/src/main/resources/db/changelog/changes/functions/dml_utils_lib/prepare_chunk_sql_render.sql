@@ -36,12 +36,15 @@ BEGIN
                  i_key_columns => i_key_columns,
                  i_key_kinds => i_key_kinds) AS columns;
 
-    -- The caller's template could in principle contain a sentinel character;
-    -- reject that so the substitutions stay unambiguous.
+    -- The caller's template, the alias (baked into every qualified column name)
+    -- and the key column names could in principle contain a sentinel character;
+    -- reject that so the per-chunk substitutions stay unambiguous.
     IF pg_catalog.strpos(i_sql_text, l_driving_table_sentinel) > 0
         OR pg_catalog.strpos(i_sql_text, l_chunking_clause_sentinel) > 0
+        OR pg_catalog.strpos(i_table_alias, l_driving_table_sentinel) > 0
+        OR pg_catalog.strpos(i_table_alias, l_chunking_clause_sentinel) > 0
     THEN
-        RAISE EXCEPTION 'template contains a reserved substitution character'
+        RAISE EXCEPTION 'template or alias contains a reserved substitution character'
             USING ERRCODE = '22023';
     END IF;
 

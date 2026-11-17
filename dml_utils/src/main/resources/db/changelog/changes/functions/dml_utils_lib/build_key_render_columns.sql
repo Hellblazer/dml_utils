@@ -62,6 +62,16 @@ BEGIN
                     USING ERRCODE = '22023';
             END IF;
 
+            -- The prepared template uses chr(1)/chr(2) as token sentinels; a column
+            -- name carrying one would be rewritten as a token during rendering.
+            IF pg_catalog.strpos(i_key_columns[l_position]::text, pg_catalog.chr(1)) > 0
+                OR pg_catalog.strpos(i_key_columns[l_position]::text, pg_catalog.chr(2)) > 0
+            THEN
+                RAISE EXCEPTION 'key column name contains a reserved substitution character at position %',
+                    l_position
+                    USING ERRCODE = '22023';
+            END IF;
+
             o_column_names := o_column_names || pg_catalog.format('%I.%I',
                                                                   i_table_alias,
                                                                   i_key_columns[l_position]);

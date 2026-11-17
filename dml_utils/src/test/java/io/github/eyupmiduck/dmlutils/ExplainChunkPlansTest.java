@@ -87,6 +87,44 @@ class ExplainChunkPlansTest extends PostgresTestBase {
     }
 
     /**
+     * A NULL strategy is rejected instead of falling through to the key branch and
+     * rendering key plans for a caller that asked for nothing.
+     */
+    @Test
+    void rejectsANullStrategy() {
+        assertSqlState("22023", () -> Routines.explainChunkPlans(
+                dsl.configuration(), TEMPLATE, FIXTURE_SCHEMA, "test_bigint", "t",
+                new String[]{"id"}, new String[]{"bigint"}, 1000L, null));
+    }
+
+    /**
+     * The blocks explain bounds the chunk size: NULL, zero, negative and above
+     * 2147483647 are rejected, while the maximum accepted value still plans (its
+     * doubled end is the largest representable tid block).
+     */
+    @Test
+    void boundsTheBlockChunkSize() {
+        assertSqlState("22023", () -> explainBlocks(null));
+        assertSqlState("22023", () -> explainBlocks(0L));
+        assertSqlState("22023", () -> explainBlocks(-1L));
+        assertSqlState("22023", () -> explainBlocks(2147483648L));
+
+        assertPlanKinds(explainBlocks(2147483647L));
+    }
+
+    /**
+     * Explains a blocks run with the given chunk size.
+     *
+     * @param chunkSize the chunk size, possibly NULL or invalid
+     * @return the plan rows
+     */
+    private List<ExplainChunkPlansRecord> explainBlocks(Long chunkSize) {
+        return Routines.explainChunkPlans(dsl.configuration(), TEMPLATE, FIXTURE_SCHEMA,
+                "test_bigint", "t", new String[]{"ctid"}, new String[]{"bigint"},
+                chunkSize, ChunkingStrategy.blocks);
+    }
+
+    /**
      * The explicit-boundary form explains exactly one rendered chunk and names it
      * by its finality.
      */

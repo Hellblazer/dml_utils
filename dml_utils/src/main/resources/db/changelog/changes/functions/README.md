@@ -341,7 +341,7 @@ i_driving_table_schema_name dml_utils_data.non_null_text
 i_driving_table_name        dml_utils_data.non_null_text
 i_start_values              text[]
 i_end_values                text[]
-i_is_final                  boolean
+i_is_final                  dml_utils_data.non_null_boolean
 i_driving_table_alias       dml_utils_data.non_null_text DEFAULT 't'
 i_chunk_by                  dml_utils_data.chunking_strategy DEFAULT 'primary_key'
 i_boundary_key_index        name DEFAULT NULL
@@ -1170,9 +1170,12 @@ primary-key columns in key order (`SELECT <fn>(t.<pk1>, ...) FROM <driving_table
 Resolves the primary key via `primary_key_columns` and validates that the
 function exists and returns `void` with argument types equal to the primary-key
 column types in key order; raises `invalid_parameter_value` (`22023`) otherwise. A
-non-NULL `i_filter` is appended as ` AND (<i_filter>)`, so only the rows it
+non-NULL `i_filter` is appended as ` AND (<i_filter>\n)`, so only the rows it
 matches are passed to the function; it references the driving table through the
-fixed alias `t`.
+fixed alias `t`. A blank (any ASCII whitespace) or NULL-token filter is rejected
+with `22023`, as is a filter carrying a template token or a reserved substitution
+character; the newline before the closing paren keeps a trailing `--` comment
+from swallowing it.
 
 ###
 
@@ -1632,7 +1635,12 @@ run's boundaries as the contiguous sequence `0..N`: one start boundary every
 `i_chunk_size` heap blocks plus a one-past-end terminal boundary, each a bigint
 block number in `migration_key`. The block count comes from `pg_relation_size`
 and the server block size at execution time, so no table scan is needed; a table
-with no blocks yields no boundaries. See the block-strategy limitations above.
+with no blocks yields no boundaries. Block numbers are rendered as
+`(<n>,0)::tid`, and a tid's block number is a 32-bit unsigned value: the highest
+addressable block is `4294967295`, so a driving table whose one-past-end block is
+`2^32` (only reachable at the 32 TB / 8 kB limit) cannot be chunked by `blocks`;
+`render_block_chunk_sql` rejects such an end with `22023` instead of failing
+inside EXPLAIN/EXECUTE. See the block-strategy limitations above.
 
 ### `dml_utils_lib.boundary_key_descriptor_sql(i_key_columns, i_key_kinds)`
 
@@ -1788,8 +1796,8 @@ RETURNS text
 range for `<chunking_clause>`, for example
 `((t.ctid) >= ('(0,0)'::tid) AND (t.ctid) < ('(1000,0)'::tid))`. Every chunk,
 including the terminal one, uses a half-open range; the terminal end is the
-one-past-end block count. Rejects a NULL, reversed or empty range and a bad
-template (`22023`).
+one-past-end block count. Rejects a reversed or empty range, an end block above
+`4294967295` (tid's block space) and a bad template (`22023`).
 
 ### `dml_utils_lib.relation_filepath(i_schema_name, i_table_name)`
 
@@ -1953,9 +1961,12 @@ statement from the key descriptor fragments: it streams the boundary key in
 index order, materialises only the chunk starts and takes the terminal boundary
 from a backward index scan. The five text fragments are interpolated raw, so they
 must be trusted SQL produced by `boundary_key_descriptor_sql`, never
-caller-supplied text. The boundary key must be unique and `i_order_by_desc` its
-exact inverse; otherwise the row chosen by the backward scan can differ from the
-last row in the ascending window order. Shared by `build_boundary_population_sql`
+caller-supplied text. A NULL run id, a non-positive chunk size, any NULL
+fragment or identifier, or a blank `i_order_by`/`i_order_by_desc` is rejected with
+`22023` before rendering. The
+boundary key must be unique and `i_order_by_desc` its exact inverse; otherwise
+the row chosen by the backward scan can differ from the last row in the ascending
+window order. Shared by `build_boundary_population_sql`
 so the runner and the explain path use the identical SQL.
 
 ### `dml_utils_lib.assert_ordered_key_index_usable(i_index_oid, i_schema_name, i_table_name, i_index_name)`
@@ -2115,8 +2126,11 @@ RETURNS TABLE
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Returns the EXPLAIN plans for a blocks run: the
-boundary insert and two representative half-open ctid ranges. No run or boundary
-is read or written. Shared by `explain_chunk_plans`.
+boundary insert and two representative half-open ctid ranges. `i_chunk_size` must
+be between 1 and `2147483647` (`22023` otherwise), because the plans use
+`0..chunk_size` and `chunk_size..2*chunk_size`, and the doubled end must fit tid's
+block space. No run or boundary is read or written. Shared by
+`explain_chunk_plans`.
 
 ###
 

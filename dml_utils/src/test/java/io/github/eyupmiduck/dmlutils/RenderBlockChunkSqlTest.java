@@ -38,6 +38,13 @@ class RenderBlockChunkSqlTest extends PostgresTestBase {
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 10L));
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 5L));
+        assertEquals("SELECT 1 FROM public.some_table t WHERE "
+                        + "((t.ctid) >= ('(0,0)'::tid) AND (t.ctid) < ('(4294967295,0)'::tid))",
+                Routines.renderBlockChunkSql(dsl.configuration(), TEMPLATE,
+                        PUBLIC_SCHEMA, "some_table", "t", 0L, 4294967295L),
+                "the highest representable tid block must still be accepted");
+        assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 0L, 4294967296L));
         assertDomainViolation(() -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", -1L, 5L));
     }
