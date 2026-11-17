@@ -4,6 +4,21 @@
 !.gitkeep
 !.gitignore
 
-# Published snapshots are committed: un-ignore the directory and its contents.
+# Published snapshots are committed, but only their report artifacts are
+# re-included. A blanket `!snapshot/**` would also cancel the root .gitignore
+# rules for this subtree (.env.*, *.pem, *.key, *.log, __pycache__, ...), so a
+# stray secret or generated file in a snapshot would be staged by default.
+#
+# The artifact allowlist below must be extended in lockstep when the published
+# names or set change (BENCH_CSV, BENCH_REPORT and the report/chart formats);
+# anything outside it deliberately stays ignored, so a missing file in
+# `git status` means the allowlist is stale rather than the file being lost.
 !lhorner_laptop_oct_2026/
-!lhorner_laptop_oct_2026/**
+!lhorner_laptop_oct_2026/**/
+!lhorner_laptop_oct_2026/**/benchmark.csv
+!lhorner_laptop_oct_2026/**/dataset.txt
+!lhorner_laptop_oct_2026/**/hardware.txt
+!lhorner_laptop_oct_2026/**/postgres-settings.txt
+!lhorner_laptop_oct_2026/**/report.md
+!lhorner_laptop_oct_2026/**/report-*.svg
+!lhorner_laptop_oct_2026/strategy-comparison.md
