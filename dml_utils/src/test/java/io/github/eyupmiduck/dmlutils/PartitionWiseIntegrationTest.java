@@ -9,6 +9,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.ExplainCh
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -272,6 +273,9 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         assertEquals("calculated", leaves.get(0).getState());
         long firstLeafBoundaries = leaves.get(0).getBoundaryCount();
         assertTrue(firstLeafBoundaries > 0);
+        OffsetDateTime firstCalculatedAt = leaves.get(0).getCalculatedAt();
+        assertNotNull(firstCalculatedAt,
+                "the calculated leaf records its calculation timestamp");
         assertEquals("failed", leaves.get(1).getState());
         assertEquals("55000", leaves.get(1).getErrorSqlstate());
         assertEquals("pending", leaves.get(2).getState());
@@ -283,6 +287,8 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
 
         assertEquals(firstLeafBoundaries, leaves(runId).get(0).getBoundaryCount(),
                 "the calculated leaf must not be recomputed");
+        assertEquals(firstCalculatedAt, leaves(runId).get(0).getCalculatedAt(),
+                "the calculated leaf keeps its calculation timestamp");
         assertNotNull(run(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.ne("done")));

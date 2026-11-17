@@ -146,7 +146,9 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     /**
-     * A worker failure is recorded in its own autonomous transaction.
+     * A worker failure is recorded as a migration_error row with the given
+     * boundary, SQLSTATE and message. The caller (the coordinator's worker) runs
+     * in its own transaction; this routine itself runs in the caller's.
      */
     @Test
     void recordsAWorkerFailure() {

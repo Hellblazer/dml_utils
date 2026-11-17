@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -48,13 +49,32 @@ class DdlUtilsInstallationTest extends PostgresTestBase {
      */
     @Test
     void installingDdlUtilsDoesNotCloseTheSharedConnection() throws Exception {
-        try (Connection admin = openOwnerConnection()) {
-            Connection wrapper = PostgresTestBase.closeIgnoring(admin);
-            wrapper.close();
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String scratch = "ddl_install_" + UUID.randomUUID().toString().replace("-", "");
+        try (Connection admin = openAdminConnection(database);
+             Statement statement = admin.createStatement()) {
+            statement.execute("CREATE DATABASE " + scratch);
+            try {
+                // Run the real install against a database that does not have the
+                // changelog yet. Liquibase closes the Database it is given, and
+                // the shared admin connection must survive that.
+                try (Connection scratchAdmin = openAdminConnection(scratch)) {
+                    PostgresTestBase.installDdlUtils(scratchAdmin);
 
-            assertFalse(admin.isClosed(), "the caller-owned connection stays open");
-            try (Statement statement = admin.createStatement()) {
-                statement.execute("SELECT 1");
+                    assertFalse(scratchAdmin.isClosed(),
+                            "the caller-owned connection stays open");
+                    try (Statement probe = scratchAdmin.createStatement()) {
+                        probe.execute("SELECT 1");
+                    }
+                }
+            } finally {
+                try {
+                    statement.execute("DROP DATABASE IF EXISTS " + scratch + " WITH (FORCE)");
+                } catch (SQLException cleanup) {
+                    // Do not let a cleanup failure replace the install error
+                    // being unwound; surface it on stderr for diagnosis.
+                    cleanup.printStackTrace(System.err);
+                }
             }
         }
     }

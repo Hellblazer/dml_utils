@@ -67,7 +67,8 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
         TerminalLeafForRun terminal = Routines.terminalLeafForRun(
                 dsl.configuration(), runId);
 
-        // The middle leaf is calculated but empty, so it has no terminal snapshot.
+        // The middle leaf is calculated but empty, so it is not the last
+        // non-empty leaf and cannot carry the terminal boundary.
         assertSqlState("55000", () -> Routines.appendTerminalBoundary(
                 dsl.configuration(), runId,
                 leafOrdinal(runId, PARTITIONED_RANGE_MID)));

@@ -67,6 +67,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
 
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
         OffsetDateTime first = migrationRun(runId).getPausedAt();
+        assertNotNull(first, "the first pause must record a timestamp");
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         assertEquals(first, migrationRun(runId).getPausedAt(), "a second pause is a no-op");

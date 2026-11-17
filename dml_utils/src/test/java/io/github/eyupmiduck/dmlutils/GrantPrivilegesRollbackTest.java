@@ -79,9 +79,14 @@ class GrantPrivilegesRollbackTest extends PostgresTestBase {
         return context.fetchOne("""
                         SELECT count(*)
                         FROM pg_catalog.pg_default_acl AS d
-                        JOIN pg_catalog.pg_namespace AS n ON n.oid = d.defaclnamespace
+                        LEFT JOIN pg_catalog.pg_namespace AS n ON n.oid = d.defaclnamespace
                         CROSS JOIN LATERAL pg_catalog.aclexplode(d.defaclacl) AS a
-                        WHERE n.nspname IN ('dml_utils', 'dml_utils_lib', 'dml_utils_data')
+                        WHERE (d.defaclnamespace = 0
+                               OR n.nspname IN ('dml_utils', 'dml_utils_lib', 'dml_utils_data'))
+                          -- The rollback under test must not re-open the owner's
+                          -- database-wide defaults either (defaclnamespace = 0);
+                          -- that is exactly what 007 revoked.
+                          AND d.defaclrole = 'dml_utils_owner'::pg_catalog.regrole
                           AND d.defaclobjtype IN ('f', 'T')
                           AND a.grantee = 0
                         """)

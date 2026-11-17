@@ -106,6 +106,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
         }
         Routines.finalizeCalculatedRun(dsl.configuration(), finalized);
         OffsetDateTime first = migrationRun(finalized).getBoundariesCalculatedAt();
+        assertNotNull(first, "the first finalization must record the milestone");
         Routines.finalizeCalculatedRun(dsl.configuration(), finalized);
         assertEquals(first, migrationRun(finalized).getBoundariesCalculatedAt());
     }
