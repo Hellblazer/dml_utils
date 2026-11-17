@@ -24,7 +24,6 @@ class BuildLeafBoundaryPopulationSqlTest extends PartitionTestBase {
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
     private static final String LOW = PARTITION_SCHEMA + ".test_partitioned_range_low";
-    private static final String HIGH = PARTITION_SCHEMA + ".test_partitioned_range_high";
 
     /**
      * Empties the range fixture and the migration metadata between tests.

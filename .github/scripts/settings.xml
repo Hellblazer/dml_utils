@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- CI-only Maven settings. The reusable workflows configure a `github`
-     server for liquibase-validation; ddl_utils lives in its own Packages
-     repository, so it needs a second server entry. Both use the workflow's
-     GITHUB_ACTOR/GITHUB_TOKEN. Pass this file with -s. -->
+<!-- CI-only Maven settings. Every caller passes this file with -s, which
+     REPLACES the user settings file (actions/setup-java's ~/.m2/settings.xml)
+     rather than merging with it: this file is the only settings Maven sees in
+     CI, so every server entry must live here. The reusable workflows need a
+     `github` server for liquibase-validation, and ddl_utils lives in its own
+     Packages repository, so it needs a second entry. Both use the workflow's
+     GITHUB_ACTOR/GITHUB_TOKEN. -->
 <settings xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">

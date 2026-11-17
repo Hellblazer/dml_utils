@@ -1161,7 +1161,8 @@ class MigrationTablesTest extends PostgresTestBase {
                         MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
                         MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
                         MIGRATION_RUN.ORDERED_KEY_KINDS)
-                .values("ordered-key-run", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                .values(uniqueLabel("ordered-key-run"), "SELECT 1", 1,
+                        ChunkingStrategy.ordered_key, 1,
                         PUBLIC_SCHEMA, "migration_tables_source",
                         "migration_tables_source_key", new String[]{"created_at", "id"},
                         new String[]{"timestamptz", "bigint"})

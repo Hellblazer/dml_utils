@@ -119,7 +119,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
         seedBigint(1, 2);
         String label = uniqueLabel("pause-completed");
         runToCompletion(label);
-        Long runId = runIdForLabel(label);
+        Long runId = runId(label);
         assertNotNull(run(runId).getCompletedAt(), "the run completed");
 
         assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
@@ -265,7 +265,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
      * @param routine the routine to call
      */
     private void assertCallWaitsForTheRunRow(String label, String routine) throws Exception {
-        Long runId = runIdForLabel(label);
+        Long runId = runId(label);
         try (Connection holder = openTestConnection();
              Connection caller = openTestConnection()) {
             holder.setAutoCommit(false);
@@ -307,19 +307,6 @@ class PauseMigrationRunTest extends PostgresTestBase {
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
-    }
-
-    /**
-     * Finds the run id for a label.
-     *
-     * @param label the run label
-     * @return the run id
-     */
-    private Long runIdForLabel(String label) {
-        return dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
     }
 
     /**

@@ -15,11 +15,6 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
 
     private static final String SCHEMA = "dml_utils_fixtures";
 
-    private long parentOid(String table) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", SCHEMA + "." + table)
-                .get(0, Long.class);
-    }
-
     /**
      * Ordinary storage leaves of range, list, hash and multi-level parents pass
      * the relation check.
@@ -29,7 +24,7 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
         for (String table : new String[]{"test_partitioned_range", "test_partitioned_list",
                 "test_partitioned_hash", "test_partitioned_multi"}) {
             assertDoesNotThrow(() -> Routines.assertPartitionedLeafRelations(
-                    dsl.configuration(), parentOid(table)));
+                    dsl.configuration(), relationOid(SCHEMA + "." + table)));
         }
     }
 
@@ -49,7 +44,7 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
                     + " FOR VALUES FROM (0) TO (100)");
 
             assertSqlState("42809", () -> Routines.assertPartitionedLeafRelations(
-                    dsl.configuration(), parentOid("test_partitioned_foreign")));
+                    dsl.configuration(), relationOid(SCHEMA + ".test_partitioned_foreign")));
         } finally {
             executeAsOwner("DROP FOREIGN TABLE IF EXISTS " + SCHEMA
                     + ".test_partitioned_foreign_leaf");
@@ -75,7 +70,7 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
     @Test
     void acceptsReadableLeaves() {
         assertDoesNotThrow(() -> Routines.assertPartitionedLeafPrivileges(
-                dsl.configuration(), parentOid("test_partitioned_range")));
+                dsl.configuration(), relationOid(SCHEMA + ".test_partitioned_range")));
     }
 
     /**
@@ -87,7 +82,7 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
                 + " FROM " + TEST_USER + ", dml_utils_caller");
         try {
             assertSqlState("42501", () -> Routines.assertPartitionedLeafPrivileges(
-                    dsl.configuration(), parentOid("test_partitioned_list")));
+                    dsl.configuration(), relationOid(SCHEMA + ".test_partitioned_list")));
         } finally {
             executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                     + SCHEMA + ".test_partitioned_list_a TO "

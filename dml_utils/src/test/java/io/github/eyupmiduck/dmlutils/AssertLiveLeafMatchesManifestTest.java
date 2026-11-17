@@ -95,9 +95,7 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
      */
     @Test
     void rejectsANonTableRelation() {
-        long parentOid = dsl.fetchOne("SELECT ?::regclass::oid",
-                        PARTITION_SCHEMA + "." + TABLE)
-                .get(0, Long.class);
+        long parentOid = relationOid(PARTITION_SCHEMA + "." + TABLE);
 
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), ChunkingStrategy.primary_key,

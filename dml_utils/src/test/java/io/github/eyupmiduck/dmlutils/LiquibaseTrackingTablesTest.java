@@ -2,6 +2,7 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.TrackingTablesContract;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
@@ -31,6 +32,8 @@ class LiquibaseTrackingTablesTest extends TrackingTablesContract {
      */
     @Override
     protected Collection<String> applicationSchemas() {
-        return List.of(PUBLIC_SCHEMA, "dml_utils", "dml_utils_lib", "dml_utils_data");
+        List<String> schemas = new ArrayList<>(TestSchemas.APPLICATION);
+        schemas.add(PUBLIC_SCHEMA);
+        return schemas;
     }
 }

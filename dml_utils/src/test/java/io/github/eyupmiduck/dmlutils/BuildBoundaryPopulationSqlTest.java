@@ -6,7 +6,6 @@ import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -57,10 +56,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         dsl.execute(Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, runId, 2L));
 
-        List<MigrationBoundaryRecord> boundaries = dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
+        List<MigrationBoundaryRecord> boundaries = this.boundaries(runId);
 
         // Rows 1..5 at chunk size 2: starts at 1, 3 and 5 (boundary_no 0, 1, 2)
         // and a terminal high-water boundary at 5 (boundary_no 3).
@@ -219,15 +215,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void insertsTimestamptzCompositeKeyBoundaries() {
-        for (int i = 1; i <= 5; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
+        seedOrderedKey();
         long runId = insertRun(TEST_ORDERED_KEY);
 
         executeBuild(TEST_ORDERED_KEY, new String[]{"created_at", "id"},

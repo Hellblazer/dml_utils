@@ -75,7 +75,7 @@ class GrantPrivilegesTest extends PostgresTestBase {
         }
 
         assertEquals(Boolean.TRUE, dsl.fetchOne(
-                        "SELECT pg_catalog.has_table_privilege('dml_utils_caller',"
+                        "SELECT pg_catalog.has_table_privilege('" + CALLER + "',"
                                 + " 'dml_utils_data.migration_boundary', 'SELECT')")
                 .get(0, Boolean.class), "the caller should be able to select migration_boundary");
     }

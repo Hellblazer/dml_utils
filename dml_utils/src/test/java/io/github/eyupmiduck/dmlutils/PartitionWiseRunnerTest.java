@@ -26,8 +26,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class PartitionWiseRunnerTest extends PartitionTestBase {
 
-    private static final String SCHEMA = "dml_utils_fixtures";
-    private static final String TABLE = "test_partitioned_range";
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
 
@@ -45,10 +43,10 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void runsAPartitionWiseMigrationAcrossEveryLeaf() {
-        insertRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
+        insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("partition-wise-run");
 
-        run(TABLE, label, 2, true);
+        run(PARTITIONED_RANGE, label, 2, true);
 
         MigrationRunRecord run = run(label);
         assertTrue(run.getPartitionWise());
@@ -88,9 +86,9 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void terminalSnapshotSurvivesTailDeletion() {
-        insertRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
+        insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("partition-wise-delete-tail");
-        long runId = populate(TABLE, label, 2, ChunkingStrategy.primary_key, null, true);
+        long runId = populate(PARTITIONED_RANGE, label, 2, ChunkingStrategy.primary_key, null, true);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
@@ -99,7 +97,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
                 .where(TEST_PARTITIONED_RANGE.ID.lt(100L))
                 .execute();
 
-        run(TABLE, label, 2, true);
+        run(PARTITIONED_RANGE, label, 2, true);
 
         assertNotNull(run(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
@@ -113,13 +111,13 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void cancellationDuringCalculationStopsBeforeProcessing() throws Exception {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-cancel-during");
-        long runId = populate(TABLE, label, 2, ChunkingStrategy.primary_key, null, true);
+        long runId = populate(PARTITIONED_RANGE, label, 2, ChunkingStrategy.primary_key, null, true);
 
         // Fault injection: cancel the run as soon as the first leaf is marked
         // calculated, which is the window between calculation and processing.
-        executeAsOwner("CREATE OR REPLACE FUNCTION " + SCHEMA + ".cancel_run_after_leaf()"
+        executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()"
                 + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
                 + " UPDATE dml_utils_data.migration_run"
                 + " SET cancelled_at = pg_catalog.clock_timestamp()"
@@ -130,13 +128,13 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         executeAsOwner("CREATE TRIGGER cancel_run_after_leaf"
                 + " AFTER UPDATE ON dml_utils_data.migration_run_leaf"
                 + " FOR EACH ROW WHEN (NEW.state = 'calculated')"
-                + " EXECUTE FUNCTION " + SCHEMA + ".cancel_run_after_leaf()");
+                + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()");
         try {
-            run(TABLE, label, 2, true);
+            run(PARTITIONED_RANGE, label, 2, true);
         } finally {
             executeAsOwner("DROP TRIGGER IF EXISTS cancel_run_after_leaf"
                     + " ON dml_utils_data.migration_run_leaf");
-            executeAsOwner("DROP FUNCTION IF EXISTS " + SCHEMA + ".cancel_run_after_leaf()");
+            executeAsOwner("DROP FUNCTION IF EXISTS " + PARTITION_SCHEMA + ".cancel_run_after_leaf()");
         }
 
         MigrationRunRecord run = run(label);
@@ -159,10 +157,10 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void blocksRunProcessesEveryLeaf() {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-blocks");
 
-        run(TABLE, label, 1, ChunkingStrategy.blocks, null, true);
+        run(PARTITIONED_RANGE, label, 1, ChunkingStrategy.blocks, null, true);
 
         MigrationRunRecord run = run(label);
         assertTrue(run.getPartitionWise());
@@ -184,11 +182,11 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void storedPartitionWiseFlagWinsOnResume() {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-flag");
-        long runId = populate(TABLE, label, 2, ChunkingStrategy.primary_key, null, true);
+        long runId = populate(PARTITIONED_RANGE, label, 2, ChunkingStrategy.primary_key, null, true);
 
-        run(TABLE, label, 2, false);
+        run(PARTITIONED_RANGE, label, 2, false);
 
         assertTrue(run(label).getPartitionWise(), "the stored flag wins");
         assertNotNull(run(label).getBoundariesCalculatedAt());
@@ -204,17 +202,17 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void rejectsALeafTheCallerCannotRead() throws Exception {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-privilege");
 
-        executeAsOwner("REVOKE SELECT ON " + SCHEMA + ".test_partitioned_range_mid"
+        executeAsOwner("REVOKE SELECT ON " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
                 + " FROM " + TEST_USER + ", dml_utils_caller");
         try {
-            assertSqlState("42501", () -> populate(TABLE, label, 2,
+            assertSqlState("42501", () -> populate(PARTITIONED_RANGE, label, 2,
                     ChunkingStrategy.primary_key, null, true));
         } finally {
             executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
-                    + SCHEMA + ".test_partitioned_range_mid TO "
+                    + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID + " TO "
                     + TEST_USER + ", dml_utils_caller");
         }
 
@@ -229,11 +227,11 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void resumesPartialCalculationAtTheFirstPendingLeaf() {
-        insertRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
+        insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("partition-wise-resume");
 
         long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), SCHEMA, TABLE, label, TEMPLATE, 2, 1,
+                dsl.configuration(), PARTITION_SCHEMA, PARTITIONED_RANGE, label, TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
 
         assertEquals(1, io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationLeaf(dsl.configuration(), runId));
@@ -241,7 +239,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         assertEquals(2L, firstLeafBoundaries);
         assertNull(run(label).getBoundariesCalculatedAt());
 
-        run(TABLE, label, 2, true);
+        run(PARTITIONED_RANGE, label, 2, true);
 
         MigrationRunRecord run = run(label);
         assertNotNull(run.getBoundariesCalculatedAt());
@@ -262,18 +260,18 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void changedTreeBeforeProcessingFailsClosed() throws Exception {
-        insertRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
+        insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("partition-wise-changed-before");
 
         long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), SCHEMA, TABLE, label, TEMPLATE, 2, 1,
+                dsl.configuration(), PARTITION_SCHEMA, PARTITIONED_RANGE, label, TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
-        executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
-                + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
+        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                + " DETACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
         try {
-            assertSqlState("55000", () -> run(TABLE, label, 2, true));
+            assertSqlState("55000", () -> run(PARTITIONED_RANGE, label, 2, true));
         } finally {
             restoreMidPartition();
         }
@@ -289,17 +287,17 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void changedTreeDuringCalculationFailsClosed() throws Exception {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-changed-during");
 
         long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), SCHEMA, TABLE, label, TEMPLATE, 2, 1,
+                dsl.configuration(), PARTITION_SCHEMA, PARTITIONED_RANGE, label, TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
 
-        executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
-                + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
+        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                + " DETACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
         try {
-            assertSqlState("55000", () -> run(TABLE, label, 2, true));
+            assertSqlState("55000", () -> run(PARTITIONED_RANGE, label, 2, true));
         } finally {
             restoreMidPartition();
         }
@@ -316,15 +314,15 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void cancellationStopsLeafCalculation() {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-cancel");
 
         long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), SCHEMA, TABLE, label, TEMPLATE, 2, 1,
+                dsl.configuration(), PARTITION_SCHEMA, PARTITIONED_RANGE, label, TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         Routines.cancelMigrationRun(dsl.configuration(), label);
 
-        run(TABLE, label, 2, true);
+        run(PARTITIONED_RANGE, label, 2, true);
 
         MigrationRunRecord run = run(label);
         assertNotNull(run.getCancelledAt());
@@ -343,10 +341,10 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
      */
     @Test
     void concurrentCalculationFailsClosed() throws Exception {
-        insertRows(0L, 100L, 200L);
+        insertRangeRows(0L, 100L, 200L);
         String label = uniqueLabel("partition-wise-concurrent");
         long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), SCHEMA, TABLE, label, TEMPLATE, 1, 1,
+                dsl.configuration(), PARTITION_SCHEMA, PARTITIONED_RANGE, label, TEMPLATE, 1, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
 
         try (Connection other = openTestConnection()) {
@@ -386,24 +384,15 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
 
     private void run(String table, String label, int chunkSize, ChunkingStrategy chunkBy,
                      String boundaryKeyIndex, boolean partitionWise) {
-        Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, SCHEMA, table, label,
+        Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, PARTITION_SCHEMA, table, label,
                 chunkSize, 1, "t", chunkBy, 1, 0, boundaryKeyIndex, partitionWise, 3, 1000);
     }
 
     private long populate(String table, String label, int chunkSize, ChunkingStrategy chunkBy,
                           String boundaryKeyIndex, boolean partitionWise) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
-                .populateMigrationBoundaries(dsl.configuration(), SCHEMA, table, label, TEMPLATE,
+                .populateMigrationBoundaries(dsl.configuration(), PARTITION_SCHEMA, table, label, TEMPLATE,
                         chunkSize, 1, chunkBy, "t", 0, boundaryKeyIndex, partitionWise, 3, 1000);
-    }
-
-    private void insertRows(Long... ids) {
-        for (Long id : ids) {
-            dsl.insertInto(TEST_PARTITIONED_RANGE,
-                            TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "pending")
-                    .execute();
-        }
     }
 
     private MigrationRunRecord run(String label) {

@@ -441,7 +441,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     void recordsLabelSqlTextAndChunkSize() {
         createSource(1, 2, 3, 4, 5);
 
-        String label = "records-columns-run";
+        String label = uniqueLabel("records-columns-run");
         long runId = populate(label, 5);
 
         MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
@@ -461,7 +461,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
      */
     @Test
     void recordsTheGivenThreads() {
-        String label = LABEL + "-threads";
+        String label = uniqueLabel("records-threads");
 
         long runId = populate(TEST_BIGINT, label, 5, 3);
 

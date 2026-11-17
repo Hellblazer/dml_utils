@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -20,11 +21,6 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
 
     private static final String SCHEMA = "dml_utils_fixtures";
 
-    private long regclassOid(String qualifiedName) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", qualifiedName)
-                .get(0, Long.class);
-    }
-
     private Set<String> storageLeaves(String parent) {
         return new HashSet<>(dsl.fetch(
                         "SELECT leaf.relid::regclass::text FROM pg_partition_tree(?::regclass) AS leaf"
@@ -33,17 +29,24 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
                 .into(String.class));
     }
 
-    private String indexedTable(long childIndexOid) {
-        return dsl.fetchOne(
-                        "SELECT i.indrelid::regclass::text FROM pg_catalog.pg_index AS i"
-                                + " WHERE i.indexrelid = ?",
-                        childIndexOid)
-                .get(0, String.class);
+    /**
+     * Maps every index OID to the relation it is on in one catalog read, so the
+     * per-row assertions do not issue a query per row.
+     *
+     * @return index OID to qualified table name
+     */
+    private Map<Long, String> indexedTables() {
+        return dsl.fetch("""
+                        SELECT i.indexrelid AS oid, i.indrelid::regclass::text AS table_name
+                        FROM pg_catalog.pg_index AS i
+                        """)
+                .intoMap(row -> row.get("oid", Long.class),
+                        row -> row.get("table_name", String.class));
     }
 
     private List<OrderedKeyLeafIndexesRecord> childIndexes(String parentIndex) {
         return Routines.orderedKeyLeafIndexes(dsl.configuration(),
-                regclassOid(SCHEMA + "." + parentIndex));
+                relationOid(SCHEMA + "." + parentIndex));
     }
 
     /**
@@ -56,6 +59,7 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
                 childIndexes("test_partitioned_range_ordered_key_idx");
 
         assertEquals(3, rows.size(), "one child index per range leaf");
+        Map<Long, String> indexedTables = indexedTables();
         Set<String> indexedLeaves = new HashSet<>();
         Set<String> childNames = new HashSet<>();
         for (OrderedKeyLeafIndexesRecord row : rows) {
@@ -64,7 +68,7 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
             assertNotNull(row.getChildIndexName());
             assertTrue(childNames.add(row.getChildIndexName()),
                     "each child index name is distinct");
-            indexedLeaves.add(indexedTable(row.getChildIndexOid()));
+            indexedLeaves.add(indexedTables.get(row.getChildIndexOid()));
         }
         assertEquals(storageLeaves("test_partitioned_range"), indexedLeaves,
                 "the child indexes cover exactly the storage leaves");
@@ -80,9 +84,10 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
                 childIndexes("test_partitioned_multi_ordered_key_idx");
 
         assertEquals(3, rows.size(), "two hash leaves plus the high leaf");
+        Map<Long, String> indexedTables = indexedTables();
         Set<String> indexedLeaves = new HashSet<>();
         for (OrderedKeyLeafIndexesRecord row : rows) {
-            indexedLeaves.add(indexedTable(row.getChildIndexOid()));
+            indexedLeaves.add(indexedTables.get(row.getChildIndexOid()));
         }
         assertEquals(storageLeaves("test_partitioned_multi"), indexedLeaves,
                 "the recursive walk covers every storage leaf");

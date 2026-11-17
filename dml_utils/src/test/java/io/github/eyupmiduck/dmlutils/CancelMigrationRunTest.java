@@ -112,9 +112,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
-        Long runId = dsl.fetchOne(
-                        "SELECT run_id FROM dml_utils_data.migration_run WHERE label = ?", label)
-                .get(0, Long.class);
+        long runId = runId(label);
         assertNotNull(run(runId).getCompletedAt(), "the run completed");
 
         assertNull(Routines.cancelMigrationRun(dsl.configuration(), label));

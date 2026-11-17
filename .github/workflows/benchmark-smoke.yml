@@ -85,7 +85,9 @@ jobs:
       - name: Run the benchmark smoke test
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          # setup.sh can re-run the initialize goal; give it both Packages
-          # server entries (github and github-ddl-utils).
+          # setup.sh re-runs ./mvnw initialize, and Maven's launcher (3.9+)
+          # reads MAVEN_ARGS, so the wrapper's child Maven gets both Packages
+          # server entries (github and github-ddl-utils) without setup.sh
+          # hard-coding the settings path.
           MAVEN_ARGS: -s .github/scripts/settings.xml
         run: benchmark/smoke.sh

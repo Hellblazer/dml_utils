@@ -21,6 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  */
 class SetMigrationRunRetriesTest extends PostgresTestBase {
 
+    // The retry policy these runs are created with. They match the column
+    // defaults, and the tests assert the setter leaves these explicit values
+    // unchanged on a terminal run.
+    private static final int RETRIES = 3;
+    private static final int RETRY_BACKOFF_MS = 1000;
+
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
 
@@ -108,8 +114,9 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
                 dsl.configuration(), label, 9, 9));
 
         MigrationRunRecord run = run(runId(label));
-        assertEquals(3, run.getMaxRetries(), "the default is unchanged");
-        assertEquals(1000, run.getRetryBackoffMs(), "the default is unchanged");
+        assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
+        assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
+                "the created retry backoff is unchanged");
     }
 
     /**
@@ -126,8 +133,9 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
                 dsl.configuration(), label, 9, 9));
 
         MigrationRunRecord run = run(runId(label));
-        assertEquals(3, run.getMaxRetries(), "the default is unchanged");
-        assertEquals(1000, run.getRetryBackoffMs(), "the default is unchanged");
+        assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
+        assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
+                "the created retry backoff is unchanged");
     }
 
     /**
@@ -144,8 +152,9 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
                 dsl.configuration(), label, 9, 9));
 
         MigrationRunRecord run = run(runId(label));
-        assertEquals(3, run.getMaxRetries(), "the default is unchanged");
-        assertEquals(1000, run.getRetryBackoffMs(), "the default is unchanged");
+        assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
+        assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
+                "the created retry backoff is unchanged");
     }
 
     /**
@@ -176,7 +185,8 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
     private Long populate(String label) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT), label,
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false,
+                RETRIES, RETRY_BACKOFF_MS);
     }
 
     /**
@@ -187,7 +197,8 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
     private void runToCompletion(String label) {
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
+                ChunkingStrategy.primary_key, 1, 0, null, false,
+                RETRIES, RETRY_BACKOFF_MS);
     }
 
     /**

@@ -132,10 +132,7 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
                 label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000);
 
         assertTrue(runCompleted(label), "an empty run should complete");
-        long runId = dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
+        long runId = runId(label);
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY, MIGRATION_BOUNDARY.RUN_ID.eq(runId)),
                 "an empty table has no boundaries");
     }

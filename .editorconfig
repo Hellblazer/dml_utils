@@ -9,3 +9,12 @@ trim_trailing_whitespace = true
 # Keep editors in step with SQLFluff's max_line_length (see .sqlfluff).
 [*.sql]
 max_line_length = 120
+
+# Batch scripts need CRLF; do not let an editor rewrite them to LF.
+[*.{cmd,bat}]
+end_of_line = crlf
+
+# CommonMark uses two trailing spaces as a hard line break, so Markdown must keep
+# its trailing whitespace.
+[*.{md,markdown}]
+trim_trailing_whitespace = false

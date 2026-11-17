@@ -218,8 +218,10 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     private NextMigrationChunk next(long runId, boolean partitionWise, Long[] inFlight) {
+        String tableSchema = partitionWise ? PARTITION_SCHEMA : schema(TEST_BIGINT);
+        String tableName = partitionWise ? PARTITIONED_RANGE : name(TEST_BIGINT);
         return Routines.nextMigrationChunk(dsl.configuration(), runId, partitionWise,
-                new String[]{"bigint"}, inFlight, schema(TEST_BIGINT), name(TEST_BIGINT));
+                new String[]{"bigint"}, inFlight, tableSchema, tableName);
     }
 
 

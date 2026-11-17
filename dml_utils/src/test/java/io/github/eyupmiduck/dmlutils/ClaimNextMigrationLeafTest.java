@@ -25,7 +25,6 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
-    private static final String TABLE = "test_partitioned_range";
 
     /**
      * Empties the fixture and migration metadata between tests.
@@ -43,7 +42,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void claimsLeavesInManifestOrder() {
-        long runId = populatePartitionWise("claim-leaf-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 4, null);
+        long runId = populatePartitionWise("claim-leaf-blocks", PARTITIONED_RANGE, TEMPLATE, ChunkingStrategy.blocks, 4, null);
 
         ClaimNextMigrationLeafRecord first = claim(runId).getFirst();
         assertEquals(1, first.getOLeafOrdinal());
@@ -62,14 +61,14 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void returnsNoLeafForFinalizedOrCancelledRuns() {
-        long runId = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
+        long runId = populatePartitionWise("claim-leaf-primary_key", PARTITIONED_RANGE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
         assertTrue(claim(runId).isEmpty());
 
-        long finalized = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
+        long finalized = populatePartitionWise("claim-leaf-primary_key", PARTITIONED_RANGE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(finalized))
@@ -85,7 +84,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
         assertDomainViolation(() -> claim(null));
         assertSqlState("P0002", () -> claim(-1L));
         long plain = Routines.populateMigrationBoundaries(dsl.configuration(),
-                PARTITION_SCHEMA, TABLE, uniqueLabel("claim-plain"), TEMPLATE, 2, 1,
+                PARTITION_SCHEMA, PARTITIONED_RANGE, uniqueLabel("claim-plain"), TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
         assertSqlState("22023", () -> claim(plain));
     }
@@ -95,7 +94,7 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
      */
     @Test
     void rejectsAnUnreadableLeaf() throws Exception {
-        long runId = populatePartitionWise("claim-leaf-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
+        long runId = populatePartitionWise("claim-leaf-primary_key", PARTITIONED_RANGE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         executeAsOwner("REVOKE SELECT ON " + PARTITION_SCHEMA
                 + ".test_partitioned_range_low FROM " + TEST_USER + ", dml_utils_caller");
         try {
