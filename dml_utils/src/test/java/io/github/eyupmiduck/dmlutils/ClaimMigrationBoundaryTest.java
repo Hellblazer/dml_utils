@@ -1,6 +1,5 @@
 package io.github.eyupmiduck.dmlutils;
 
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.jooq.DSLContext;
@@ -14,8 +13,6 @@ import java.sql.Statement;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -32,8 +29,7 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
     }
 
     /**
@@ -44,7 +40,7 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
     @Test
     void claimsAPendingBoundaryWithoutWritingIt() {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("claim-boundary", 1);
 
         assertNotNull(claim(runId, 0));
         MigrationBoundaryRecord boundary = boundary(runId, 0);
@@ -62,7 +58,7 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
     @Test
     void rejectsMissingCompletedAndCancelledBoundaries() {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("claim-boundary", 1);
 
         assertSqlState("P0C01", () -> claim(-1, 0));
         assertSqlState("P0C01", () -> claim(runId, 999));
@@ -92,7 +88,7 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
     @Test
     void holdsTheBoundaryLockUntilTheTransactionEnds() throws Exception {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("claim-boundary", 1);
 
         try (Connection holder = openTestConnection();
              Connection waiter = openTestConnection()) {
@@ -118,12 +114,6 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
         }
     }
 
-    private long populate(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                uniqueLabel("claim-boundary"), "SELECT 1", chunkSize, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
     private OffsetDateTime claim(long runId, long boundaryNo) {
         return Routines.claimMigrationBoundary(dsl.configuration(), runId, boundaryNo);

@@ -82,7 +82,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         seedBigint(1, 2, 3, 4, 5, 6);
         long runId = populate(TEST_BIGINT, uniqueLabel("explain-run-final"),
                 ChunkingStrategy.primary_key, null, false, 2);
-        long finalChunk = run(runId).getTotalChunks() - 1;
+        long finalChunk = migrationRun(runId).getTotalChunks() - 1;
 
         ExplainMigrationRunChunkRecord plan = explain(runId, finalChunk);
 
@@ -140,7 +140,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-partition-blocks"),
                 ChunkingStrategy.blocks, null, true, 1);
-        calculate(runId);
+        calculateRun(runId);
 
         ExplainMigrationRunChunkRecord plan = explain(runId, 0L);
 
@@ -188,7 +188,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-partition"),
                 ChunkingStrategy.ordered_key, PARTITIONED_ORDERED_KEY_INDEX, true, 2);
-        calculate(runId);
+        calculateRun(runId);
 
         ExplainMigrationRunChunkRecord plan = explain(runId, 0L);
 
@@ -211,7 +211,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-leaf-final"),
                 ChunkingStrategy.primary_key, null, true, 2);
-        calculate(runId);
+        calculateRun(runId);
 
         int firstLeaf = Routines.migrationBoundaries(dsl.configuration(), runId).getFirst()
                 .getLeafOrdinal();
@@ -240,7 +240,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         long runId = populate(TEST_BIGINT, uniqueLabel("explain-run-terminal"),
                 ChunkingStrategy.primary_key, null, false, 2);
 
-        assertSqlState("22023", () -> explain(runId, run(runId).getTotalChunks()));
+        assertSqlState("22023", () -> explain(runId, migrationRun(runId).getTotalChunks()));
     }
 
     /**
@@ -283,7 +283,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-changed"),
                 ChunkingStrategy.primary_key, null, true, 2);
-        calculate(runId);
+        calculateRun(runId);
         try {
             executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
                     + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
@@ -312,15 +312,6 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
                         chunkSize, 1, chunkBy, "t", 0, boundaryIndex, partitionWise, 3, 1000);
     }
 
-    /**
-     * Calculates and finalizes every leaf boundary of a partition-wise run.
-     *
-     * @param runId the run id
-     */
-    private void calculate(long runId) {
-        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
-                .calculateMigrationRunBoundaries(dsl.configuration(), runId);
-    }
 
     /**
      * Reads the plan for one stored boundary.
@@ -345,7 +336,7 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
      * @return the expected chunk SQL
      */
     private String runnerSql(long runId, long boundaryNo) {
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         String[] keyColumns = null;
         String[] keyKinds;
         if (run.getChunkBy() == ChunkingStrategy.blocks) {
@@ -394,15 +385,4 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
                         chunk.getOIsFinal());
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

@@ -29,8 +29,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
     }
 
     /**
@@ -67,9 +66,9 @@ class RunResolutionHelpersTest extends PostgresTestBase {
 
         assertEquals(4, dsl.fetchCount(MIGRATION_BOUNDARY,
                 MIGRATION_BOUNDARY.RUN_ID.eq(single)));
-        assertNotNull(run(single).getBoundariesCalculatedAt());
-        assertEquals(3, run(single).getMaxRetries(), "the single run stores the retry count");
-        assertEquals(1000, run(single).getRetryBackoffMs(),
+        assertNotNull(migrationRun(single).getBoundariesCalculatedAt());
+        assertEquals(3, migrationRun(single).getMaxRetries(), "the single run stores the retry count");
+        assertEquals(1000, migrationRun(single).getRetryBackoffMs(),
                 "the single run stores the retry backoff");
 
         long partitioned = Routines.createMigrationRun(dsl.configuration(),
@@ -77,14 +76,14 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                 uniqueLabel("create-partitioned"), TEMPLATE, 2, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
 
-        assertTrue(run(partitioned).getPartitionWise());
+        assertTrue(migrationRun(partitioned).getPartitionWise());
         assertEquals(3, dsl.fetchCount(MIGRATION_RUN_LEAF,
                 MIGRATION_RUN_LEAF.RUN_ID.eq(partitioned)));
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
                 MIGRATION_BOUNDARY.RUN_ID.eq(partitioned)));
-        assertEquals(3, run(partitioned).getMaxRetries(),
+        assertEquals(3, migrationRun(partitioned).getMaxRetries(),
                 "the partition-wise run stores the retry count");
-        assertEquals(1000, run(partitioned).getRetryBackoffMs(),
+        assertEquals(1000, migrationRun(partitioned).getRetryBackoffMs(),
                 "the partition-wise run stores the retry backoff");
     }
 
@@ -105,7 +104,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     void resumesARequestedRun() {
         String label = uniqueLabel("resume-active");
         long runId = populate(label, ChunkingStrategy.ordered_key);
-        MigrationRunRecord stored = run(runId);
+        MigrationRunRecord stored = migrationRun(runId);
 
         ResumeMigrationRun resumed = Routines.resumeMigrationRun(dsl.configuration(),
                 stored, "dml_utils_fixtures", "test_ordered_key", TEMPLATE, 2, 1,
@@ -132,7 +131,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, TEMPLATE, 1, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, false, 7, 250);
-        MigrationRunRecord stored = run(runId);
+        MigrationRunRecord stored = migrationRun(runId);
 
         ResumeMigrationRun resumed = Routines.resumeMigrationRun(dsl.configuration(),
                 stored, schema(TEST_BIGINT), name(TEST_BIGINT), TEMPLATE, 1, 1,
@@ -150,7 +149,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     void resumeRejectsAChangedOrderedDescriptor() {
         String label = uniqueLabel("resume-ordered");
         long runId = populate(label, ChunkingStrategy.ordered_key);
-        MigrationRunRecord stored = run(runId);
+        MigrationRunRecord stored = migrationRun(runId);
         stored.setOrderedKeyColumns(new String[]{"id"});
 
         assertSqlState("55000", () -> Routines.resumeMigrationRun(dsl.configuration(),
@@ -166,7 +165,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     void resumeRejectsAChangedBlocksFilepath() {
         String label = uniqueLabel("resume-blocks");
         long runId = populate(label, ChunkingStrategy.blocks);
-        MigrationRunRecord stored = run(runId);
+        MigrationRunRecord stored = migrationRun(runId);
         stored.setDrivingTableRelationFilepath("base/1/999");
 
         assertSqlState("22023", () -> Routines.resumeMigrationRun(dsl.configuration(),
@@ -192,9 +191,4 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                 false, 3, 1000);
     }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

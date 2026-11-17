@@ -13,7 +13,6 @@ import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -34,9 +33,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsBigintAndRange();
     }
 
     /**
@@ -155,10 +152,10 @@ class MigrationRunProgressTest extends PartitionTestBase {
         // ordering still allows it because the boundaries were calculated after the
         // start.
         dsl.update(MIGRATION_RUN)
-                .set(MIGRATION_RUN.COMPLETED_AT, run(runId).getStartedAt())
+                .set(MIGRATION_RUN.COMPLETED_AT, migrationRun(runId).getStartedAt())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
-        assertNotNull(run(runId).getCompletedAt());
+        assertNotNull(migrationRun(runId).getCompletedAt());
 
         MigrationRunProgressRecord progress = progress(runId);
 
@@ -211,7 +208,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         completeBoundary(runId, 1L, 10L);
         completeBoundary(runId, 2L, 10L);
         completeRun(runId);
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt());
         // Freeze a ten-second run so the rates are exact.
         setStartedAt(runId, run.getCompletedAt().minusSeconds(10));
@@ -243,7 +240,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         long runId = populateSingle(label, 2, 7L, 8L);
         completeBoundary(runId, 0L, 0L);
         completeRun(runId);
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt());
         setStartedAt(runId, run.getCompletedAt().minusSeconds(10));
 
@@ -286,7 +283,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         MigrationRunProgressRecord completed = progress(runId);
         assertEquals("completed", completed.getStatus());
         assertEquals(100.0, completed.getPercentComplete(), 0.001);
-        assertEquals(run(runId).getCompletedAt(), completed.getEstimatedCompletionAt());
+        assertEquals(migrationRun(runId).getCompletedAt(), completed.getEstimatedCompletionAt());
     }
 
     /**
@@ -334,7 +331,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         long runId = populateSingle(label, 2, 1L, 2L);
         completeBoundary(runId, 0L, 2L);
         completeRun(runId);
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertEquals(runId, Routines.archiveMigrationRun(dsl.configuration(), label));
 
         MigrationRunProgressRecord progress = progress(runId);
@@ -355,7 +352,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("progress-partition-wise");
         long runId = populatePartitionWise(label, 2);
-        calculate(runId);
+        calculateRun(runId);
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, SCHEMA, TABLE, label,
                 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, true, 3, 1000);
 
@@ -413,10 +410,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
     private long populateSingle(String label, int chunkSize, long... ids) {
         dsl.truncate(TEST_BIGINT).execute();
         seedBigint(ids);
-        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
-                .populateMigrationBoundaries(dsl.configuration(), SCHEMA, TEST_BIGINT.getName(),
-                        label, TEMPLATE, chunkSize, 1, ChunkingStrategy.primary_key, "t", 0,
-                        null, false, 3, 1000);
+        return populateSingleRelation(label, TEMPLATE, chunkSize);
     }
 
     /**
@@ -433,15 +427,6 @@ class MigrationRunProgressTest extends PartitionTestBase {
                         true, 3, 1000);
     }
 
-    /**
-     * Calculates and finalizes every leaf boundary of the run.
-     *
-     * @param runId the run id
-     */
-    private void calculate(long runId) {
-        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
-                .calculateMigrationRunBoundaries(dsl.configuration(), runId);
-    }
 
     /**
      * Completes one chunk boundary with a row count.
@@ -519,15 +504,4 @@ class MigrationRunProgressTest extends PartitionTestBase {
         return Routines.migrationRunProgress(dsl.configuration(), runId).getFirst();
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

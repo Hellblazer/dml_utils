@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedHash.TEST_PARTITIONED_HASH;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedList.TEST_PARTITIONED_LIST;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
@@ -364,11 +363,5 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
                 .fetchOne();
     }
 
-    private List<MigrationRunLeafRecord> leaves(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .fetch();
-    }
 
 }

@@ -8,7 +8,6 @@ import org.jooq.TableField;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -103,7 +102,7 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
      */
     @Test
     void processesAMixedCompositeKeyWithAPartialFinalChunk() {
-        seedMixed(5);
+        seedOrderedKey(5);
         String label = uniqueLabel("ordered-mixed");
 
         run(label, TEST_ORDERED_KEY, MIXED_INDEX, 2, 2, APPEND_TEMPLATE);
@@ -208,17 +207,6 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
         }
     }
 
-    private void seedMixed(int rows) {
-        for (int i = 1; i <= rows; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
-    }
 
     private void assertExactlyOnce(Table<?> table, TableField<?, String> payload, int expected) {
         assertEquals(expected, dsl.fetchCount(table, payload.eq("x")),

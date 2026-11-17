@@ -5,6 +5,8 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -43,12 +45,12 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void pausesAnActiveRun() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("pause");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
 
         Long paused = Routines.pauseMigrationRun(dsl.configuration(), label);
 
         assertEquals(runId, paused, "pause returns the active run id");
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getPausedAt(), "the run is paused");
         assertNull(run.getCompletedAt(), "a paused run is not completed");
         assertNull(run.getCancelledAt(), "a paused run is not cancelled");
@@ -61,13 +63,13 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void pausingTwiceKeepsTheOriginalTimestamp() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("pause-twice");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
 
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
-        OffsetDateTime first = run(runId).getPausedAt();
+        OffsetDateTime first = migrationRun(runId).getPausedAt();
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
-        assertEquals(first, run(runId).getPausedAt(), "a second pause is a no-op");
+        assertEquals(first, migrationRun(runId).getPausedAt(), "a second pause is a no-op");
     }
 
     /**
@@ -77,12 +79,12 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void resumesAPausedRun() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("resume");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
 
         assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
 
-        assertNull(run(runId).getPausedAt(), "resume clears the pause");
+        assertNull(migrationRun(runId).getPausedAt(), "resume clears the pause");
     }
 
     /**
@@ -93,11 +95,11 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void resumingANotPausedRunReturnsItsId() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("resume-not-paused");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
 
         assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
 
-        assertNull(run(runId).getPausedAt(), "the run was never paused");
+        assertNull(migrationRun(runId).getPausedAt(), "the run was never paused");
     }
 
     /**
@@ -120,43 +122,36 @@ class PauseMigrationRunTest extends PostgresTestBase {
         String label = uniqueLabel("pause-completed");
         runToCompletion(label);
         Long runId = runId(label);
-        assertNotNull(run(runId).getCompletedAt(), "the run completed");
+        assertNotNull(migrationRun(runId).getCompletedAt(), "the run completed");
 
         assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
         assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
-        assertNull(run(runId).getPausedAt(), "the completed run stays unpaused");
+        assertNull(migrationRun(runId).getPausedAt(), "the completed run stays unpaused");
     }
 
+
     /**
-     * A cancelled run is not pausable or resumable.
+     * A cancelled or archived run is not pausable or resumable, and gains no
+     * pause timestamp.
+     *
+     * @param action the terminal transition, {@code cancel} or {@code archive}
      */
-    @Test
-    void doesNotPauseACancelledRun() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"cancel", "archive"})
+    void doesNotPauseATerminalRun(String action) {
         seedBigint(1, 2);
-        String label = uniqueLabel("pause-cancelled");
-        Long runId = populate(label);
-        assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
+        String label = uniqueLabel("pause-" + action);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(switch (action) {
+            case "cancel" -> Routines.cancelMigrationRun(dsl.configuration(), label);
+            case "archive" -> Routines.archiveMigrationRun(dsl.configuration(), label);
+            default -> throw new IllegalArgumentException(action);
+        });
 
         assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
         assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
-        assertNull(run(runId).getPausedAt(),
-                "a cancelled run is not paused");
-    }
-
-    /**
-     * An archived run is not pausable or resumable.
-     */
-    @Test
-    void doesNotPauseAnArchivedRun() {
-        seedBigint(1, 2);
-        String label = uniqueLabel("pause-archived");
-        Long runId = populate(label);
-        assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
-
-        assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
-        assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
-        assertNull(run(runId).getPausedAt(),
-                "an archived run is not paused");
+        assertNull(migrationRun(runId).getPausedAt(),
+                "a terminal run is not paused");
     }
 
     /**
@@ -166,12 +161,12 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void cancelClearsAPause() {
         seedBigint(1, 2);
         String label = uniqueLabel("pause-cancel");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
 
         assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCancelledAt(), "the run is cancelled");
         assertNull(run.getPausedAt(), "cancel clears the pause");
     }
@@ -183,7 +178,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void completeClearsAPause() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("pause-complete");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
@@ -193,7 +188,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationRun(
                 dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt(), "the run is completed");
         assertNull(run.getPausedAt(), "completion clears the pause");
     }
@@ -205,12 +200,12 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void archiveClearsAPause() {
         seedBigint(1, 2);
         String label = uniqueLabel("pause-archive");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
 
         assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getArchivedAt(), "the run is archived");
         assertNotNull(run.getCancelledAt(), "archiving cancels the unfinished run");
         assertNull(run.getPausedAt(), "archive clears the pause");
@@ -225,7 +220,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void pauseWaitsForTheRunRowEvenWhenAlreadyPaused() throws Exception {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("pause-locked");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(runId);
         assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
 
@@ -233,7 +228,7 @@ class PauseMigrationRunTest extends PostgresTestBase {
 
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label),
                 "after the lock is released the pause sees the committed run");
-        assertNotNull(run(runId).getPausedAt(), "the run stays paused");
+        assertNotNull(migrationRun(runId).getPausedAt(), "the run stays paused");
     }
 
     /**
@@ -245,14 +240,14 @@ class PauseMigrationRunTest extends PostgresTestBase {
     void resumeWaitsForTheRunRowEvenWhenNotPaused() throws Exception {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("resume-locked");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(runId);
 
         assertCallWaitsForTheRunRow(label, "resume_migration_run");
 
         assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label),
                 "after the lock is released the resume sees the committed run");
-        assertNull(run(runId).getPausedAt(), "the run is not paused");
+        assertNull(migrationRun(runId).getPausedAt(), "the run is not paused");
     }
 
     /**
@@ -286,17 +281,6 @@ class PauseMigrationRunTest extends PostgresTestBase {
         }
     }
 
-    /**
-     * Creates the run and its boundaries without processing any chunk.
-     *
-     * @param label the run label
-     * @return the new run id
-     */
-    private Long populate(String label) {
-        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT), label,
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
     /**
      * Runs the migration to completion.
@@ -309,17 +293,4 @@ class PauseMigrationRunTest extends PostgresTestBase {
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(Long runId) {
-        MigrationRunRecord row = dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-        assertNotNull(row, () -> "no migration run " + runId);
-        return row;
-    }
 }

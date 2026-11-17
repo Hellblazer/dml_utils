@@ -1,6 +1,5 @@
 package io.github.eyupmiduck.dmlutils;
 
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
@@ -10,8 +9,6 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -26,8 +23,7 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
     }
 
     /**
@@ -37,13 +33,13 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     @Test
     void marksTheRunAndItsPendingBoundariesOnly() {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("mark-cancelled", 1);
         Routines.completeMigrationBoundary(dsl.configuration(), runId, 0L,
                 OffsetDateTime.now(), 0L);
 
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCancelledAt());
         assertNull(run.getCompletedAt());
         assertEquals(1L, run.getTotalChunksCompleted(),
@@ -66,14 +62,14 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     @Test
     void clearsAPausedRun() {
         seedBigint(1, 2);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("mark-cancelled", 1);
         dsl.execute("UPDATE dml_utils_data.migration_run"
                 + " SET paused_at = pg_catalog.clock_timestamp() WHERE run_id = ?", runId);
 
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
-        assertNull(run(runId).getPausedAt(), "cancelling clears the pause");
-        assertNotNull(run(runId).getCancelledAt());
+        assertNull(migrationRun(runId).getPausedAt(), "cancelling clears the pause");
+        assertNotNull(migrationRun(runId).getCancelledAt());
     }
 
     /**
@@ -82,9 +78,9 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     @Test
     void isIdempotent() {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("mark-cancelled", 1);
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
-        OffsetDateTime runCancelledAt = run(runId).getCancelledAt();
+        OffsetDateTime runCancelledAt = migrationRun(runId).getCancelledAt();
         OffsetDateTime boundaryCancelledAt = dsl.select(MIGRATION_BOUNDARY.CANCELLED_AT)
                 .from(MIGRATION_BOUNDARY)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
@@ -96,7 +92,7 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
 
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
-        assertEquals(runCancelledAt, run(runId).getCancelledAt());
+        assertEquals(runCancelledAt, migrationRun(runId).getCancelledAt());
         assertEquals(boundaryCancelledAt,
                 dsl.select(MIGRATION_BOUNDARY.CANCELLED_AT)
                         .from(MIGRATION_BOUNDARY)
@@ -111,7 +107,7 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     @Test
     void leavesACompletedRunUntouched() {
         seedBigint(1, 2, 3);
-        long runId = populate(1);
+        long runId = populateSingleRelationWithLabelPrefix("mark-cancelled", 1);
         for (long boundaryNo = 0; boundaryNo <= 2; boundaryNo++) {
             Routines.completeMigrationBoundary(dsl.configuration(), runId, boundaryNo,
                     OffsetDateTime.now(), 0L);
@@ -120,8 +116,8 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
 
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
-        assertNotNull(run(runId).getCompletedAt());
-        assertNull(run(runId).getCancelledAt());
+        assertNotNull(migrationRun(runId).getCompletedAt());
+        assertNull(migrationRun(runId).getCancelledAt());
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
                 MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNotNull())));
@@ -135,16 +131,5 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
         Routines.markMigrationRunCancelled(dsl.configuration(), -1L);
     }
 
-    private long populate(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                uniqueLabel("mark-cancelled"), "SELECT 1", chunkSize, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

@@ -4,6 +4,8 @@ import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -82,46 +84,19 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
         assertRejected("22023", "require a partition-wise run", () -> insertLeaf(runId, 1, null));
     }
 
-    /**
-     * A finalized run accepts no further leaf.
-     */
-    @Test
-    void rejectsALeafOnceTheRunIsFinalized() {
-        long runId = insertRun(true, "primary_key");
-        closeRun(runId, "boundaries_calculated_at");
-
-        assertRejected("55000", "cannot add a leaf", () -> insertLeaf(runId, 1, null));
-    }
 
     /**
-     * A cancelled run accepts no further leaf.
+     * A run that is finalized (boundaries calculated), cancelled, completed or
+     * archived accepts no further leaf.
+     *
+     * @param terminalColumn the timestamp that makes the run terminal
      */
-    @Test
-    void rejectsALeafOnceTheRunIsCancelled() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"boundaries_calculated_at", "cancelled_at", "completed_at",
+            "archived_at"})
+    void rejectsALeafOnceTheRunIsTerminal(String terminalColumn) {
         long runId = insertRun(true, "primary_key");
-        closeRun(runId, "cancelled_at");
-
-        assertRejected("55000", "cannot add a leaf", () -> insertLeaf(runId, 1, null));
-    }
-
-    /**
-     * A completed run accepts no further leaf.
-     */
-    @Test
-    void rejectsALeafOnceTheRunIsCompleted() {
-        long runId = insertRun(true, "primary_key");
-        closeRun(runId, "completed_at");
-
-        assertRejected("55000", "cannot add a leaf", () -> insertLeaf(runId, 1, null));
-    }
-
-    /**
-     * An archived run accepts no further leaf.
-     */
-    @Test
-    void rejectsALeafOnceTheRunIsArchived() {
-        long runId = insertRun(true, "primary_key");
-        closeRun(runId, "archived_at");
+        closeRun(runId, terminalColumn);
 
         assertRejected("55000", "cannot add a leaf", () -> insertLeaf(runId, 1, null));
     }

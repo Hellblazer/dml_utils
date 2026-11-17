@@ -3,6 +3,9 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -79,6 +82,33 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     private static String qualify(String schema, String table) {
         return quoteIdentifier(schema) + "." + quoteIdentifier(table);
+    }
+
+    /**
+     * The identifier-rendering cases.
+     *
+     * @return the render cases
+     */
+    private static java.util.stream.Stream<Arguments> renderCases() {
+        return java.util.stream.Stream.of(
+                Arguments.of("given primary-key name", "public", "src", "s",
+                        new String[]{"pk"}, new String[]{"5"}, new String[]{"15"},
+                        "UPDATE public.src s SET processed = true"
+                                + " WHERE (s.pk >= '5'::bigint AND s.pk < '15'::bigint)"),
+                Arguments.of("given alias", "public", "src", "src_row",
+                        new String[]{"id"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE public.src src_row SET processed = true"
+                                + " WHERE (src_row.id >= '1'::bigint"
+                                + " AND src_row.id < '2'::bigint)"),
+                Arguments.of("quoted identifiers", "my schema", "my table", "x\"y",
+                        new String[]{"pk\"col"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE \"my schema\".\"my table\" \"x\"\"y\" SET processed = true"
+                                + " WHERE (\"x\"\"y\".\"pk\"\"col\" >= '1'::bigint"
+                                + " AND \"x\"\"y\".\"pk\"\"col\" < '2'::bigint)"),
+                Arguments.of("token inside an identifier", "public", "<chunking_clause>", "t",
+                        new String[]{"id"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE public.\"<chunking_clause>\" t SET processed = true"
+                                + " WHERE (t.id >= '1'::bigint AND t.id < '2'::bigint)"));
     }
 
     /**
@@ -494,86 +524,30 @@ class RenderChunkSqlTest extends PostgresTestBase {
     }
 
     /**
-     * The primary-key names are whatever the caller resolved from the catalog,
-     * not hard-coded {@code id}, and they appear in both range bounds.
+     * The caller-supplied key name, alias and unusual identifiers are rendered
+     * verbatim (quoted), and a substituted identifier that itself contains a
+     * template token is not rewritten.
+     *
+     * @param description the case
+     * @param schemaName  the driving table schema
+     * @param tableName   the driving table name
+     * @param alias       the driving table alias
+     * @param columns     the key columns
+     * @param startValues the lower-bound values
+     * @param endValues   the upper-bound values
+     * @param expected    the exact rendered statement
      */
-    @Test
-    void usesTheGivenPrimaryKeyName() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(), TEMPLATE, "public", "src", "s",
-                new String[]{"pk"}, new String[]{"bigint"}, new String[]{"5"}, new String[]{"15"}, false);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("renderCases")
+    void rendersCallerSuppliedIdentifiersVerbatim(String description, String schemaName,
+                                                  String tableName, String alias,
+                                                  String[] columns, String[] startValues,
+                                                  String[] endValues, String expected) {
+        String rendered = Routines.renderChunkSql(dsl.configuration(), TEMPLATE,
+                schemaName, tableName, alias, columns, new String[]{"bigint"},
+                startValues, endValues, false);
 
-        assertEquals(
-                "UPDATE public.src s SET processed = true"
-                        + " WHERE (s.pk >= '5'::bigint AND s.pk < '15'::bigint)",
-                rendered);
-    }
-
-    /**
-     * An explicit alias is used verbatim in the driving-table reference and the
-     * range predicate.
-     */
-    @Test
-    void usesTheGivenAlias() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(), TEMPLATE, "public", "src", "src_row",
-                new String[]{"id"}, new String[]{"bigint"}, new String[]{"1"}, new String[]{"2"}, false);
-
-        assertEquals(
-                "UPDATE public.src src_row SET processed = true"
-                        + " WHERE (src_row.id >= '1'::bigint AND src_row.id < '2'::bigint)",
-                rendered);
-    }
-
-    /**
-     * The schema, table, alias and primary-key name are quoted so unusual
-     * identifiers (and a substituted value) cannot break the SQL or reintroduce
-     * a token.
-     */
-    @Test
-    void quotesIdentifiersAndCannotReintroduceTokens() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(),
-                TEMPLATE,
-                "my schema",
-                "my table",
-                "x\"y",
-                new String[]{"pk\"col"},
-                new String[]{"bigint"},
-                new String[]{"1"},
-                new String[]{"2"},
-                false);
-
-        assertEquals(
-                "UPDATE \"my schema\".\"my table\" \"x\"\"y\" SET processed = true"
-                        + " WHERE (\"x\"\"y\".\"pk\"\"col\" >= '1'::bigint"
-                        + " AND \"x\"\"y\".\"pk\"\"col\" < '2'::bigint)",
-                rendered);
-    }
-
-    /**
-     * An identifier that literally contains a template token does not get
-     * rewritten: the substituted values are inserted after both tokens are
-     * replaced, so neither substitution can re-match the other's value.
-     */
-    @Test
-    void doesNotRewriteATokenInsideASubstitutedIdentifier() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(),
-                TEMPLATE,
-                "public",
-                "<chunking_clause>",
-                "t",
-                new String[]{"id"},
-                new String[]{"bigint"},
-                new String[]{"1"},
-                new String[]{"2"},
-                false);
-
-        assertEquals(
-                "UPDATE public.\"<chunking_clause>\" t SET processed = true"
-                        + " WHERE (t.id >= '1'::bigint AND t.id < '2'::bigint)",
-                rendered);
+        assertEquals(expected, rendered);
     }
 
     /**

@@ -3,6 +3,9 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.PartitionedOrderedKeyAttributesRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 
@@ -17,6 +20,22 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  * SQLSTATEs.
  */
 class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
+
+    /**
+     * The unusable parent indexes.
+     *
+     * @return the index definitions and their SQLSTATEs
+     */
+    private static java.util.stream.Stream<Arguments> invalidParentIndexes() {
+        return java.util.stream.Stream.of(
+                Arguments.of("ON ONLY index", "test_partitioned_range_on_only_idx",
+                        "CREATE UNIQUE INDEX test_partitioned_range_on_only_idx ON ONLY "
+                                + "dml_utils_fixtures.test_partitioned_range (id)", "55000"),
+                Arguments.of("non-unique index", "test_partitioned_range_payload_idx",
+                        "CREATE INDEX test_partitioned_range_payload_idx ON "
+                                + "dml_utils_fixtures.test_partitioned_range (payload)",
+                        "0A000"));
+    }
 
     private List<PartitionedOrderedKeyAttributesRecord> attributes(String table, String index) {
         return Routines.partitionedOrderedKeyAttributes(dsl.configuration(),
@@ -96,31 +115,22 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
     }
 
     /**
-     * An ON ONLY parent index is invalid and fails closed with {@code 55000}
-     * before the leaf walk.
+     * A parent index that is ON ONLY reports the index-level {@code 55000}, and a
+     * non-unique parent index is {@code 0A000}.
+     *
+     * @param description   the rejected index shape
+     * @param index         the index name
+     * @param definition    the CREATE INDEX statement
+     * @param expectedState the expected SQLSTATE
+     * @throws Exception if the index cannot be created or dropped
      */
-    @Test
-    void rejectsAnOnOnlyParentIndex() throws Exception {
-        String index = "test_partitioned_range_on_only_idx";
-        executeAsOwner("CREATE UNIQUE INDEX " + index + " ON ONLY "
-                + PARTITION_SCHEMA + ".test_partitioned_range (id)");
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidParentIndexes")
+    void rejectsAnUnusableParentIndex(String description, String index, String definition,
+                                      String expectedState) throws Exception {
+        executeAsOwner(definition);
         try {
-            assertSqlState("55000", () -> attributes("test_partitioned_range", index));
-        } finally {
-            executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
-        }
-    }
-
-    /**
-     * A non-unique parent index is rejected with {@code 0A000}.
-     */
-    @Test
-    void rejectsANonUniqueParentIndex() throws Exception {
-        String index = "test_partitioned_range_payload_idx";
-        executeAsOwner("CREATE INDEX " + index + " ON "
-                + PARTITION_SCHEMA + ".test_partitioned_range (payload)");
-        try {
-            assertSqlState("0A000", () -> attributes("test_partitioned_range", index));
+            assertSqlState(expectedState, () -> attributes("test_partitioned_range", index));
         } finally {
             executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
         }

@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,8 +28,7 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
-        dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+        resetRanges();
     }
 
     /**

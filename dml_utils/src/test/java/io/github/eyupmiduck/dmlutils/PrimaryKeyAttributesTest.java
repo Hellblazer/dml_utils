@@ -3,6 +3,8 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.PrimaryKeyAttributesRecord;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.List;
 
@@ -92,22 +94,18 @@ class PrimaryKeyAttributesTest extends PostgresTestBase {
         assertAttribute(rows.get(1), 2, "id", "bigint");
     }
 
-    /**
-     * A table without a primary key raises {@code 22023}.
-     */
-    @Test
-    void rejectsATableWithoutAPrimaryKey() {
-        assertSqlState("22023", () -> Routines.primaryKeyAttributes(
-                dsl.configuration(), FIXTURE_SCHEMA, "test_no_pk"));
-    }
 
     /**
-     * A primary key of more than three columns raises {@code 22023}.
+     * A table without a primary key and a primary key of more than three columns
+     * are rejected with {@code 22023}.
+     *
+     * @param table the fixture table
      */
-    @Test
-    void rejectsAPrimaryKeyOverThreeColumns() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"test_no_pk", "test_composite_four"})
+    void rejectsAMissingOrOversizedPrimaryKey(String table) {
         assertSqlState("22023", () -> Routines.primaryKeyAttributes(
-                dsl.configuration(), FIXTURE_SCHEMA, "test_composite_four"));
+                dsl.configuration(), FIXTURE_SCHEMA, table));
     }
 
     /**

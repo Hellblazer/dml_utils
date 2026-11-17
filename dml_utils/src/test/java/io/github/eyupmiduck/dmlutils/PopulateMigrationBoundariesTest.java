@@ -74,7 +74,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     void storesTheRetryPolicyOnTheRun() {
         long runId = populateWithRetryPolicy(7, 250);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertEquals(7, run.getMaxRetries(), "max_retries is persisted");
         assertEquals(250, run.getRetryBackoffMs(), "retry_backoff_ms is persisted");
     }
@@ -89,7 +89,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
 
         long runId = populateOrderedKey();
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertEquals(ChunkingStrategy.ordered_key, run.getChunkBy());
         assertEquals("test_ordered_key_created_at_id_idx", run.getOrderedKeyIndex());
         assertArrayEquals(new String[]{"created_at", "id"}, run.getOrderedKeyColumns());
@@ -101,7 +101,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertTimestamptzBigint(boundaries.get(1), 2, 3L);
         assertTimestamptzBigint(boundaries.get(2), 3, 5L);
         assertTimestamptzBigint(boundaries.get(3), 3, 5L);
-        assertEquals(3L, run(runId).getTotalChunks().longValue(), "three chunks");
+        assertEquals(3L, migrationRun(runId).getTotalChunks().longValue(), "three chunks");
     }
 
     /**
@@ -579,11 +579,6 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
                         LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index, false, 3, 1000);
     }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 
     private void createSource(long... ids) {
         seedBigint(ids);

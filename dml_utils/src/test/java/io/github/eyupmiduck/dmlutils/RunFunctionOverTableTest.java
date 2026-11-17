@@ -9,6 +9,9 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigDecimal;
 import java.sql.Connection;
@@ -44,6 +47,32 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     private static String template(String functionName) {
         return "SELECT public." + functionName + "(t.a, t.b) FROM <driving_table>"
                 + " WHERE <chunking_clause>";
+    }
+
+    /**
+     * The invalid set-function inputs.
+     *
+     * @return the alias/filter pairs and their SQLSTATEs
+     */
+    private static java.util.stream.Stream<Arguments> invalidSetFunctionInputs() {
+        return java.util.stream.Stream.of(
+                Arguments.of("non-default alias", "setalias", "x", null, "0A000"),
+                Arguments.of("blank filter", "setblank", "t", "   ", "22023"));
+    }
+
+    /**
+     * The targets that cannot be called as one void value per row.
+     *
+     * @return the rejected target definitions
+     */
+    private static java.util.stream.Stream<Arguments> uncallableTargets() {
+        return java.util.stream.Stream.of(
+                Arguments.of("mismatched argument order",
+                        "CREATE FUNCTION public.wrong_order(text, bigint) RETURNS void"
+                                + " LANGUAGE sql AS $$ SELECT NULL::void $$", "wrong_order"),
+                Arguments.of("procedure with a matching signature",
+                        "CREATE PROCEDURE public.mark_mixed_proc(p_a bigint, p_b text)"
+                                + " LANGUAGE sql AS $$ SELECT 1 $$", "mark_mixed_proc"));
     }
 
     /**
@@ -253,7 +282,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     @Test
     void derivedLabelIncludesTheOrderedKeyAndPartitionComponents() {
         seedOrderedKeyRows(1L, 2L, 3L);
-        createMarkOrderedKey("done");
+        createMark("mark_ordered_key", TEST_ORDERED_KEY, "done");
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_ORDERED_KEY),
                 name(TEST_ORDERED_KEY), FN_SCHEMA, "mark_ordered_key", 1, 1, null, null,
                 ChunkingStrategy.ordered_key, 1, 0,
@@ -277,7 +306,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 "the repeated ordered-key call resumes the same run");
 
         insertPartitionedRows(50L, 150L, 250L);
-        createMarkPartitioned("done");
+        createMark("mark_partitioned", TEST_PARTITIONED_RANGE, "done");
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_PARTITIONED_RANGE),
                 name(TEST_PARTITIONED_RANGE), FN_SCHEMA, "mark_partitioned", 1, 1, null, null,
                 ChunkingStrategy.primary_key, 1, 0, null, true, 3, 1000);
@@ -336,39 +365,31 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
-     * The generated function template always uses the default alias {@code t}, so
-     * a run created with a different driving-table alias is rejected instead of
-     * storing a template that cannot resolve its table.
+     * Setting the function rejects a non-default alias ({@code 0A000}) and a
+     * blank filter ({@code 22023}) before either can be persisted.
+     *
+     * @param description   the rejected input
+     * @param labelPrefix   the run label prefix
+     * @param alias         the run's driving-table alias
+     * @param filter        the function filter
+     * @param expectedState the expected SQLSTATE
      */
-    @Test
-    void setMigrationRunFunctionRejectsANonDefaultAlias() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidSetFunctionInputs")
+    void setMigrationRunFunctionRejectsInvalidInput(String description, String labelPrefix,
+                                                    String alias, String filter,
+                                                    String expectedState) {
         createMixed();
         createMarkMixed("done");
-        String label = functionTestLabel("setalias");
+        String label = functionTestLabel(labelPrefix);
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "x", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, alias, 0,
+                null, false, 3, 1000);
 
-        assertSqlState("0A000", () -> Routines.setMigrationRunFunction(
-                dsl.configuration(), label, FN_SCHEMA, "mark_mixed", null));
-    }
-
-    /**
-     * A blank filter is rejected before it can be persisted into the run template.
-     */
-    @Test
-    void setMigrationRunFunctionRejectsABlankFilter() {
-        createMixed();
-        createMarkMixed("done");
-        String label = functionTestLabel("setblank");
-
-        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-
-        assertSqlState("22023", () -> Routines.setMigrationRunFunction(
-                dsl.configuration(), label, FN_SCHEMA, "mark_mixed", "   "));
+        assertSqlState(expectedState, () -> Routines.setMigrationRunFunction(
+                dsl.configuration(), label, FN_SCHEMA, "mark_mixed", filter));
     }
 
     /**
@@ -377,7 +398,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void requiresAnIndexForOrderedKeyChunking() {
-        createMarkBigint("done");
+        createMark("mark_bigint", TEST_BIGINT, "done");
         int runsBefore = dsl.fetchCount(MIGRATION_RUN);
         assertSqlState("22023", () -> Routines.runFunctionOverTable(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), FN_SCHEMA,
@@ -393,7 +414,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     @Test
     void appliesAnOrderedKeyFunctionOverEveryRow() {
         seedOrderedKeyRows(1L, 2L, 3L);
-        createMarkOrderedKey("done");
+        createMark("mark_ordered_key", TEST_ORDERED_KEY, "done");
         String label = functionTestLabel("ordered-key");
 
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_ORDERED_KEY),
@@ -413,7 +434,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     @Test
     void appliesAPartitionWiseFunctionOverEveryLeaf() {
         insertPartitionedRows(50L, 150L, 250L);
-        createMarkPartitioned("done");
+        createMark("mark_partitioned", TEST_PARTITIONED_RANGE, "done");
         String label = functionTestLabel("partition-primary");
 
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_PARTITIONED_RANGE),
@@ -432,7 +453,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     @Test
     void appliesAPartitionWiseOrderedKeyFunctionOverEveryLeaf() {
         insertPartitionedRows(50L, 150L, 250L);
-        createMarkPartitioned("done");
+        createMark("mark_partitioned", TEST_PARTITIONED_RANGE, "done");
         String label = functionTestLabel("partition-ordered");
 
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_PARTITIONED_RANGE),
@@ -446,20 +467,27 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
-     * A function whose argument types do not match the primary key, in key
-     * order, is rejected up front with {@code 22023} and writes nothing.
+     * A function whose argument types are in the wrong order, and a procedure
+     * with a matching signature, are rejected with {@code 22023} and create no
+     * run.
+     *
+     * @param description  the rejected target
+     * @param definition   the CREATE statement for the target
+     * @param functionName the target name
      */
-    @Test
-    void rejectsAFunctionWithMismatchedArguments() {
-        dsl.execute("CREATE FUNCTION public.wrong_order(text, bigint) RETURNS void"
-                + " LANGUAGE sql AS $$ SELECT NULL::void $$");
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("uncallableTargets")
+    void rejectsTargetsThatCannotBeCalledPerRow(String description, String definition,
+                                                String functionName) {
+        dsl.execute(definition);
 
         int runsBefore = dsl.fetchCount(MIGRATION_RUN);
         assertSqlState("22023", () -> Routines.runFunctionOverTable(dsl.configuration(),
                 schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
-                "wrong_order", 2, 1, null, null, ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
+                functionName, 2, 1, null, null, ChunkingStrategy.primary_key, 1, 0, null,
+                false, 3, 1000));
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN),
-                "a rejected function must not create a run");
+                "a rejected target must not create a run");
     }
 
     /**
@@ -475,23 +503,6 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 "bad_return", 2, 1, null, null, ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
     }
 
-    /**
-     * A procedure that shares the function name and signature is rejected with
-     * {@code 22023}: it cannot be called as {@code SELECT schema.name(...)}, so
-     * it must not pass validation.
-     */
-    @Test
-    void rejectsAProcedureWithAMatchingSignature() {
-        dsl.execute("CREATE PROCEDURE public.mark_mixed_proc(p_a bigint, p_b text)"
-                + " LANGUAGE sql AS $$ SELECT 1 $$");
-
-        int runsBefore = dsl.fetchCount(MIGRATION_RUN);
-        assertSqlState("22023", () -> Routines.runFunctionOverTable(dsl.configuration(),
-                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
-                "mark_mixed_proc", 2, 1, null, null, ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
-        assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN),
-                "a rejected procedure must not create a run");
-    }
 
     /**
      * A missing function is rejected with {@code 22023}.
@@ -715,27 +726,18 @@ class RunFunctionOverTableTest extends PostgresTestBase {
         }
     }
 
-    private void createMarkBigint(String value) {
-        dsl.execute("CREATE OR REPLACE FUNCTION public.mark_bigint(p_id bigint)"
+    /**
+     * Creates a single-key void function that appends a value to the row's
+     * payload, so processing a row twice is observable.
+     *
+     * @param functionName the function name in the function schema
+     * @param table        the driving table
+     * @param value        the value to append
+     */
+    private void createMark(String functionName, Table<?> table, String value) {
+        dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName + "(p_id bigint)"
                 + " RETURNS void LANGUAGE sql AS $$"
-                + " UPDATE " + schema(TEST_BIGINT) + "." + name(TEST_BIGINT)
-                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
-                + " WHERE id = p_id $$");
-    }
-
-    private void createMarkOrderedKey(String value) {
-        dsl.execute("CREATE OR REPLACE FUNCTION public.mark_ordered_key(p_id bigint)"
-                + " RETURNS void LANGUAGE sql AS $$"
-                + " UPDATE " + schema(TEST_ORDERED_KEY) + "." + name(TEST_ORDERED_KEY)
-                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
-                + " WHERE id = p_id $$");
-    }
-
-    private void createMarkPartitioned(String value) {
-        dsl.execute("CREATE OR REPLACE FUNCTION public.mark_partitioned(p_id bigint)"
-                + " RETURNS void LANGUAGE sql AS $$"
-                + " UPDATE " + schema(TEST_PARTITIONED_RANGE) + "."
-                + name(TEST_PARTITIONED_RANGE)
+                + " UPDATE " + schema(table) + "." + name(table)
                 + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
                 + " WHERE id = p_id $$");
     }
@@ -749,24 +751,13 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     }
 
     private void createMarkMixed(String value) {
-        createFunction("mark_mixed", value);
+        createCompositeMarkFunction("mark_mixed", value);
     }
 
     private void createMarkMixed2(String value) {
-        createFunction("mark_mixed_2", value);
+        createCompositeMarkFunction("mark_mixed_2", value);
     }
 
-    private void createFunction(String functionName, String value) {
-        // Append rather than overwrite: a row processed twice would then hold the
-        // value twice, so an exact match proves each row was processed once
-        // (which a plain assignment could not show). The literal is quoted by
-        // DSL.inline, so a value containing a quote cannot break the body.
-        dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName
-                + "(p_a bigint, p_b text) RETURNS void LANGUAGE sql AS $$"
-                + " UPDATE " + schema(TEST_COMPOSITE_MIXED) + "." + name(TEST_COMPOSITE_MIXED)
-                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
-                + " WHERE a = p_a AND b = p_b $$");
-    }
 
     private String functionTestLabel(String suffix) {
         return uniqueLabel("function-test-" + suffix);

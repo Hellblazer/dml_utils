@@ -26,8 +26,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
 
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
     }
 
     /**

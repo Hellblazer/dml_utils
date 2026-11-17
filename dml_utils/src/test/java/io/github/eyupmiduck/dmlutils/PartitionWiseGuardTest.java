@@ -2,14 +2,11 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -174,7 +171,7 @@ class PartitionWiseGuardTest extends PartitionTestBase {
         assertNotNull(failed.getErrorMessage());
         assertNull(failed.getCalculatedAt());
         assertEquals(0L, failed.getBoundaryCount());
-        assertNull(run(runId).getBoundariesCalculatedAt());
+        assertNull(migrationRun(runId).getBoundariesCalculatedAt());
         assertTrue(boundaries(runId).isEmpty());
     }
 
@@ -186,13 +183,13 @@ class PartitionWiseGuardTest extends PartitionTestBase {
         long runId = populate(TABLE, uniqueLabel("guard-cancelled"), 2,
                 ChunkingStrategy.primary_key, true);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.cancelMigrationRun(
-                dsl.configuration(), run(runId).getLabel());
+                dsl.configuration(), migrationRun(runId).getLabel());
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
-        assertNotNull(run(runId).getCancelledAt());
-        assertNull(run(runId).getBoundariesCalculatedAt());
+        assertNotNull(migrationRun(runId).getCancelledAt());
+        assertNull(migrationRun(runId).getBoundariesCalculatedAt());
         assertTrue(boundaries(runId).isEmpty());
         for (MigrationRunLeafRecord leaf : leaves(runId)) {
             assertEquals("pending", leaf.getState());
@@ -267,15 +264,15 @@ class PartitionWiseGuardTest extends PartitionTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
         List<String> before = boundarySnapshot(runId);
-        long total = run(runId).getTotalChunks();
+        long total = migrationRun(runId).getTotalChunks();
         assertFalse(before.isEmpty(), "the first calculation stores boundaries");
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
         assertEquals(before, boundarySnapshot(runId),
                 "a second calculation must not rewrite any boundary row");
-        assertEquals(total, run(runId).getTotalChunks());
-        assertNotNull(run(runId).getBoundariesCalculatedAt());
+        assertEquals(total, migrationRun(runId).getTotalChunks());
+        assertNotNull(migrationRun(runId).getBoundariesCalculatedAt());
     }
 
     /**
@@ -304,18 +301,6 @@ class PartitionWiseGuardTest extends PartitionTestBase {
                 .get(0, String.class);
     }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
-
-    private List<MigrationRunLeafRecord> leaves(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .fetch();
-    }
 
     /**
      * The first manifest leaf, with a descriptive failure if the manifest is

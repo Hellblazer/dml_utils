@@ -10,6 +10,9 @@ import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -33,6 +36,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class TransientRetryTest extends PostgresTestBase {
 
     private static final String SEQUENCE = "public.retry_probe_seq";
+
+    /**
+     * The non-retry cases: a permanent error with a budget and a transient error
+     * without one.
+     *
+     * @return the case parameters
+     */
+    private static java.util.stream.Stream<Arguments> nonRetryCases() {
+        return java.util.stream.Stream.of(
+                Arguments.of("retry-permanent", "fail_counted", "22012", 3),
+                Arguments.of("retry-zero", "retry_once", "40P01", 0));
+    }
 
     /**
      * Clears the fixture and metadata, then creates a fresh probe sequence and the
@@ -98,7 +113,7 @@ class TransientRetryTest extends PostgresTestBase {
             dsl.execute("ALTER SEQUENCE " + SEQUENCE + " RESTART WITH 1");
             String label = uniqueLabel("retry-" + code);
 
-            run(label, template("retry_once", code), 2, 0);
+            migrationRun(label, template("retry_once", code), 2, 0);
 
             long runId = runId(label);
             assertTrue(runCompleted(label),
@@ -126,11 +141,11 @@ class TransientRetryTest extends PostgresTestBase {
         seedBigint(1);
         String label = uniqueLabel("retry-exhausted");
 
-        assertSqlState("40P01", () -> run(label,
+        assertSqlState("40P01", () -> migrationRun(label,
                 template("fail_counted", "40P01"), 1, 0));
 
         long runId = runId(label);
-        assertNull(run(runId).getCompletedAt(), "the exhausted run is not complete");
+        assertNull(migrationRun(runId).getCompletedAt(), "the exhausted run is not complete");
         assertEquals(1, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "exhaustion records exactly one error row");
         assertEquals("40P01", dsl.select(MIGRATION_ERROR.SQLSTATE)
@@ -142,38 +157,31 @@ class TransientRetryTest extends PostgresTestBase {
     }
 
     /**
-     * A non-transient SQLSTATE is not retried even with a retry budget.
+     * A non-transient error is never retried even with a retry budget, and a zero
+     * retry budget disables retries for a transient error: either way the error
+     * is recorded once, the function is attempted once and the run stays
+     * incomplete.
+     *
+     * @param labelPrefix the run label prefix
+     * @param function    the probe function that fails
+     * @param sqlstate    the expected SQLSTATE
+     * @param maxRetries  the run's retry budget
      */
-    @Test
-    void doesNotRetryANonTransientError() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("nonRetryCases")
+    void recordsTheFailureOnceWithoutRetrying(String labelPrefix, String function,
+                                              String sqlstate, int maxRetries) {
         seedBigint(1);
-        String label = uniqueLabel("retry-permanent");
+        String label = uniqueLabel(labelPrefix);
 
-        assertSqlState("22012", () -> run(label,
-                template("fail_counted", "22012"), 3, 0));
+        assertSqlState(sqlstate, () -> migrationRun(label,
+                template(function, sqlstate), maxRetries, 0));
 
         long runId = runId(label);
-        assertNull(run(runId).getCompletedAt(), "the failed run is not complete");
+        assertNull(migrationRun(runId).getCompletedAt(), "the failed run is not complete");
         assertEquals(1, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
-                "the non-transient error is recorded once");
+                "the error is recorded once");
         assertEquals(1L, lastProbeValue(), "the function is attempted only once");
-    }
-
-    /**
-     * A zero retry budget disables retries.
-     */
-    @Test
-    void zeroRetriesNeverRetries() {
-        seedBigint(1);
-        String label = uniqueLabel("retry-zero");
-
-        assertSqlState("40P01", () -> run(label,
-                template("retry_once", "40P01"), 0, 0));
-
-        long runId = runId(label);
-        assertNull(run(runId).getCompletedAt(), "the run is not complete");
-        assertEquals(1, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)));
-        assertEquals(1L, lastProbeValue(), "no retry is attempted");
     }
 
     /**
@@ -201,8 +209,8 @@ class TransientRetryTest extends PostgresTestBase {
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
         run.get(10, TimeUnit.SECONDS);
 
-        assertNotNull(run(runId).getPausedAt(), "the run is paused");
-        assertNull(run(runId).getCompletedAt(), "the paused run is not complete");
+        assertNotNull(migrationRun(runId).getPausedAt(), "the run is paused");
+        assertNull(migrationRun(runId).getCompletedAt(), "the paused run is not complete");
         assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "a pause during backoff does not record an error");
         assertEquals(1, dsl.fetchCount(MIGRATION_BOUNDARY,
@@ -214,9 +222,9 @@ class TransientRetryTest extends PostgresTestBase {
 
         Routines.setMigrationRunRetries(dsl.configuration(), label, 3, 0);
         assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
-        run(label, template("retry_once", "40P01"), 3, 0);
+        migrationRun(label, template("retry_once", "40P01"), 3, 0);
 
-        assertNotNull(run(runId).getCompletedAt(), "the resumed run completes");
+        assertNotNull(migrationRun(runId).getCompletedAt(), "the resumed run completes");
         assertEquals(2L, lastProbeValue(), "the retry succeeds after the resume");
     }
 
@@ -245,7 +253,7 @@ class TransientRetryTest extends PostgresTestBase {
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
         run.get(10, TimeUnit.SECONDS);
 
-        MigrationRunRecord record = run(runId);
+        MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getPausedAt(), "the run is paused");
         assertNull(record.getCompletedAt(), "the paused run is not complete");
         assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
@@ -288,8 +296,8 @@ class TransientRetryTest extends PostgresTestBase {
         assertEquals(runId, Routines.cancelMigrationRun(dsl.configuration(), label));
         run.get(10, TimeUnit.SECONDS);
 
-        assertNotNull(run(runId).getCancelledAt(), "the run is cancelled");
-        assertNull(run(runId).getCompletedAt(), "the cancelled run is not complete");
+        assertNotNull(migrationRun(runId).getCancelledAt(), "the run is cancelled");
+        assertNull(migrationRun(runId).getCompletedAt(), "the cancelled run is not complete");
         assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "cancellation during backoff records no chunk error");
         assertTrue(dsl.fetchCount(MIGRATION_BOUNDARY,
@@ -306,7 +314,7 @@ class TransientRetryTest extends PostgresTestBase {
      * @param maxRetries   the retry budget
      * @param retryBackoff the retry backoff in milliseconds
      */
-    private void run(String label, String sqlText, int maxRetries, int retryBackoff) {
+    private void migrationRun(String label, String sqlText, int maxRetries, int retryBackoff) {
         Routines.runMigrationChunks(dsl.configuration(), sqlText,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, maxRetries, retryBackoff);
@@ -373,15 +381,4 @@ class TransientRetryTest extends PostgresTestBase {
         return fail("the first retry attempt did not happen");
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

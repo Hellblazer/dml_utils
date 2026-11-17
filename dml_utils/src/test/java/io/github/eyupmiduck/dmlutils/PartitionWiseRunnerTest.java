@@ -13,7 +13,6 @@ import java.sql.Statement;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -401,13 +400,6 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         return dsl.selectFrom(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
                 .fetchOne();
-    }
-
-    private List<MigrationRunLeafRecord> leaves(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .fetch();
     }
 
 

@@ -29,8 +29,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
-        dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+        resetRanges();
     }
 
     /**

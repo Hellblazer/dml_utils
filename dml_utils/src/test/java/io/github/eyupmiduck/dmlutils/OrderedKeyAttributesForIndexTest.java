@@ -110,26 +110,6 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
         assertRejected("22023", "test_ordered_key_four_idx");
     }
 
-    /**
-     * An index that violates both contracts reports the index-level error: an ON
-     * ONLY index over a nullable column is not live (55000) and its column is not
-     * a usable ordered key (0A000), and the index error wins.
-     */
-    @Test
-    void reportsTheIndexErrorBeforeTheColumnError() throws Exception {
-        String index = "test_ordered_key_on_only_nullable_idx";
-        // A unique index on a partitioned table must include the partition key;
-        // payload is nullable, which is the column-level violation.
-        executeAsOwner("CREATE UNIQUE INDEX " + index + " ON ONLY "
-                + SCHEMA + ".test_partitioned_range (id, payload)");
-        try {
-            assertSqlState("55000", () -> Routines.orderedKeyAttributesForIndex(
-                    dsl.configuration(), relationOid(SCHEMA + "." + index),
-                    SCHEMA, "test_partitioned_range", index));
-        } finally {
-            executeAsOwner("DROP INDEX IF EXISTS " + SCHEMA + "." + index);
-        }
-    }
 
     /**
      * A missing index OID and an OID that belongs to a different table are
@@ -145,14 +125,15 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
     }
 
     /**
-     * An index built with ON ONLY is not valid, ready and live, so it fails closed
-     * with {@code 55000}.
+     * An index built with ON ONLY is not valid, ready and live, so it fails
+     * closed with {@code 55000}. The nullable payload column is also a
+     * column-level violation ({@code 0A000}); the index-level error wins.
      */
     @Test
     void rejectsAnOnOnlyIndex() throws Exception {
         String index = "test_ordered_key_on_only_idx";
         executeAsOwner("CREATE UNIQUE INDEX " + index + " ON ONLY "
-                + SCHEMA + ".test_partitioned_range (id)");
+                + SCHEMA + ".test_partitioned_range (id, payload)");
         try {
             assertSqlState("55000", () -> Routines.orderedKeyAttributesForIndex(
                     dsl.configuration(), relationOid(SCHEMA + "." + index),

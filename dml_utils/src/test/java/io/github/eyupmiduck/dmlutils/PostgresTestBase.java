@@ -1,7 +1,10 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import liquibase.Liquibase;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
@@ -29,8 +32,10 @@ import java.util.UUID;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * dml_utils' PostgreSQL test base: the shared
@@ -525,7 +530,16 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * the bigint column is the tiebreaker.
      */
     protected void seedOrderedKey() {
-        for (int i = 1; i <= 5; i++) {
+        seedOrderedKey(5);
+    }
+
+    /**
+     * Seeds the ordered-key fixture with a chosen number of rows.
+     *
+     * @param rows the row count
+     */
+    protected void seedOrderedKey(int rows) {
+        for (int i = 1; i <= rows; i++) {
             dsl.insertInto(TEST_ORDERED_KEY,
                             TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
                             TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
@@ -621,6 +635,26 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Creates a void function over the composite fixture that appends a value to
+     * each processed row's payload, so processing a row twice is observable.
+     *
+     * @param functionName the function name in the {@code public} schema
+     * @param value        the value to append
+     */
+    protected void createCompositeMarkFunction(String functionName, String value) {
+        // Append rather than overwrite: a row processed twice would then hold the
+        // value twice, so an exact match proves each row was processed once
+        // (which a plain assignment could not show). The literal is quoted by
+        // DSL.inline, so a value containing a quote cannot break the body.
+        dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName
+                + "(p_a bigint, p_b text) RETURNS void LANGUAGE sql AS $$"
+                + " UPDATE " + schema(TEST_COMPOSITE_MIXED) + "."
+                + name(TEST_COMPOSITE_MIXED)
+                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
+                + " WHERE a = p_a AND b = p_b $$");
+    }
+
+    /**
      * Returns the run's boundaries in boundary order.
      *
      * @param runId the run id
@@ -631,6 +665,91 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
                 .fetch();
+    }
+
+    /**
+     * Reads a run row, failing with the run id when it is missing.
+     *
+     * @param runId the run id
+     * @return the run record
+     */
+    protected MigrationRunRecord migrationRun(long runId) {
+        MigrationRunRecord row = dsl.selectFrom(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne();
+        assertNotNull(row, () -> "no migration run " + runId);
+        return row;
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with a label
+     * derived from a prefix and a non-executed {@code SELECT 1} template.
+     *
+     * @param labelPrefix a short descriptive prefix
+     * @param chunkSize   the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelationWithLabelPrefix(String labelPrefix, int chunkSize) {
+        return populateSingleRelation(uniqueLabel(labelPrefix), "SELECT 1", chunkSize);
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with an exact
+     * label, without processing any chunk.
+     *
+     * @param label     the exact run label
+     * @param sqlText   the chunk SQL template
+     * @param chunkSize the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelation(String label, String sqlText, int chunkSize) {
+        return Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), label, sqlText, chunkSize, 1,
+                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with a label
+     * derived from a prefix, without processing any chunk.
+     *
+     * @param labelPrefix a short descriptive prefix
+     * @param sqlText     the chunk SQL template
+     * @param chunkSize   the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelationWithLabelPrefix(String labelPrefix, String sqlText,
+                                                         int chunkSize) {
+        return populateSingleRelation(uniqueLabel(labelPrefix), sqlText, chunkSize);
+    }
+
+    /**
+     * Calculates every leaf boundary of a partition-wise run and finalizes it.
+     *
+     * @param runId the run id
+     */
+    protected void calculateRun(long runId) {
+        Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
+    }
+
+    /**
+     * Empties the migration metadata and the single-bigint fixture between tests.
+     */
+    protected void resetRunsAndBigint() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_BIGINT).execute();
+    }
+
+    /**
+     * Executes one statement as the owner.
+     *
+     * @param sql the statement to run
+     * @throws SQLException if the statement fails
+     */
+    protected void executeAsOwner(String sql) throws SQLException {
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
     }
 
     /**

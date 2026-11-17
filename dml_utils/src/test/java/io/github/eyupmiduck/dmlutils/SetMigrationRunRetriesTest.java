@@ -5,6 +5,8 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
@@ -51,7 +53,7 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
 
         Routines.setMigrationRunRetries(dsl.configuration(), label, 5, 250);
 
-        MigrationRunRecord run = run(runId(label));
+        MigrationRunRecord run = migrationRun(runId(label));
         assertEquals(5, run.getMaxRetries(), "max_retries is updated");
         assertEquals(250, run.getRetryBackoffMs(), "retry_backoff_ms is updated");
     }
@@ -67,7 +69,7 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
 
         Routines.setMigrationRunRetries(dsl.configuration(), label, 0, 0);
 
-        MigrationRunRecord run = run(runId(label));
+        MigrationRunRecord run = migrationRun(runId(label));
         assertEquals(0, run.getMaxRetries());
         assertEquals(0, run.getRetryBackoffMs());
     }
@@ -85,7 +87,7 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
 
         Routines.setMigrationRunRetries(dsl.configuration(), label, 2, 50);
 
-        MigrationRunRecord run = run(runId(label));
+        MigrationRunRecord run = migrationRun(runId(label));
         assertEquals(2, run.getMaxRetries());
         assertEquals(50, run.getRetryBackoffMs());
         assertNotNull(run.getPausedAt(), "the pause is untouched");
@@ -108,50 +110,40 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
         seedBigint(1, 2);
         String label = uniqueLabel("retries-completed");
         runToCompletion(label);
-        assertNotNull(run(runId(label)).getCompletedAt(), "the run completed");
+        assertNotNull(migrationRun(runId(label)).getCompletedAt(), "the run completed");
 
         assertSqlState("P0002", () -> Routines.setMigrationRunRetries(
                 dsl.configuration(), label, 9, 9));
 
-        MigrationRunRecord run = run(runId(label));
+        MigrationRunRecord run = migrationRun(runId(label));
         assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
         assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
                 "the created retry backoff is unchanged");
     }
 
+
     /**
-     * A cancelled run is not updated.
+     * A cancelled or archived run is not updated: the terminal state reports
+     * {@code P0002} and the created retry settings are unchanged.
+     *
+     * @param action the terminal transition, {@code cancel} or {@code archive}
      */
-    @Test
-    void doesNotUpdateACancelledRun() {
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"cancel", "archive"})
+    void doesNotUpdateATerminalRun(String action) {
         seedBigint(1);
-        String label = uniqueLabel("retries-cancelled");
+        String label = uniqueLabel("retries-" + action);
         populate(label);
-        assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
+        assertNotNull(switch (action) {
+            case "cancel" -> Routines.cancelMigrationRun(dsl.configuration(), label);
+            case "archive" -> Routines.archiveMigrationRun(dsl.configuration(), label);
+            default -> throw new IllegalArgumentException(action);
+        });
 
         assertSqlState("P0002", () -> Routines.setMigrationRunRetries(
                 dsl.configuration(), label, 9, 9));
 
-        MigrationRunRecord run = run(runId(label));
-        assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
-        assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
-                "the created retry backoff is unchanged");
-    }
-
-    /**
-     * An archived run is not updated.
-     */
-    @Test
-    void doesNotUpdateAnArchivedRun() {
-        seedBigint(1);
-        String label = uniqueLabel("retries-archived");
-        populate(label);
-        assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
-
-        assertSqlState("P0002", () -> Routines.setMigrationRunRetries(
-                dsl.configuration(), label, 9, 9));
-
-        MigrationRunRecord run = run(runId(label));
+        MigrationRunRecord run = migrationRun(runId(label));
         assertEquals(RETRIES, run.getMaxRetries(), "the created retry count is unchanged");
         assertEquals(RETRY_BACKOFF_MS, run.getRetryBackoffMs(),
                 "the created retry backoff is unchanged");
@@ -201,17 +193,4 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
                 RETRIES, RETRY_BACKOFF_MS);
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(long runId) {
-        MigrationRunRecord row = dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-        assertNotNull(row, () -> "no migration run " + runId);
-        return row;
-    }
 }

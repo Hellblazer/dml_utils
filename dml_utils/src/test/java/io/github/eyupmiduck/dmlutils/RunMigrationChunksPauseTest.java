@@ -78,13 +78,13 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
 
         run.get(30, TimeUnit.SECONDS);
 
-        MigrationRunRecord record = run(runId);
+        MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getPausedAt(), "the run is paused");
         assertNull(record.getCompletedAt(), "the paused run did not complete");
         assertNull(record.getCancelledAt(), "pause does not cancel the run");
         assertTrue(completedBoundaries(runId) > 0,
                 "the in-flight chunk commits before the coordinator returns");
-        assertTrue(completedBoundaries(runId) < run(runId).getTotalChunks(),
+        assertTrue(completedBoundaries(runId) < migrationRun(runId).getTotalChunks(),
                 "pause leaves later chunks pending");
         assertEquals(0, cancelledBoundaries(runId),
                 "pause does not mark boundaries cancelled");
@@ -103,7 +103,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
-        record = run(runId);
+        record = migrationRun(runId);
         assertNotNull(record.getCompletedAt(), "the resumed run completes");
         assertNull(record.getPausedAt(), "completion clears the pause");
         assertEquals(record.getTotalChunks().intValue(), completedBoundaries(runId),
@@ -139,7 +139,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         // interrupted, not merely later.
         run.get(10, TimeUnit.SECONDS);
 
-        MigrationRunRecord record = run(runId);
+        MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getPausedAt(), "the sleeping run is paused");
         assertNull(record.getCompletedAt(), "the paused run did not complete");
     }
@@ -153,7 +153,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
     void aPausedRunWithEveryChunkCompleteCompletesInsteadOfStayingPaused() {
         seedBigint(1, 2);
         String label = uniqueLabel("pause-complete-race");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, FAST_TEMPLATE, 2);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
                 .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
@@ -164,7 +164,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
-        MigrationRunRecord record = run(runId);
+        MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getCompletedAt(), "completion wins over pause");
         assertNull(record.getPausedAt(), "completion clears the pause");
     }
@@ -194,7 +194,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
 
         run.get(30, TimeUnit.SECONDS);
 
-        MigrationRunRecord record = run(runId);
+        MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getCompletedAt(), "completion wins over pause");
         assertNull(record.getPausedAt(), "completion clears the pause");
         assertEquals(0, cancelledBoundaries(runId), "no chunk is cancelled");
@@ -212,17 +212,6 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
                         .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNotNull()));
     }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 
     /**
      * Waits until the run has completed at least one chunk and is therefore in
@@ -246,17 +235,6 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         return fail("the run for " + label + " did not complete its first chunk");
     }
 
-    /**
-     * Creates a run without processing any chunk.
-     *
-     * @param label the run label
-     * @return the run id
-     */
-    private Long populate(String label) {
-        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT), label,
-                FAST_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
     /**
      * Waits until the background call has created the run and a worker is running

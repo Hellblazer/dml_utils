@@ -2,7 +2,6 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationErrorRecord;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.NextMigrationChunk;
 import org.junit.jupiter.api.BeforeEach;
@@ -13,7 +12,6 @@ import java.time.OffsetDateTime;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -31,9 +29,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsBigintAndRange();
     }
 
     /**
@@ -59,7 +55,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
 
         assertTrue(Routines.preparePartitionWiseExecution(dsl.configuration(), runId,
                 "prepare"));
-        assertNotNull(run(runId).getBoundariesCalculatedAt());
+        assertNotNull(migrationRun(runId).getBoundariesCalculatedAt());
 
         long cancelled = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("prepare-cancel"),
@@ -81,7 +77,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
                 .execute();
         assertFalse(Routines.preparePartitionWiseExecution(dsl.configuration(), pausedBefore,
                 "prepare-paused"));
-        assertNull(run(pausedBefore).getBoundariesCalculatedAt(),
+        assertNull(migrationRun(pausedBefore).getBoundariesCalculatedAt(),
                 "a paused calculation does not finalize");
 
         long pausedAfter = Routines.populateMigrationBoundaries(dsl.configuration(),
@@ -89,7 +85,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
                 TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         assertTrue(Routines.preparePartitionWiseExecution(dsl.configuration(), pausedAfter,
                 "prepare-paused-after"));
-        assertNotNull(run(pausedAfter).getBoundariesCalculatedAt());
+        assertNotNull(migrationRun(pausedAfter).getBoundariesCalculatedAt());
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(pausedAfter))
@@ -225,9 +221,4 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

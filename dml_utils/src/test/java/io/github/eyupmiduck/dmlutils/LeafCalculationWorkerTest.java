@@ -1,7 +1,6 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -29,8 +27,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsAndRange();
     }
 
     /**
@@ -46,13 +43,13 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
         assertEquals(2, calculateNext(runId));
         assertEquals(3, calculateNext(runId));
         assertNull(calculateNext(runId));
-        assertNull(run(runId).getBoundariesCalculatedAt(),
+        assertNull(migrationRun(runId).getBoundariesCalculatedAt(),
                 "the calculation worker does not finalize the run");
 
         Routines.finalizeCalculatedRun(dsl.configuration(), runId);
 
-        assertNotNull(run(runId).getBoundariesCalculatedAt());
-        assertEquals(4L, run(runId).getTotalChunks());
+        assertNotNull(migrationRun(runId).getBoundariesCalculatedAt());
+        assertEquals(4L, migrationRun(runId).getTotalChunks());
         assertEquals("calculated", leafState(runId, 1));
         assertEquals("calculated", leafState(runId, 2));
         assertEquals("calculated", leafState(runId, 3));
@@ -101,16 +98,16 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
                 .execute();
         Routines.finalizeCalculatedRun(dsl.configuration(), cancelled);
-        assertNull(run(cancelled).getBoundariesCalculatedAt());
+        assertNull(migrationRun(cancelled).getBoundariesCalculatedAt());
 
         long finalized = populatePartitionWise("leaf-worker", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 1, null);
         for (int i = 0; i < 3; i++) {
             calculateNext(finalized);
         }
         Routines.finalizeCalculatedRun(dsl.configuration(), finalized);
-        OffsetDateTime first = run(finalized).getBoundariesCalculatedAt();
+        OffsetDateTime first = migrationRun(finalized).getBoundariesCalculatedAt();
         Routines.finalizeCalculatedRun(dsl.configuration(), finalized);
-        assertEquals(first, run(finalized).getBoundariesCalculatedAt());
+        assertEquals(first, migrationRun(finalized).getBoundariesCalculatedAt());
     }
 
     /**
@@ -141,7 +138,7 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
             executeAsOwner("DROP FUNCTION IF EXISTS " + PARTITION_SCHEMA + ".fail_finalize()");
         }
 
-        assertNull(run(runId).getBoundariesCalculatedAt(),
+        assertNull(migrationRun(runId).getBoundariesCalculatedAt(),
                 "a failed finalizer must not record the milestone");
     }
 
@@ -171,9 +168,4 @@ class LeafCalculationWorkerTest extends PartitionTestBase {
     }
 
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

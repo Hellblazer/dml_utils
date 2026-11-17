@@ -8,6 +8,9 @@ import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -33,6 +36,22 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
+
+    /**
+     * The index mutations a resumed ordered run must reject.
+     *
+     * @return the replacement CREATE INDEX statements
+     */
+    private static java.util.stream.Stream<Arguments> resumeIndexViolations() {
+        return java.util.stream.Stream.of(
+                Arguments.of("reordered", "CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key (id, created_at)"),
+                Arguments.of("non-unique", "CREATE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key (created_at, id)"),
+                Arguments.of("too-many-columns", "CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key"
+                        + " (created_at, id, external_id, label)"));
+    }
 
     /**
      * Resets the run metadata and the fixture table between tests.
@@ -315,65 +334,25 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     }
 
     /**
-     * A resumed ordered run fails closed with {@code 55000} when the index still
-     * exists but its key order changed.
-     */
-    @Test
-    void resumeFailsWhenTheIndexOrderChanged() throws Exception {
-        seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-reordered");
-        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
-
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key (id, created_at)");
-            assertSqlState("55000", () -> resolveOrderedKey(label,
-                    "test_ordered_key_created_at_id_idx"));
-        } finally {
-            recreateOrderedKeyIndex();
-        }
-    }
-
-    /**
      * A resumed ordered run fails closed with {@code 55000} when the stored
-     * index is recreated as non-unique (resolver {@code 0A000}).
+     * index is recreated with a different key order, as non-unique, or with too
+     * many key columns: the stored descriptor no longer matches the index.
+     *
+     * @param caseName the mutated index shape
+     * @param indexDdl the full CREATE statement for the replacement index
+     * @throws Exception if the index cannot be replaced
      */
-    @Test
-    void resumeFailsWhenTheStoredIndexIsNoLongerUnique() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("resumeIndexViolations")
+    void resumeFailsWhenTheStoredIndexChanges(String caseName, String indexDdl) throws Exception {
         seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-nonunique");
+        String label = uniqueLabel("resolve-ordered-" + caseName);
         resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
 
         try (Connection connection = openOwnerConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key (created_at, id)");
-            assertSqlState("55000", () -> resolveOrderedKey(label,
-                    "test_ordered_key_created_at_id_idx"));
-        } finally {
-            recreateOrderedKeyIndex();
-        }
-    }
-
-    /**
-     * A resumed ordered run fails closed with {@code 55000} when the stored
-     * index is recreated with too many key columns (resolver {@code 22023}).
-     */
-    @Test
-    void resumeFailsWhenTheStoredIndexHasTooManyColumns() throws Exception {
-        seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-four-columns");
-        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
-
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key"
-                    + " (created_at, id, external_id, label)");
+            statement.execute(indexDdl);
             assertSqlState("55000", () -> resolveOrderedKey(label,
                     "test_ordered_key_created_at_id_idx"));
         } finally {

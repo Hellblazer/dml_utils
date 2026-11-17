@@ -11,8 +11,6 @@ import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -32,8 +30,7 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsAndRange();
     }
 
     /**
@@ -244,13 +241,6 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
         }
     }
 
-    private ManifestLeafIdentity identity(long runId) {
-        return identity(runId, 1);
-    }
-
-    private ManifestLeafIdentity identity(long runId, int ordinal) {
-        return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);
-    }
 
     private void assertLeaf(ManifestLeafIdentity leaf) {
         assertLeaf(dsl, leaf);

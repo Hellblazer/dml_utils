@@ -6,9 +6,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.LeafParti
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
@@ -241,10 +238,4 @@ class LeafPartitionsTest extends PostgresTestBase {
         return Routines.leafPartitions(dsl.configuration(), SCHEMA, table, chunkBy);
     }
 
-    private void executeAsOwner(String sql) throws SQLException {
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute(sql);
-        }
-    }
 }

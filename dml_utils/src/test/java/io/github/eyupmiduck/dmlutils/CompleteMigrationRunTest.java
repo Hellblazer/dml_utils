@@ -9,8 +9,6 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -26,9 +24,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsBigintAndRange();
     }
 
     /**
@@ -39,18 +35,18 @@ class CompleteMigrationRunTest extends PartitionTestBase {
     @Test
     void completesACalculatedRunAndIsIdempotent() {
         seedBigint(1, 2, 3);
-        long runId = populateSingleRelation(1);
+        long runId = populateSingleRelationWithLabelPrefix("complete-run", 1);
         completeEveryChunk(runId);
 
         Routines.completeMigrationRun(dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt(), "every chunk is complete, so the run completes");
         OffsetDateTime completedAt = run.getCompletedAt();
 
         Routines.completeMigrationRun(dsl.configuration(), runId);
 
-        assertEquals(completedAt, run(runId).getCompletedAt(),
+        assertEquals(completedAt, migrationRun(runId).getCompletedAt(),
                 "a second call must not move the completion timestamp");
     }
 
@@ -66,7 +62,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
 
         Routines.completeMigrationRun(dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNull(run.getCompletedAt(), "a still-calculating run must not complete");
         assertNull(run.getBoundariesCalculatedAt(), "the manifest-only phase has no milestone");
         assertEquals(0L, run.getTotalChunks(), "no boundaries are calculated yet");
@@ -78,13 +74,13 @@ class CompleteMigrationRunTest extends PartitionTestBase {
     @Test
     void leavesACancelledRunUnchanged() {
         seedBigint(1, 2, 3);
-        long runId = populateSingleRelation(1);
+        long runId = populateSingleRelationWithLabelPrefix("complete-run", 1);
         completeEveryChunk(runId);
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
         Routines.completeMigrationRun(dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNull(run.getCompletedAt(), "a cancelled run must not complete");
         assertNotNull(run.getCancelledAt(), "the cancellation is kept");
     }
@@ -96,7 +92,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
     @Test
     void clearsAPauseOnCompletion() {
         seedBigint(1, 2, 3);
-        long runId = populateSingleRelation(1);
+        long runId = populateSingleRelationWithLabelPrefix("complete-run", 1);
         completeEveryChunk(runId);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
@@ -105,7 +101,7 @@ class CompleteMigrationRunTest extends PartitionTestBase {
 
         Routines.completeMigrationRun(dsl.configuration(), runId);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt(), "the finished run completes");
         assertNull(run.getPausedAt(), "completion clears the pause flag");
     }
@@ -119,12 +115,6 @@ class CompleteMigrationRunTest extends PartitionTestBase {
                 () -> Routines.completeMigrationRun(dsl.configuration(), null));
     }
 
-    private long populateSingleRelation(int chunkSize) {
-        return Routines.populateMigrationBoundaries(dsl.configuration(),
-                TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                uniqueLabel("complete-run"), "SELECT 1", chunkSize, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
     private void completeEveryChunk(long runId) {
         assertTrue(totalChunks(runId) > 0, "the fixture should produce at least one chunk");
@@ -135,9 +125,4 @@ class CompleteMigrationRunTest extends PartitionTestBase {
         assertFalse(runCompleted(runId), "setting the counter alone must not complete the run");
     }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

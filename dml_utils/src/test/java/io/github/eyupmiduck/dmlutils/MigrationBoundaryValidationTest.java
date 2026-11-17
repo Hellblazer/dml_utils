@@ -6,6 +6,9 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -37,6 +40,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     private static final String FIXTURE_SCHEMA = "dml_utils_fixtures";
     private static final String NO_SUCH_TABLE = "no_such_table";
     private static final String SQL_TEXT = "SELECT 1";
+
+    /**
+     * The invalid label and SQL-text values.
+     *
+     * @return the rejected argument pairs
+     */
+    private static java.util.stream.Stream<Arguments> invalidTextArguments() {
+        return java.util.stream.Stream.of(
+                Arguments.of("null label", null, SQL_TEXT),
+                Arguments.of("blank label", "   ", SQL_TEXT),
+                Arguments.of("null sql text", "null-sql-text", null),
+                Arguments.of("blank sql text", "blank-sql-text", "   "));
+    }
 
     @BeforeEach
     void resetFixtures() {
@@ -78,39 +94,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     }
 
     /**
-     * A null label is rejected by the non-null text domain.
+     * A null or blank label and a null or blank SQL text are each rejected by
+     * their non-null text domain before any run is created.
+     *
+     * @param description the violated argument
+     * @param label       the run label
+     * @param sqlText     the chunk SQL template
      */
-    @Test
-    void rejectsNullLabel() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidTextArguments")
+    void rejectsNullAndBlankTextArguments(String description, String label, String sqlText) {
         assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), null, SQL_TEXT, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
-    }
-
-    /**
-     * A blank label is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsBlankLabel() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "   ", SQL_TEXT, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
-    }
-
-    /**
-     * A null SQL text is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsNullSqlText() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "null-sql-text", null, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
-    }
-
-    /**
-     * A blank SQL text is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsBlankSqlText() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "blank-sql-text", "   ", 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
+                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), label, sqlText,
+                1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
     }
 
     /**

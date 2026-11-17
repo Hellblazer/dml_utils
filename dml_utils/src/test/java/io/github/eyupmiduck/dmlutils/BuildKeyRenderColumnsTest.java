@@ -3,6 +3,9 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.BuildKeyRenderColumns;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
@@ -17,6 +20,29 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
 
     private static final String SCHEMA = "dml_utils_fixtures";
 
+    /**
+     * The alias, key and collation cases.
+     *
+     * @return the render-column cases
+     */
+    private static java.util.stream.Stream<Arguments> renderColumnCases() {
+        return java.util.stream.Stream.of(
+                Arguments.of("non-text kind", "t", "test_bigint",
+                        new String[]{"id"}, new String[]{"bigint"},
+                        new String[]{"t.id"}, new String[]{null}),
+                Arguments.of("mixed key", "t", "test_composite_mixed",
+                        new String[]{"a", "b"}, new String[]{"bigint", "text"},
+                        new String[]{"t.a", "t.b"},
+                        new String[]{null, "pg_catalog.\"default\""}),
+                Arguments.of("explicit collation", "t", "test_composite_collated",
+                        new String[]{"a", "b"}, new String[]{"bigint", "text"},
+                        new String[]{"t.a", "t.b"},
+                        new String[]{null, "pg_catalog.\"en-x-icu\""}),
+                Arguments.of("quoted alias and missing catalog column", "T odd",
+                        "no_such_table", new String[]{"id"}, new String[]{"text"},
+                        new String[]{"\"T odd\".id"}, new String[]{null}));
+    }
+
     private BuildKeyRenderColumns columns(String alias, String table,
                                           String[] keyColumns, String[] kinds) {
         return Routines.buildKeyRenderColumns(dsl.configuration(), alias, SCHEMA, table,
@@ -24,53 +50,28 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
     }
 
     /**
-     * Non-text kinds get NULL collations and every column is alias-qualified.
+     * Every key column is alias-qualified, a text column is paired with the
+     * schema-qualified collation from the catalog (or a NULL collation when the
+     * table/column is not in it), and an alias that needs quoting is quoted.
+     *
+     * @param description        the key shape
+     * @param alias              the driving-table alias
+     * @param table              the driving table
+     * @param keyColumns         the key columns
+     * @param kinds              the key kinds
+     * @param expectedColumns    the expected qualified column names
+     * @param expectedCollations the expected collations
      */
-    @Test
-    void qualifiesColumnsAndLeavesNonTextCollationsNull() {
-        BuildKeyRenderColumns result = columns("t", "test_bigint",
-                new String[]{"id"}, new String[]{"bigint"});
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("renderColumnCases")
+    void qualifiesColumnsAndResolvesCollations(String description, String alias, String table,
+                                               String[] keyColumns, String[] kinds,
+                                               String[] expectedColumns,
+                                               String[] expectedCollations) {
+        BuildKeyRenderColumns result = columns(alias, table, keyColumns, kinds);
 
-        assertArrayEquals(new String[]{"t.id"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null}, result.getOKeyCollations());
-    }
-
-    /**
-     * A mixed key qualifies both columns and resolves the text column's
-     * collation.
-     */
-    @Test
-    void resolvesAMixedKey() {
-        BuildKeyRenderColumns result = columns("t", "test_composite_mixed",
-                new String[]{"a", "b"}, new String[]{"bigint", "text"});
-
-        assertArrayEquals(new String[]{"t.a", "t.b"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null, "pg_catalog.\"default\""}, result.getOKeyCollations());
-    }
-
-    /**
-     * An explicitly collated text column keeps its quoted collation name.
-     */
-    @Test
-    void resolvesAnExplicitCollation() {
-        BuildKeyRenderColumns result = columns("t", "test_composite_collated",
-                new String[]{"a", "b"}, new String[]{"bigint", "text"});
-
-        assertArrayEquals(new String[]{"t.a", "t.b"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null, "pg_catalog.\"en-x-icu\""}, result.getOKeyCollations());
-    }
-
-    /**
-     * An alias that needs quoting is quoted, and a column outside the catalog
-     * falls back to a NULL collation.
-     */
-    @Test
-    void quotesTheAliasAndToleratesAMissingCatalogColumn() {
-        BuildKeyRenderColumns result = columns("T odd", "no_such_table",
-                new String[]{"id"}, new String[]{"text"});
-
-        assertArrayEquals(new String[]{"\"T odd\".id"}, result.getOColumnNames());
-        assertArrayEquals(new String[]{null}, result.getOKeyCollations());
+        assertArrayEquals(expectedColumns, result.getOColumnNames());
+        assertArrayEquals(expectedCollations, result.getOKeyCollations());
     }
 
     /**

@@ -45,13 +45,13 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void cancelsAnActiveRunAndMarksItsPendingBoundaries() {
         seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         String label = uniqueLabel("cancel");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(runId, "populate creates a run");
 
         Long cancelled = Routines.cancelMigrationRun(dsl.configuration(), label);
 
         assertEquals(runId, cancelled);
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCancelledAt(), "the run is cancelled");
         assertNull(run.getCompletedAt(), "a cancelled run is not completed");
         assertTrue(dsl.fetchCount(MIGRATION_BOUNDARY,
@@ -75,7 +75,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void aSecondCancellationReturnsNull() {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("cancel-twice");
-        assertNotNull(populate(label));
+        assertNotNull(populateSingleRelation(label, TEMPLATE, 2));
         assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
 
         assertNull(Routines.cancelMigrationRun(dsl.configuration(), label));
@@ -89,14 +89,14 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void refusesToResumeACancelledRun() {
         seedBigint(1, 2);
         String label = uniqueLabel("cancel-resume");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
 
         Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCancelledAt(), "the run stays cancelled");
         assertNull(run.getCompletedAt(), "the cancelled run is not completed");
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
@@ -116,10 +116,10 @@ class CancelMigrationRunTest extends PostgresTestBase {
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
         long runId = runId(label);
-        assertNotNull(run(runId).getCompletedAt(), "the run completed");
+        assertNotNull(migrationRun(runId).getCompletedAt(), "the run completed");
 
         assertNull(Routines.cancelMigrationRun(dsl.configuration(), label));
-        assertNull(run(runId).getCancelledAt(), "a completed run is not cancelled");
+        assertNull(migrationRun(runId).getCancelledAt(), "a completed run is not cancelled");
     }
 
     /**
@@ -130,12 +130,12 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void archivingAnUnfinishedRunCancelsItAndCancelIsANoOp() {
         seedBigint(1, 2);
         String label = uniqueLabel("cancel-archived");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         Routines.archiveMigrationRun(dsl.configuration(), label);
 
-        assertNotNull(run(runId).getCancelledAt(),
+        assertNotNull(migrationRun(runId).getCancelledAt(),
                 "archive cancels the unfinished run");
-        assertNotNull(run(runId).getArchivedAt(), "the run is archived");
+        assertNotNull(migrationRun(runId).getArchivedAt(), "the run is archived");
         assertNull(Routines.cancelMigrationRun(dsl.configuration(), label),
                 "an archived run is not cancellable");
     }
@@ -155,7 +155,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void reportsCancellationInTheRunSummary() {
         seedBigint(1, 2);
         String label = uniqueLabel("cancel-summary");
-        assertNotNull(populate(label));
+        assertNotNull(populateSingleRelation(label, TEMPLATE, 2));
         assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
 
         List<MigrationRunSummaryRecord> summary =
@@ -173,7 +173,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void leavesAClaimedBoundaryForTheCoordinator() throws Exception {
         seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         String label = uniqueLabel("cancel-claimed");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(runId);
 
         try (Connection holder = openTestConnection()) {
@@ -216,7 +216,7 @@ class CancelMigrationRunTest extends PostgresTestBase {
     void waitsForAnInFlightLeafBeforeMarkingItsBoundaries() throws Exception {
         seedBigint(1, 2, 3, 4, 5);
         String label = uniqueLabel("cancel-in-flight");
-        Long runId = populate(label);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(runId);
 
         try (Connection holder = openTestConnection()) {
@@ -251,27 +251,5 @@ class CancelMigrationRunTest extends PostgresTestBase {
                 "the boundary committed by the in-flight leaf is marked");
     }
 
-    /**
-     * Creates the run and its boundaries without processing any chunk.
-     *
-     * @param label the run label
-     * @return the new run id
-     */
-    private Long populate(String label) {
-        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT), label,
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
-    }
 
-    /**
-     * Reads the run row.
-     *
-     * @param runId the run id
-     * @return the run record
-     */
-    private MigrationRunRecord run(Long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

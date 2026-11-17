@@ -11,10 +11,8 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -35,9 +33,7 @@ class MigrationRunLeavesTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsBigintAndRange();
     }
 
     /**
@@ -49,7 +45,7 @@ class MigrationRunLeavesTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L, 100L, 101L, 200L, 201L, 202L);
         String label = uniqueLabel("leaves-manifest");
         long runId = populate(label, 2);
-        calculate(runId);
+        calculateRun(runId);
 
         List<MigrationRunLeavesRecord> leaves = Routines.migrationRunLeaves(
                 dsl.configuration(), runId);
@@ -102,7 +98,7 @@ class MigrationRunLeavesTest extends PartitionTestBase {
         insertRangeRows(0L, 1L);
         String label = uniqueLabel("leaves-empty");
         long runId = populate(label, 2);
-        calculate(runId);
+        calculateRun(runId);
 
         List<MigrationRunLeavesRecord> leaves = Routines.migrationRunLeaves(
                 dsl.configuration(), runId);
@@ -169,7 +165,7 @@ class MigrationRunLeavesTest extends PartitionTestBase {
         assertEquals(0L, pending.getTotalChunks(), "no boundaries are committed yet");
         assertEquals(0L, pending.getTotalChunksCompleted());
 
-        calculate(runId);
+        calculateRun(runId);
         MigrationRunSummaryRecord calculated = summary(label);
         assertEquals(3L, calculated.getLeavesCalculated());
         assertEquals(0L, calculated.getLeavesPending());
@@ -251,15 +247,6 @@ class MigrationRunLeavesTest extends PartitionTestBase {
                         true, 3, 1000);
     }
 
-    /**
-     * Calculates and finalizes every leaf boundary of the run.
-     *
-     * @param runId the run id
-     */
-    private void calculate(long runId) {
-        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
-                .calculateMigrationRunBoundaries(dsl.configuration(), runId);
-    }
 
     /**
      * Completes the given chunk boundaries with a zero row count.

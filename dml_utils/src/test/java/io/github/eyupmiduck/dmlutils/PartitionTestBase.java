@@ -3,12 +3,15 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ManifestLeafIdentity;
 
-import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
@@ -95,22 +98,68 @@ abstract class PartitionTestBase extends PostgresTestBase {
         for (Long id : ids) {
             dsl.insertInto(TEST_PARTITIONED_RANGE,
                             TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "pending")
+                    .values(id, "payload-" + id)
                     .execute();
         }
     }
 
     /**
-     * Executes one statement as the owner.
-     *
-     * @param sql the statement to run
-     * @throws SQLException if the statement fails
+     * Empties the migration metadata and the range fixture between tests.
      */
-    protected void executeAsOwner(String sql) throws SQLException {
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute(sql);
-        }
+    protected void resetRunsAndRange() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+    }
+
+    /**
+     * Empties the two partitioned fixtures used by the leaf helpers.
+     */
+    protected void resetRanges() {
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+    }
+
+    /**
+     * Empties the migration metadata and both driving fixtures between tests.
+     */
+    protected void resetRunsBigintAndRange() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_BIGINT).execute();
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+    }
+
+    /**
+     * Returns a run's manifest leaves in manifest order.
+     *
+     * @param runId the run id
+     * @return the leaf rows
+     */
+    protected List<MigrationRunLeafRecord> leaves(long runId) {
+        return dsl.selectFrom(MIGRATION_RUN_LEAF)
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
+                .fetch();
+    }
+
+    /**
+     * Returns the first manifest leaf's identity snapshot.
+     *
+     * @param runId the run id
+     * @return the leaf identity
+     */
+    protected ManifestLeafIdentity identity(long runId) {
+        return identity(runId, 1);
+    }
+
+    /**
+     * Returns one manifest leaf's identity snapshot.
+     *
+     * @param runId   the run id
+     * @param ordinal the leaf ordinal
+     * @return the leaf identity
+     */
+    protected ManifestLeafIdentity identity(long runId, int ordinal) {
+        return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);
     }
 
     /**
