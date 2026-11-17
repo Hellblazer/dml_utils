@@ -11,7 +11,7 @@
 \set ON_ERROR_STOP on
 
 -- 1. A driving table with a supported primary key. Here the breed name (text)
---    is the key; a composite key of up to three columns works the same way.
+--    is the key; a composite key of up to four columns works the same way.
 --    The function below must take the primary-key column types in key order.
 --    Drop the function first: a SQL function depends on the table it updates,
 --    so the table cannot be dropped while the function still exists.

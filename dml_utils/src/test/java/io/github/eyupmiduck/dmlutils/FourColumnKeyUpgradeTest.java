@@ -86,6 +86,58 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
         }
     }
 
+    /**
+     * A database that has applied 011 but not yet 012 holds the new check NOT VALID:
+     * it is already enforced for new rows (four columns pass, five are refused)
+     * and a run row recorded in that window validates when 012 runs.
+     */
+    @Test
+    void validatesARowRecordedBetweenTheTwoChangesets() throws Exception {
+        String database = "four_col_window_" + UUID.randomUUID().toString().replace('-', '_');
+        createDatabase(database);
+        try {
+            prepare(database);
+            try (Connection owner = openOwnerConnection(database)) {
+                applyChangelog(owner);
+                restoreThreeColumnState(owner);
+
+                applyNextChangesets(owner, 1);
+
+                assertEquals(1, count(owner, "SELECT count(*) FROM " + tracking()
+                                + " WHERE id = '011-allow-four-column-ordered-key'"),
+                        "011 is recorded");
+                assertEquals(0, count(owner, "SELECT count(*) FROM " + tracking()
+                                + " WHERE id = '012-validate-four-column-ordered-key-check'"),
+                        "012 has not run");
+                assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
+                                + " WHERE conname = '" + CHECK_CONSTRAINT + "' AND NOT convalidated"),
+                        "the new check is NOT VALID until 012");
+                assertEquals(1, count(owner, checkDefinitionContains("<= 4")),
+                        "the new check allows four columns");
+                SQLException five = assertThrows(SQLException.class,
+                        () -> insertRun(owner, 5, "window-five"));
+                assertEquals("23514", five.getSQLState(),
+                        "five columns are refused while the check is NOT VALID: " + five.getMessage());
+
+                insertRun(owner, 3, "window-three");
+
+                applyChangelog(owner);
+
+                assertEquals(1, count(owner, "SELECT count(*) FROM " + tracking()
+                                + " WHERE id = '012-validate-four-column-ordered-key-check'"),
+                        "012 is recorded");
+                assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
+                                + " WHERE conname = '" + CHECK_CONSTRAINT + "' AND convalidated"),
+                        "the check validates with the three-column row in place");
+                assertEquals(1, count(owner, "SELECT count(*) FROM dml_utils_data.migration_run"
+                                + " WHERE label = 'window-three'"),
+                        "the row recorded in the window is kept");
+            }
+        } finally {
+            dropDatabase(database);
+        }
+    }
+
     private static String tracking() {
         return LIQUIBASE_SCHEMA + "." + DATABASE_CHANGELOG_TABLE;
     }
@@ -157,6 +209,20 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
         new Liquibase(ChangelogTestSupport.MASTER_RESOURCE, new ClassLoaderResourceAccessor(), database)
                 .update();
         // Liquibase leaves the connection in manual-commit mode.
+        owner.setAutoCommit(true);
+    }
+
+    /**
+     * Applies only the next {@code count} changesets that have not run yet.
+     */
+    private static void applyNextChangesets(Connection owner, int count) throws Exception {
+        Database database = DatabaseFactory.getInstance()
+                .findCorrectDatabaseImplementation(new JdbcConnection(owner));
+        database.setLiquibaseSchemaName(LIQUIBASE_SCHEMA);
+        database.setDatabaseChangeLogTableName(DATABASE_CHANGELOG_TABLE);
+        database.setDatabaseChangeLogLockTableName(DATABASE_CHANGELOG_LOCK_TABLE);
+        new Liquibase(ChangelogTestSupport.MASTER_RESOURCE, new ClassLoaderResourceAccessor(), database)
+                .update(count, "");
         owner.setAutoCommit(true);
     }
 

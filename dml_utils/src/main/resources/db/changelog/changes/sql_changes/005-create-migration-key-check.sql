@@ -21,6 +21,7 @@ WITH arity AS (SELECT coalesce(
                                        pg_catalog.array_length((i_key).uuid_values, 1),
                                        pg_catalog.array_length((i_key).timestamptz_values, 1),
                                        pg_catalog.array_length((i_key).bytea_values, 1)), 0) AS n)
+-- This bound and the unrolled [1]..[4] clauses must change together.
 SELECT arity.n BETWEEN 1 AND 4
            -- Every present array is one-dimensional with a lower bound of 1.
            -- One-subscript indexing below (and in migration_key_values) assumes
