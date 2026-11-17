@@ -59,6 +59,18 @@ class AssertSingleStatementTest extends PostgresTestBase {
     }
 
     /**
+     * A line comment ends at CR as well as LF, so a bare-CR comment cannot hide
+     * a following statement; CRLF works the same way.
+     */
+    @Test
+    void endsALineCommentAtCarriageReturn() {
+        accepts("SELECT 1; -- done\r");
+        rejects("SELECT 1; -- c\rSELECT 2");
+        rejects("SELECT 1; -- c\r\nSELECT 2");
+    }
+
+
+    /**
      * A terminator inside a quoted identifier, a line comment, a nested block
      * comment or a dollar-quoted body is not a separator.
      */
@@ -76,6 +88,31 @@ class AssertSingleStatementTest extends PostgresTestBase {
     }
 
     /**
+     * An E (or e) that continues an identifier is not an escape prefix, so the
+     * literal is standard: the backslash is ordinary and the quote closes there.
+     * The non-ASCII case pins the high-bit arm of the identifier continuation
+     * check (a non-ASCII character before the E).
+     */
+    @Test
+    void treatsAnEContinuingAnIdentifierAsText() {
+        accepts("SELECT xE'a\\'");
+        rejects("SELECT xE'a\\'; SELECT 2'");
+        accepts("SELECT \u00e9E'a\\'");
+        rejects("SELECT \u00e9E'a\\'; SELECT 2'");
+    }
+
+    /**
+     * A digit may continue a dollar-quote tag but may not start one, matching
+     * PostgreSQL's dolq_start/dolq_cont split, so a '$1$'-style opener cannot
+     * swallow a following terminator the server treats as a separator.
+     */
+    @Test
+    void acceptsADigitInsideATagButNotAsItsFirstCharacter() {
+        accepts("SELECT $t1$;$t1$ AS x");
+        rejects("SELECT $1$; SELECT 2$1$");
+    }
+
+    /**
      * A '$' that continues an identifier is not a dollar-quote opener, so the
      * terminator after the identifier is still seen. (PostgreSQL identifiers may
      * contain '$', so {@code a$b$} is one identifier.)
@@ -84,6 +121,8 @@ class AssertSingleStatementTest extends PostgresTestBase {
     void treatsADollarInsideAnIdentifierAsText() {
         accepts("SELECT 0 AS a$b$");
         rejects("SELECT 0 AS a$b$; SELECT 2");
+        // A non-ASCII identifier character also blocks the opener.
+        rejects("SELECT 0 AS a\u00e9$$; SELECT 2$$");
     }
 
     /**
