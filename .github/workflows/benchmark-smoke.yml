@@ -19,6 +19,8 @@ on:
       - "dml_utils/pom.xml"
       - "scripts"
       - "scripts/**"
+      - ".gitmodules"
+      - ".github/scripts/settings.xml"
       - ".github/workflows/benchmark-smoke.yml"
   push:
     branches:
@@ -30,6 +32,8 @@ on:
       - "dml_utils/pom.xml"
       - "scripts"
       - "scripts/**"
+      - ".gitmodules"
+      - ".github/scripts/settings.xml"
       - ".github/workflows/benchmark-smoke.yml"
   workflow_dispatch:
 
@@ -48,6 +52,15 @@ jobs:
     name: Benchmark smoke
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # The job executes PR-head code (benchmark/smoke.sh, ./mvnw) with a
+    # GITHUB_TOKEN that can read GitHub Packages. A fork PR must not receive
+    # that token; run the smoke only for same-repository PRs (whose authors can
+    # already push code), pushes to main and manual dispatches after review.
+    # Keep the Maven Build workflow's fork coverage separate.
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || github.event_name == 'push'
+      || github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Checkout
@@ -56,6 +69,8 @@ jobs:
           # The custom image build lives in the workflow_library submodule
           # mounted at scripts/.
           submodules: true
+          # Do not leave the job token in .git/config for the PR code to read.
+          persist-credentials: false
 
       - name: Set up Java 25
         uses: actions/setup-java@v6
