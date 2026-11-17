@@ -492,8 +492,11 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     }
 
     /**
-     * Seeds the ordered-key fixture with five rows whose timestamps repeat, so
-     * the boundary order falls through to the id tiebreaker.
+     * Resolves an ordered-key run over the ordered-key fixture.
+     *
+     * @param label the run label
+     * @param index the ordered-key index name
+     * @return the resolved run
      */
     private ResolveMigrationRun resolveOrderedKey(String label, String index) {
         return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE,

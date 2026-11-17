@@ -13,6 +13,7 @@ $$
 DECLARE
     l_updated      integer;
     l_completed_at timestamptz;
+    l_state        text;
 BEGIN
     -- Use one timestamp for both columns and clamp a caller-supplied future
     -- start, so a clock-skewed caller cannot violate
@@ -31,9 +32,21 @@ BEGIN
     GET DIAGNOSTICS l_updated = ROW_COUNT;
     IF l_updated = 0 THEN
         -- P0C02 is a completion-protocol failure, distinct from P0C01 (claim)
-        -- and from P0002 raised inside user chunk SQL.
-        RAISE EXCEPTION 'migration boundary % for run % was not found while completing it',
-            i_boundary_no, i_run_id
+        -- and from P0002 raised inside user chunk SQL. The conditional update can
+        -- miss because the boundary does not exist, is already completed (a direct
+        -- second call) or was cancelled, so name the actual state.
+        SELECT CASE
+                   WHEN boundary.completed_at IS NOT NULL THEN 'is already completed'
+                   WHEN boundary.cancelled_at IS NOT NULL THEN 'is cancelled'
+                   ELSE 'could not be completed'
+                   END
+        INTO l_state
+        FROM dml_utils_data.migration_boundary AS boundary
+        WHERE boundary.run_id = i_run_id
+          AND boundary.boundary_no = i_boundary_no;
+
+        RAISE EXCEPTION 'migration boundary % for run % % while completing it',
+            i_boundary_no, i_run_id, COALESCE(l_state, 'does not exist')
             USING ERRCODE = 'P0C02';
     END IF;
 

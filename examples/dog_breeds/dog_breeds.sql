@@ -8,8 +8,10 @@
 
 \set ON_ERROR_STOP on
 
--- Stop and archive any previous run before replacing the driving table, so an
--- in-flight pg_background worker cannot hold locks on the old relation.
+-- Archive any previous run with the example label so the label is free for the
+-- new run (archive cancels an unfinished run first). Cancelling stops new chunks
+-- and marks the unclaimed boundaries; a chunk that is already running may still
+-- finish its statement, so the DROP TABLE below can wait for it.
 SELECT dml_utils.cancel_migration_run(i_label => 'dogs-status-backfill');
 SELECT dml_utils.archive_migration_run(i_label => 'dogs-status-backfill');
 
@@ -36,6 +38,12 @@ COMMENT ON TABLE dog_breeds.dogs IS
     'Example: dog breeds, keyed by breed name, for the chunked-migration demo.';
 COMMENT ON COLUMN dog_breeds.dogs.status IS
     'Backfilled by the example migration.';
+
+-- The boundary scan runs inside the owner-owned definer routine, so the owner
+-- must be able to read the driving table; a non-superuser caller also needs the
+-- DML its chunk SQL performs (see "Requirements and behavior" in the README).
+GRANT USAGE ON SCHEMA dog_breeds TO dml_utils_owner, dml_utils_caller;
+GRANT SELECT, UPDATE ON dog_breeds.dogs TO dml_utils_owner, dml_utils_caller;
 
 -- 2. Seed with some famous breeds.
 INSERT INTO dog_breeds.dogs (breed, origin, size, lifespan)
@@ -139,8 +147,12 @@ WHERE archived_at IS NULL;
 
 \echo '--- stored chunk boundaries (boundary_id as text values) ---'
 SELECT b.boundary_no,
-       dml_utils_lib.migration_key_values(b.boundary_id, ARRAY ['text']) AS key_values,
-       b.completed_at IS NOT NULL                                        AS completed
+       dml_utils_lib.migration_key_values(
+               b.boundary_id,
+               dml_utils_lib.primary_key_kinds(
+                       i_schema_name => 'dog_breeds',
+                       i_table_name => 'dogs'))                     AS key_values,
+       b.completed_at IS NOT NULL                                   AS completed
 -- noqa:disable=AM05,ST09
 FROM dml_utils_data.migration_run AS r
          JOIN dml_utils_data.migration_boundary AS b ON b.run_id = r.run_id

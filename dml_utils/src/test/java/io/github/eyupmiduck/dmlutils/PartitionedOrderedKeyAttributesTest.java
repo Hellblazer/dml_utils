@@ -69,7 +69,9 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
     }
 
     /**
-     * A missing index is {@code 42704}; a plain-table index is {@code 0A000}.
+     * An index that is not on the partitioned parent is {@code 42704} (including
+     * one that exists on another, plain table), and a non-partitioned driving table
+     * is {@code 0A000}.
      */
     @Test
     void rejectsMissingAndNonPartitionedIndexes() {

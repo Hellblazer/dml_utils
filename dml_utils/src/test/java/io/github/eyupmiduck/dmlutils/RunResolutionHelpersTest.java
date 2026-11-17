@@ -40,7 +40,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     @Test
     void findsOnlyTheActiveRun() {
         String label = uniqueLabel("find-active");
-        long runId = populate(label, ChunkingStrategy.primary_key, false);
+        long runId = populate(label, ChunkingStrategy.primary_key);
 
         assertEquals(runId, Routines.findActiveMigrationRun(dsl.configuration(), label)
                 .getFirst().getRunId());
@@ -104,7 +104,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     @Test
     void resumesARequestedRun() {
         String label = uniqueLabel("resume-active");
-        long runId = populate(label, ChunkingStrategy.ordered_key, false);
+        long runId = populate(label, ChunkingStrategy.ordered_key);
         MigrationRunRecord stored = run(runId);
 
         ResumeMigrationRun resumed = Routines.resumeMigrationRun(dsl.configuration(),
@@ -149,7 +149,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     @Test
     void resumeRejectsAChangedOrderedDescriptor() {
         String label = uniqueLabel("resume-ordered");
-        long runId = populate(label, ChunkingStrategy.ordered_key, false);
+        long runId = populate(label, ChunkingStrategy.ordered_key);
         MigrationRunRecord stored = run(runId);
         stored.setOrderedKeyColumns(new String[]{"id"});
 
@@ -160,12 +160,12 @@ class RunResolutionHelpersTest extends PostgresTestBase {
 
     /**
      * A stored blocks filepath that no longer matches the live heap fails closed
-     * with {@code 55000}.
+     * with {@code 22023} (assert_relation_filepath's invalid_parameter_value).
      */
     @Test
     void resumeRejectsAChangedBlocksFilepath() {
         String label = uniqueLabel("resume-blocks");
-        long runId = populate(label, ChunkingStrategy.blocks, false);
+        long runId = populate(label, ChunkingStrategy.blocks);
         MigrationRunRecord stored = run(runId);
         stored.setDrivingTableRelationFilepath("base/1/999");
 
@@ -174,16 +174,22 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                 "t", ChunkingStrategy.blocks, 0, null, false, 3, 1000));
     }
 
-    private long populate(String label, ChunkingStrategy chunkBy, boolean partitionWise) {
-        String table = partitionWise ? "test_partitioned_range"
-                : (chunkBy == ChunkingStrategy.ordered_key ? "test_ordered_key"
-                : name(TEST_BIGINT));
-        String tableSchema = (partitionWise || chunkBy == ChunkingStrategy.ordered_key)
+    /**
+     * Creates a single-relation run over the fixture for the strategy.
+     *
+     * @param label   the run label
+     * @param chunkBy the chunking strategy
+     * @return the run id
+     */
+    private long populate(String label, ChunkingStrategy chunkBy) {
+        String table = chunkBy == ChunkingStrategy.ordered_key
+                ? "test_ordered_key" : name(TEST_BIGINT);
+        String tableSchema = chunkBy == ChunkingStrategy.ordered_key
                 ? "dml_utils_fixtures" : schema(TEST_BIGINT);
         String index = chunkBy == ChunkingStrategy.ordered_key ? ORDERED_INDEX : null;
         return Routines.populateMigrationBoundaries(dsl.configuration(),
                 tableSchema, table, label, TEMPLATE, 1, 1, chunkBy, "t", 0, index,
-                partitionWise, 3, 1000);
+                false, 3, 1000);
     }
 
     private MigrationRunRecord run(long runId) {

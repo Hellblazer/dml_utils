@@ -64,7 +64,7 @@ COMMENT ON FUNCTION dml_utils_lib.explain_chunk_plans IS
     'Returns the EXPLAIN (FORMAT JSON) plans for the three statements a chunked '
         'run generates: the boundary-population insert (with a synthetic run id), '
         'a non-final chunk and the final chunk, for the given chunking strategy '
-        '(primary_key or blocks). It reads no boundaries and writes nothing; the '
+        '(primary_key, ordered_key or blocks). It reads no boundaries and writes nothing; the '
         'chunk ranges are synthetic. The strategy-specific plans live in '
         'explain_block_chunk_plans and explain_key_chunk_plans. Shared by '
         'dml_utils.explain_migration_chunks and '

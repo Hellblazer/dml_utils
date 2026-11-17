@@ -46,8 +46,8 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
-     * Clears the seeded fixture row and the migration metadata so each test
-     * starts clean.
+     * Empties the fixture table and the migration metadata so rows or runs left by
+     * an earlier test cannot change this test's row estimates or plan output.
      */
     @BeforeEach
     void resetFixtures() {
@@ -262,7 +262,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
 
     /**
      * The call is read-only: it creates no run or boundary and does not run the
-     * template (the seeded payload is unchanged).
+     * template (the row this test inserts keeps its payload).
      */
     @Test
     void writesNothing() {

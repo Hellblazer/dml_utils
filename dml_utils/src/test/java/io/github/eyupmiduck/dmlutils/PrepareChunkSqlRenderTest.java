@@ -34,7 +34,7 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
      * names are the alias-qualified key columns in key order.
      */
     @Test
-    void leavesTheDrivingTableAsASentinelAndQuotesTheColumnNames() {
+    void leavesTheDrivingTableAsASentinelAndQualifiesTheColumnNames() {
         PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"a", "b"}, new String[]{"bigint", "text"});

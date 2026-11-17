@@ -40,7 +40,8 @@ class LiquibaseUpgradeTest extends UpgradeContract {
         if (version == null || version.isBlank() || "0.0.0-SNAPSHOT".equals(version)) {
             throw new IllegalStateException(
                     "upgrade.current.version must be set to the current <revision>; "
-                            + "run this test through Maven/surefire or set -Dupgrade.current.version");
+                            + "run this test through Maven/surefire or set "
+                            + "-Dupgrade.current.version=<revision>");
         }
         return version;
     }

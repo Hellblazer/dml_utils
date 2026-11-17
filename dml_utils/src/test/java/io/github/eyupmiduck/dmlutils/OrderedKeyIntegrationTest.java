@@ -160,6 +160,9 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                 failingTemplate));
 
         Routines.setMigrationRunSqlText(dsl.configuration(), label, APPEND_TEMPLATE);
+        // Only the label matters on resume: the stored sql_text was just set to
+        // APPEND_TEMPLATE, and the stored chunk size, threads, strategy and key are
+        // used, so this call's chunkSize/threads/index arguments are ignored.
         run(label, TEST_ORDERED_KEY_TEXT, null, 2, 1, APPEND_TEMPLATE);
 
         assertExactlyOnce(TEST_ORDERED_KEY_TEXT, TEST_ORDERED_KEY_TEXT.PAYLOAD, 6);

@@ -45,7 +45,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
         run(PARTITIONED_RANGE, label, 2, ChunkingStrategy.ordered_key,
                 "test_partitioned_range_ordered_key_idx");
 
-        MigrationRunRecord run = run(label);
+        MigrationRunRecord run = runRow(label);
         assertEquals(ChunkingStrategy.ordered_key, run.getChunkBy());
         assertTrue(run.getPartitionWise());
         assertNotNull(run.getCompletedAt());
@@ -78,7 +78,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
 
         run("test_partitioned_multi", label, 2, ChunkingStrategy.ordered_key, index);
 
-        assertNotNull(run(label).getCompletedAt());
+        assertNotNull(runRow(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_MULTI,
                 TEST_PARTITIONED_MULTI.PAYLOAD.ne("done")));
     }
@@ -141,7 +141,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
                     + TEST_USER + ", dml_utils_caller");
         }
 
-        MigrationRunRecord failed = run(label);
+        MigrationRunRecord failed = runRow(label);
         assertNull(failed.getCompletedAt(), "the run stays incomplete after a failed chunk");
         assertTrue(failed.getTotalChunksCompleted() > 0,
                 "earlier chunks should stay committed");
@@ -149,7 +149,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
 
         run(PARTITIONED_RANGE, label, 1, ChunkingStrategy.primary_key, null);
 
-        assertNotNull(run(label).getCompletedAt());
+        assertNotNull(runRow(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.ne("done")));
     }
@@ -239,7 +239,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(), PARTITION_SCHEMA,
                 "test_partitioned_multi", label, TEMPLATE, 2, 1,
                 ChunkingStrategy.ordered_key, "t", 0, index, true, 3, 1000);
-        assertNotNull(run(label));
+        assertNotNull(runRow(label));
 
         executeAsOwner("DROP INDEX " + PARTITION_SCHEMA + "." + index);
         executeAsOwner("CREATE UNIQUE INDEX " + index + " ON "
@@ -253,7 +253,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
                     + PARTITION_SCHEMA + ".test_partitioned_multi (id, bucket)");
         }
 
-        assertNull(run(label).getCompletedAt());
+        assertNull(runRow(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_MULTI,
                         TEST_PARTITIONED_MULTI.PAYLOAD.eq("done")),
                 "a mismatched resume must not process a chunk");
@@ -278,7 +278,7 @@ class PartitionWiseValidationTest extends PartitionTestBase {
                 label, chunkSize, 1, "t", chunkBy, 1, 0, boundaryKeyIndex, true, 3, 1000);
     }
 
-    private MigrationRunRecord run(String label) {
+    private MigrationRunRecord runRow(String label) {
         return dsl.selectFrom(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
                 .fetchOne();

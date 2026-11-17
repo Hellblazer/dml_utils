@@ -38,4 +38,5 @@ COMMENT ON FUNCTION dml_utils.migration_boundaries(dml_utils_data.non_null_bigin
         'partition leaf for a partition-wise run, the recorded row count, the '
         'start/completion/cancellation timestamps and the chunk duration. A '
         'pending chunk has NULL started_at, completed_at, rows_affected and '
-        'duration_ms.';
+        'duration_ms. A cancelled boundary has the same NULLs when it was never '
+        'claimed, because cancel_migration_run only stamps cancelled_at.';

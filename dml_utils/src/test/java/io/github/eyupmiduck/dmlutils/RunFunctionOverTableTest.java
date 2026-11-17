@@ -34,7 +34,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
     private static final String FN_SCHEMA = PUBLIC_SCHEMA;
 
-    private static String TEMPLATE(String functionName) {
+    private static String template(String functionName) {
         return "SELECT public." + functionName + "(t.a, t.b) FROM <driving_table>"
                 + " WHERE <chunking_clause>";
     }
@@ -314,7 +314,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
         // Create the run without processing it, then swap in the second function.
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
         Routines.setMigrationRunFunction(dsl.configuration(), label, FN_SCHEMA, "mark_mixed_2", null);
 
         assertTrue(storedSqlText(label).contains("mark_mixed_2"),
@@ -354,7 +354,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "x", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "x", 0, null, false, 3, 1000);
 
         assertSqlState("0A000", () -> Routines.setMigrationRunFunction(
                 dsl.configuration(), label, FN_SCHEMA, "mark_mixed", null));
@@ -371,7 +371,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         assertSqlState("22023", () -> Routines.setMigrationRunFunction(
                 dsl.configuration(), label, FN_SCHEMA, "mark_mixed", "   "));
@@ -632,7 +632,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
         Routines.setMigrationRunFunction(dsl.configuration(), label, FN_SCHEMA, "mark_mixed_2",
                 "t.b = 'x'");
 
@@ -661,7 +661,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                label, TEMPLATE("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                label, template("mark_mixed"), 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
         Routines.setMigrationRunFunction(dsl.configuration(), label, FN_SCHEMA, "mark_mixed_2",
                 "t.b = 'x'");
         assertTrue(storedSqlText(label).contains("AND (t.b = 'x'\n)"),
@@ -675,8 +675,9 @@ class RunFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
-     * A read-only function runs over the table with the block strategy, which is
-     * valid because the function leaves the driving table untouched.
+     * A function that only reads the driving table (it inserts into another table)
+     * runs with the block strategy, which is valid because the function leaves the
+     * driving table untouched.
      */
     @Test
     void runsAReadOnlyFunctionWithTheBlockStrategy() {
