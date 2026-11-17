@@ -54,6 +54,9 @@ class CancelMigrationRunTest extends PostgresTestBase {
         MigrationRunRecord run = run(runId);
         assertNotNull(run.getCancelledAt(), "the run is cancelled");
         assertNull(run.getCompletedAt(), "a cancelled run is not completed");
+        assertTrue(dsl.fetchCount(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID.eq(runId)) > 1,
+                "the run has chunk boundaries, so the assertions below are not vacuous");
         assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
                         MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                                 .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())),

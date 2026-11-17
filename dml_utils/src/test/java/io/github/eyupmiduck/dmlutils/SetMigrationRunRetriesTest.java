@@ -208,8 +208,10 @@ class SetMigrationRunRetriesTest extends PostgresTestBase {
      * @return the run record
      */
     private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
+        MigrationRunRecord row = dsl.selectFrom(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne();
+        assertNotNull(row, () -> "no migration run " + runId);
+        return row;
     }
 }

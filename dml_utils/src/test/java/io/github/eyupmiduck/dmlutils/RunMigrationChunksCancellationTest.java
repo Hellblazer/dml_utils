@@ -181,8 +181,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
             }
             Thread.sleep(50);
         }
-        fail("the run did not complete its first chunk");
-        return -1;
+        return fail("the run did not complete its first chunk");
     }
 
     /**
@@ -210,7 +209,6 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
             }
             Thread.sleep(50);
         }
-        fail("no chunk worker took the advisory lock");
-        return -1;
+        return fail("no chunk worker took the advisory lock");
     }
 }

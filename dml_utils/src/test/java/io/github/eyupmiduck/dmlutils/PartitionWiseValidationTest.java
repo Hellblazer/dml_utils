@@ -241,14 +241,14 @@ class PartitionWiseValidationTest extends PartitionTestBase {
                 ChunkingStrategy.ordered_key, "t", 0, index, true, 3, 1000);
         assertNotNull(runRow(label));
 
-        executeAsOwner("DROP INDEX " + PARTITION_SCHEMA + "." + index);
-        executeAsOwner("CREATE UNIQUE INDEX " + index + " ON "
-                + PARTITION_SCHEMA + ".test_partitioned_multi (bucket, id)");
         try {
+            executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
+            executeAsOwner("CREATE UNIQUE INDEX " + index + " ON "
+                    + PARTITION_SCHEMA + ".test_partitioned_multi (bucket, id)");
             assertSqlState("55000", () -> run("test_partitioned_multi", label, 2,
                     ChunkingStrategy.ordered_key, index));
         } finally {
-            executeAsOwner("DROP INDEX " + PARTITION_SCHEMA + "." + index);
+            executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
             executeAsOwner("CREATE UNIQUE INDEX " + index + " ON "
                     + PARTITION_SCHEMA + ".test_partitioned_multi (id, bucket)");
         }

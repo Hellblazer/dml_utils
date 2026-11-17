@@ -46,8 +46,9 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertTrue(blockCount > 1, "the seeded leaf should span several blocks");
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
+        int lowOrdinal = leafOrdinal(runId, LOW);
         String sql = Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
-                PARTITION_SCHEMA, LOW, runId, 1L, 1);
+                PARTITION_SCHEMA, LOW, runId, 1L, lowOrdinal);
 
         assertTrue(sql.contains("INSERT INTO dml_utils_data.migration_boundary"));
         assertTrue(sql.contains(PARTITION_SCHEMA + "." + LOW));
@@ -58,7 +59,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertEquals(blockCount, boundaries.size(), "one start per block at chunk size one");
         for (int i = 0; i < boundaries.size(); i++) {
             assertEquals(i, boundaries.get(i).getBoundaryNo().intValue());
-            assertEquals(1, boundaries.get(i).getLeafOrdinal());
+            assertEquals(lowOrdinal, boundaries.get(i).getLeafOrdinal());
             assertEquals(i, boundaries.get(i).getBoundaryId().getBigintValues()[0].intValue(),
                     "start i is block i");
         }
@@ -74,10 +75,11 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         long lowBlocks = leafBlocks(LOW);
         long highBlocks = leafBlocks(HIGH);
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 2, null);
+        int lowOrdinal = leafOrdinal(runId, LOW);
         int highOrdinal = leafOrdinal(runId, HIGH);
 
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
-                PARTITION_SCHEMA, LOW, runId, 2L, 1));
+                PARTITION_SCHEMA, LOW, runId, 2L, lowOrdinal));
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, HIGH, runId, 2L, highOrdinal));
 
@@ -87,7 +89,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertEquals(lowStarts + highStarts, boundaries.size());
         for (int i = 0; i < lowStarts; i++) {
             assertEquals(i, boundaries.get(i).getBoundaryNo().intValue());
-            assertEquals(1, boundaries.get(i).getLeafOrdinal());
+            assertEquals(lowOrdinal, boundaries.get(i).getLeafOrdinal());
         }
         for (int i = 0; i < highStarts; i++) {
             MigrationBoundaryRecord boundary = boundaries.get((int) (lowStarts + i));

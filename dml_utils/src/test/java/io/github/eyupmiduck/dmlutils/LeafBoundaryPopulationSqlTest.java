@@ -23,7 +23,6 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
     private static final String TABLE = "test_partitioned_range";
-    private static final String ORDERED_INDEX = "test_partitioned_range_ordered_key_idx";
 
     /**
      * Empties the fixture and migration metadata between tests.
@@ -52,16 +51,38 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     }
 
     /**
-     * An ordered-key leaf statement uses the stored key descriptor.
+     * An ordered-key leaf statement uses the stored key descriptor, not the
+     * primary key: the run's index is on (payload, id), so the rendered statement
+     * must mention the payload column that the primary key does not have.
      */
     @Test
-    void buildsAnOrderedKeyLeafStatement() {
+    void buildsAnOrderedKeyLeafStatement() throws Exception {
         insertRangeRows(0L, 1L, 2L, 3L, 4L);
-        long runId = populatePartitionWise("leaf-builder-wrapper-ordered_key", TABLE, TEMPLATE, ChunkingStrategy.ordered_key, 2, ORDERED_INDEX);
+        String index = "test_partitioned_range_leaf_descriptor_idx";
+        try {
+            // Ordered-key columns must be NOT NULL; the DDL is inside the try so
+            // the finally always restores both catalog changes.
+            executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + TABLE
+                    + " ALTER COLUMN payload SET NOT NULL");
+            executeAsOwner("CREATE UNIQUE INDEX " + index + " ON " + PARTITION_SCHEMA
+                    + "." + TABLE + " (payload, id)");
+            long runId = populatePartitionWise("leaf-builder-wrapper-ordered_key", TABLE,
+                    TEMPLATE, ChunkingStrategy.ordered_key, 2, index);
 
-        execute(runId, ChunkingStrategy.ordered_key, 2, 1);
+            String sql = Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                    ChunkingStrategy.ordered_key, 2, PARTITION_SCHEMA,
+                    "test_partitioned_range_low", runId, 1);
+            assertTrue(sql.contains("payload"),
+                    "the statement uses the run's stored ordered-key descriptor");
+            dsl.execute(sql);
 
-        assertEquals(3, boundaries(runId).size());
+            assertEquals(3, boundaries(runId).size());
+        } finally {
+            executeAsOwner("DROP INDEX IF EXISTS " + PARTITION_SCHEMA + "." + index);
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + TABLE
+                    + " ALTER COLUMN payload DROP NOT NULL");
+        }
     }
 
     /**
@@ -79,8 +100,10 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
         dsl.execute(sql);
 
         List<MigrationBoundaryRecord> boundaries = boundaries(runId);
-        assertTrue(boundaries.size() >= 1);
-        assertEquals(0L, boundaries.getFirst().getBoundaryId().getBigintValues()[0]);
+        assertEquals(1, boundaries.size(),
+                "the seeded low leaf is one block at chunk size one");
+        assertEquals(0L, boundaries.getFirst().getBoundaryId().getBigintValues()[0],
+                "the single start is block 0");
         assertTrue(boundaries.stream().allMatch(b -> b.getLeafOrdinal() == 1));
     }
 

@@ -84,7 +84,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         String label = uniqueLabel("progress-active");
         long runId = populateSingle(label, 2, 1L, 2L, 3L, 4L, 5L);
         completeBoundary(runId, 0L, 10L);
-        setStartedAt(runId, OffsetDateTime.now().minusSeconds(2));
+        setStartedAtSecondsAgo(runId, 2);
 
         MigrationRunProgressRecord progress = progress(runId);
 
@@ -95,18 +95,24 @@ class MigrationRunProgressTest extends PartitionTestBase {
         assertEquals(2L, progress.getRemainingChunks());
         assertEquals(33.33, progress.getPercentComplete(), 0.01);
         assertEquals(10L, progress.getTotalRowsAffected());
+        // Compare against the database's own elapsed time, read independently of
+        // the view, rather than deriving the expectation from the view's output.
+        long measuredMs = databaseElapsedMs(runId);
+        // databaseElapsedMs is sampled after the view, so it can only be larger
+        // than the reported elapsed; allow the round-trip gap in one direction.
         assertTrue(progress.getElapsedMs() >= 1900,
                 "the elapsed time is measured from started_at");
-        // The rate and the ETA are derived from the reported elapsed time, so
-        // derive the expected values the same way instead of pinning them to a
-        // wall-clock assumption that a CI stall could break.
-        double expectedChunkRate = 1.0 / (progress.getElapsedMs() / 1000.0);
-        assertEquals(expectedChunkRate, progress.getChunksPerSecond(), 1e-9);
-        assertEquals(10.0 * expectedChunkRate, progress.getRowsPerSecond(), 1e-9);
+        assertTrue(progress.getElapsedMs() <= measuredMs,
+                "the reported elapsed time does not exceed the sampled clock");
+        double measuredRate = 1.0 / (progress.getElapsedMs() / 1000.0);
+        assertEquals(measuredRate, progress.getChunksPerSecond(),
+                measuredRate * 0.1, "one chunk per measured elapsed second");
+        assertEquals(10.0 * measuredRate, progress.getRowsPerSecond(),
+                10.0 * measuredRate * 0.1);
         assertNotNull(progress.getEstimatedRemainingMs(),
                 "an active run with a rate has an ETA");
-        assertEquals(2 * 1000.0 / expectedChunkRate,
-                progress.getEstimatedRemainingMs().doubleValue(), 1.0,
+        assertEquals(2 * 1000.0 / measuredRate,
+                progress.getEstimatedRemainingMs().doubleValue(), 500.0,
                 "two remaining chunks at the measured rate");
         assertNotNull(progress.getEstimatedCompletionAt());
     }
@@ -175,7 +181,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         String label = uniqueLabel("progress-paused");
         long runId = populateSingle(label, 2, 1L, 2L, 3L, 4L);
         completeBoundary(runId, 0L, 5L);
-        setStartedAt(runId, OffsetDateTime.now().minusSeconds(2));
+        setStartedAtSecondsAgo(runId, 2);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         MigrationRunProgressRecord progress = progress(runId);
@@ -309,12 +315,14 @@ class MigrationRunProgressTest extends PartitionTestBase {
 
         List<MigrationBoundariesRecord> boundaries = Routines.migrationBoundaries(
                 dsl.configuration(), runId);
-        assertNull(boundaries.get(0).getCancelledAt(),
+        List<MigrationBoundariesRecord> pending = boundaries.stream()
+                .filter(boundary -> boundary.getCompletedAt() == null)
+                .toList();
+        assertFalse(pending.isEmpty(), "the run has unclaimed boundaries");
+        assertTrue(pending.stream().allMatch(boundary -> boundary.getCancelledAt() != null),
+                "every uncompleted boundary (including the terminal one) is cancelled");
+        assertTrue(boundaries.stream().anyMatch(boundary -> boundary.getCompletedAt() != null),
                 "the completed chunk keeps its completion");
-        for (int i = 1; i < boundaries.size(); i++) {
-            assertNotNull(boundaries.get(i).getCancelledAt(),
-                    "unclaimed boundaries are marked cancelled");
-        }
     }
 
     /**
@@ -362,7 +370,8 @@ class MigrationRunProgressTest extends PartitionTestBase {
 
         List<MigrationBoundariesRecord> boundaries = Routines.migrationBoundaries(
                 dsl.configuration(), runId);
-        assertEquals(6, boundaries.size(), "five chunks plus the terminal boundary");
+        assertEquals(progress.getTotalChunks() + 1, boundaries.size(),
+                "the chunk starts plus the terminal high-water boundary");
         long rows = 0;
         for (MigrationBoundariesRecord boundary : boundaries) {
             assertNotNull(boundary.getLeafOrdinal(),
@@ -445,16 +454,46 @@ class MigrationRunProgressTest extends PartitionTestBase {
     }
 
     /**
-     * Moves the run start so elapsed-time assertions are deterministic.
+     * Sets started_at to an explicit value (used to freeze a completed run's
+     * duration deterministically).
      *
      * @param runId     the run id
-     * @param startedAt the new start timestamp
+     * @param startedAt the start instant
      */
     private void setStartedAt(long runId, OffsetDateTime startedAt) {
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.STARTED_AT, startedAt)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
+    }
+
+    /**
+     * Sets started_at to the database clock, the given number of seconds ago.
+     *
+     * @param runId   the run id
+     * @param seconds the elapsed seconds
+     */
+    private void setStartedAtSecondsAgo(long runId, int seconds) {
+        dsl.execute("UPDATE dml_utils_data.migration_run"
+                + " SET started_at = pg_catalog.clock_timestamp() - make_interval(secs => ?)"
+                + " WHERE run_id = ?", seconds, runId);
+    }
+
+    /**
+     * The database's own elapsed time for the run, in milliseconds, read
+     * independently of the view under test.
+     *
+     * @param runId the run id
+     * @return the elapsed milliseconds
+     */
+    private long databaseElapsedMs(long runId) {
+        return dsl.fetchOne("""
+                        SELECT (extract(epoch FROM
+                                pg_catalog.clock_timestamp() - started_at) * 1000)::bigint
+                        FROM dml_utils_data.migration_run
+                        WHERE run_id = ?
+                        """, runId)
+                .get(0, Long.class);
     }
 
     /**

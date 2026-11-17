@@ -72,11 +72,12 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
     }
 
     /**
-     * The first differing column wins even when a later column also differs, and
-     * a text comparison uses the supplied collation.
+     * The first differing column wins even when a later column also differs. (The
+     * supplied collation is passed through to the comparison; the chosen values
+     * differ under every collation, so the order here does not depend on it.)
      */
     @Test
-    void findsTheFirstDifferingColumnAndUsesTheTextCollation() {
+    void findsTheFirstDifferingColumn() {
         BuildChunkBoundaryLiterals result = literals(
                 new String[]{"t.a", "t.b", "t.c"},
                 new String[]{"bigint", "text", "bigint"},
@@ -109,6 +110,9 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
         assertArrayEquals(new String[]{
                 "'00000000-0000-0000-0000-000000000001'::uuid",
                 "'2026-01-01T00:00:00Z'::timestamptz"}, result.getOStartLiterals());
+        assertArrayEquals(new String[]{
+                "'00000000-0000-0000-0000-000000000002'::uuid",
+                "'2026-01-02T00:00:00Z'::timestamptz"}, result.getOEndLiterals());
         assertEquals(-1, result.getOFirstDifference());
         assertEquals(1, result.getOFirstDifferencePosition());
     }

@@ -105,6 +105,8 @@ class TransientRetryTest extends PostgresTestBase {
                     code + " should be retried and the run should complete");
             assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                     code + " should leave no error row after recovery");
+            // max_retries counts retries after the initial attempt, and the probe
+            // row is incremented per execution: one retry means two executions.
             assertEquals(2L, lastProbeValue(),
                     "the first attempt fails and the retry succeeds for " + code);
             assertEquals(1L, dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
@@ -248,6 +250,9 @@ class TransientRetryTest extends PostgresTestBase {
         assertNull(record.getCompletedAt(), "the paused run is not complete");
         assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "the transient failure is not recorded while paused");
+        // Fixture assumption: chunk size 1 over ids 1..2 makes boundary 0 the
+        // failing id 1 and boundary 1 the slow id 2, which the second worker
+        // commits before the coordinator returns.
         assertEquals(1, completedBoundaries(runId),
                 "the other in-flight chunk commits before the coordinator returns");
         assertEquals(1, dsl.fetchCount(MIGRATION_BOUNDARY,
@@ -365,8 +370,7 @@ class TransientRetryTest extends PostgresTestBase {
             }
             Thread.sleep(50);
         }
-        fail("the first retry attempt did not happen");
-        return -1;
+        return fail("the first retry attempt did not happen");
     }
 
     /**

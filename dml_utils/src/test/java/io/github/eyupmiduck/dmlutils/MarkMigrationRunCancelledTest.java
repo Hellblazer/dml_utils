@@ -74,6 +74,9 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
                 .fetchOne(MIGRATION_BOUNDARY.CANCELLED_AT);
 
+        assertNotNull(runCancelledAt, "the first call stamps the run");
+        assertNotNull(boundaryCancelledAt, "the first call stamps the boundary");
+
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 
         assertEquals(runCancelledAt, run(runId).getCancelledAt());

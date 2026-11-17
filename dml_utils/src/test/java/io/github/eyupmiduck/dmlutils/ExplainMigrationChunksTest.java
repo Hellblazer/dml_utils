@@ -224,7 +224,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
                 dsl.configuration(), TEMPLATE, schema(TEST_COMPOSITE_MIXED),
                 name(TEST_COMPOSITE_MIXED), 10, "t", ChunkingStrategy.primary_key, null, false, null);
 
-        assertEquals(THREE_KINDS, planKinds(plans));
+        assertEquals(THREE_KINDS, planKinds(plans), "the three plan kinds come back in order");
         String nonFinal = plans.get(1).getOSqlText();
         assertTrue(nonFinal.contains("t.a = '0'::bigint"),
                 "the predicate constrains the composite key column by column");
@@ -412,6 +412,7 @@ class ExplainMigrationChunksTest extends PostgresTestBase {
                 new String[]{"1", "a", "00000000-0000-0000-0000-000000000000"},
                 new String[]{"1", "a", "00000000-0000-0000-0000-000000000001"}, false, "t", ChunkingStrategy.primary_key, null, false, null);
 
+        assertEquals(1, plans.size(), "one row for the explicit chunk");
         String sql = plans.get(0).getOSqlText();
         assertTrue(sql.contains("t.b = '1'::bigint AND t.a = 'a'::text"));
         assertTrue(sql.contains("t.c >= '00000000-0000-0000-0000-000000000000'::uuid"));

@@ -3,6 +3,7 @@ package io.github.eyupmiduck.dmlutils;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -28,8 +29,14 @@ class DdlUtilsInstallationTest extends PostgresTestBase {
                 assertTrue(hasColumn("dml_utils_fixtures", "test_bigint", "ddl_probe"),
                         "the ddl_utils add_column helper alters a dml_utils fixture table");
             } finally {
-                statement.execute("ALTER TABLE dml_utils_fixtures.test_bigint"
-                        + " DROP COLUMN IF EXISTS ddl_probe");
+                try {
+                    statement.execute("ALTER TABLE dml_utils_fixtures.test_bigint"
+                            + " DROP COLUMN IF EXISTS ddl_probe");
+                } catch (SQLException cleanup) {
+                    // Do not let a cleanup failure replace the assertion error
+                    // being unwound; surface it on stderr for diagnosis.
+                    cleanup.printStackTrace(System.err);
+                }
             }
         }
     }

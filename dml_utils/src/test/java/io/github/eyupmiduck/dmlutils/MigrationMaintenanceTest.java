@@ -264,8 +264,10 @@ class MigrationMaintenanceTest extends PostgresTestBase {
                 .execute();
         Routines.archiveMigrationRun(dsl.configuration(), label);
 
-        MigrationRunSummaryRecord summary = Routines.migrationRunSummary(
-                dsl.configuration(), label).get(0);
+        List<MigrationRunSummaryRecord> summaries = Routines.migrationRunSummary(
+                dsl.configuration(), label);
+        assertEquals(1, summaries.size(), "the label has one run");
+        MigrationRunSummaryRecord summary = summaries.get(0);
 
         assertEquals(3L, summary.getBoundaryCount().longValue());
         assertEquals(2L, summary.getCompletedBoundaryCount().longValue(),
@@ -381,10 +383,20 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.recordMigrationError(dsl.configuration(), runId, boundaryNo, sqlstate, message);
     }
 
+    /**
+     * The latest run id for the label, or null when the label has no run. The
+     * query is limited so an archived run plus a newer active run with the same
+     * label does not make fetchOne throw.
+     *
+     * @param label the run label
+     * @return the latest run id, or null
+     */
     private Long runRow(String label) {
         return dsl.select(MIGRATION_RUN.RUN_ID)
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
+                .orderBy(MIGRATION_RUN.RUN_ID.desc())
+                .limit(1)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
     }
 

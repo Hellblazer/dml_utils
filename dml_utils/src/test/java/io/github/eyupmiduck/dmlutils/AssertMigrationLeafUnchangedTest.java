@@ -118,12 +118,12 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
         long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
-                + " DETACH PARTITION " + PARTITION_SCHEMA + "." + MID);
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
-                + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + MID
-                + " FOR VALUES FROM (100) TO (199)");
         try {
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
+                    + " DETACH PARTITION " + PARTITION_SCHEMA + "." + MID);
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
+                    + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + MID
+                    + " FOR VALUES FROM (100) TO (199)");
             assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
                     dsl.configuration(), runId, midOrdinal));
         } finally {

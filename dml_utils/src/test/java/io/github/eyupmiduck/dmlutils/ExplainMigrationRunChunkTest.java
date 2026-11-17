@@ -284,9 +284,9 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-changed"),
                 ChunkingStrategy.primary_key, null, true, 2);
         calculate(runId);
-        executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
-                + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
         try {
+            executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
+                    + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
             assertSqlState("55000", () -> explain(runId, 0L));
         } finally {
             restoreMidPartition();

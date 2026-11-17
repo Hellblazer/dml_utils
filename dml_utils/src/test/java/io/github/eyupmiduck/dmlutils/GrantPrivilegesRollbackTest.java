@@ -56,9 +56,8 @@ class GrantPrivilegesRollbackTest extends PostgresTestBase {
                     // one statement at a time, the same way MigrationTablesTest
                     // executes rollback scripts: no dollar-quoted body or literal
                     // semicolon occurs in this file.
-                    String script = TestResources.read(ROLLBACK)
-                            .replaceAll("(?m)--.*$", "");
-                    for (String statement : script.split(";")) {
+                    String script = TestResources.read(ROLLBACK);
+                    for (String statement : splitStatements(script)) {
                         if (!statement.isBlank()) {
                             tx.execute(statement);
                         }

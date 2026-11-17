@@ -116,20 +116,22 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
         long runId = populate(PARTITIONED_RANGE, label, 2, ChunkingStrategy.primary_key, null, true);
 
         // Fault injection: cancel the run as soon as the first leaf is marked
-        // calculated, which is the window between calculation and processing.
-        executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()"
-                + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
-                + " UPDATE dml_utils_data.migration_run"
-                + " SET cancelled_at = pg_catalog.clock_timestamp()"
-                + " WHERE run_id = NEW.run_id AND cancelled_at IS NULL;"
-                + " RETURN NEW; END; $$");
-        executeAsOwner("DROP TRIGGER IF EXISTS cancel_run_after_leaf"
-                + " ON dml_utils_data.migration_run_leaf");
-        executeAsOwner("CREATE TRIGGER cancel_run_after_leaf"
-                + " AFTER UPDATE ON dml_utils_data.migration_run_leaf"
-                + " FOR EACH ROW WHEN (NEW.state = 'calculated')"
-                + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()");
+        // calculated, which is the window between calculation and processing. The
+        // assertions below deliberately observe that window (leaf state and
+        // cancellation), so they are coupled to the implementation transition.
         try {
+            executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()"
+                    + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+                    + " UPDATE dml_utils_data.migration_run"
+                    + " SET cancelled_at = pg_catalog.clock_timestamp()"
+                    + " WHERE run_id = NEW.run_id AND cancelled_at IS NULL;"
+                    + " RETURN NEW; END; $$");
+            executeAsOwner("DROP TRIGGER IF EXISTS cancel_run_after_leaf"
+                    + " ON dml_utils_data.migration_run_leaf");
+            executeAsOwner("CREATE TRIGGER cancel_run_after_leaf"
+                    + " AFTER UPDATE ON dml_utils_data.migration_run_leaf"
+                    + " FOR EACH ROW WHEN (NEW.state = 'calculated')"
+                    + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".cancel_run_after_leaf()");
             run(PARTITIONED_RANGE, label, 2, true);
         } finally {
             executeAsOwner("DROP TRIGGER IF EXISTS cancel_run_after_leaf"

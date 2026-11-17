@@ -48,11 +48,29 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     private static void executeStatements(DSLContext context, String sql) {
-        for (String statement : sql.split(";")) {
+        for (String statement : splitStatements(sql)) {
             if (!statement.isBlank()) {
                 context.execute(statement);
             }
         }
+    }
+
+    /**
+     * Whether the throwable's cause chain contains the target, at any depth. The
+     * transactional rollback sentinel can be wrapped by jOOQ or Liquibase more
+     * than once, so a fixed-depth check would misreport it.
+     *
+     * @param error  the thrown error
+     * @param target the sentinel
+     * @return true when the chain contains the sentinel
+     */
+    private static boolean hasCause(Throwable error, Throwable target) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current == target) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -306,7 +324,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 });
                 fail("the rollback transaction should have been rolled back");
             } catch (RuntimeException error) {
-                if (error != rollback && error.getCause() != rollback) {
+                if (!hasCause(error, rollback)) {
                     throw error;
                 }
             }
@@ -350,7 +368,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 });
                 fail("the rollback transaction should have been rolled back");
             } catch (RuntimeException error) {
-                if (error != rollback && error.getCause() != rollback) {
+                if (!hasCause(error, rollback)) {
                     throw error;
                 }
             }
@@ -947,7 +965,7 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     private Long insertOrderedKeyRun() {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long runId = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
                         MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
@@ -959,10 +977,12 @@ class MigrationTablesTest extends PostgresTestBase {
                         new String[]{"timestamptz", "bigint"})
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the ordered-key run insert should return its id");
+        return runId;
     }
 
     private Long insertPartitionWiseRun(ChunkingStrategy chunkBy) {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long runId = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.PARTITION_WISE,
                         MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
@@ -971,6 +991,8 @@ class MigrationTablesTest extends PostgresTestBase {
                         PUBLIC_SCHEMA, "migration_tables_source")
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the partition-wise run insert should return its id");
+        return runId;
     }
 
     private void insertLeaf(Long runId, int ordinal, String state, String filepath,

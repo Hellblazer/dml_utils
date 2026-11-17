@@ -251,15 +251,17 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         String label = uniqueLabel("integration-mid-failure");
         long runId = populate(PARTITIONED_RANGE, label, 1);
 
-        executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()"
-                + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
-                + " RAISE EXCEPTION 'injected leaf failure' USING ERRCODE = '55000';"
-                + " RETURN NEW; END; $$");
-        executeAsOwner("CREATE TRIGGER fail_leaf_two BEFORE INSERT"
-                + " ON dml_utils_data.migration_boundary FOR EACH ROW"
-                + " WHEN (NEW.leaf_ordinal = 2)"
-                + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()");
         try {
+            executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()"
+                    + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+                    + " RAISE EXCEPTION 'injected leaf failure' USING ERRCODE = '55000';"
+                    + " RETURN NEW; END; $$");
+            // Scope the trigger to this run, so another run's leaf 2 cannot match
+            // while the trigger exists.
+            executeAsOwner("CREATE TRIGGER fail_leaf_two BEFORE INSERT"
+                    + " ON dml_utils_data.migration_boundary FOR EACH ROW"
+                    + " WHEN (NEW.leaf_ordinal = 2 AND NEW.run_id = " + runId + ")"
+                    + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()");
             assertSqlState("55000", () -> run(PARTITIONED_RANGE, label, 1));
         } finally {
             executeAsOwner("DROP TRIGGER IF EXISTS fail_leaf_two"
@@ -302,9 +304,16 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
         List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertTrue(boundaries.size() >= 2,
+                "the run has at least a chunk start and its next boundary");
         MigrationBoundaryRecord first = boundaries.getFirst();
         MigrationBoundaryRecord next = boundaries.get(1);
-        String leafName = leaves(runId).get(first.getLeafOrdinal() - 1).getLeafName();
+        assertNotNull(first.getLeafOrdinal(), "a partition-wise boundary records its leaf");
+        List<MigrationRunLeafRecord> manifest = leaves(runId);
+        assertTrue(first.getLeafOrdinal() >= 1 && first.getLeafOrdinal() <= manifest.size(),
+                () -> "leaf ordinal " + first.getLeafOrdinal()
+                        + " is outside the 1-based manifest of " + manifest.size());
+        String leafName = manifest.get(first.getLeafOrdinal() - 1).getLeafName();
         String[] kinds = {"bigint"};
         String[] start = Routines.migrationKeyValues(dsl.configuration(),
                 first.getBoundaryId(), kinds);

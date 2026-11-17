@@ -125,7 +125,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
                 Routines.runMigrationChunks(ownerDsl.configuration(), FAST_TEMPLATE,
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
-                        ChunkingStrategy.primary_key, 1, 5_000, null, false, 3, 1000);
+                        ChunkingStrategy.primary_key, 1, 60_000, null, false, 3, 1000);
             } catch (SQLException error) {
                 throw new CompletionException(error);
             }
@@ -134,7 +134,10 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         long runId = awaitCompletedChunk(label);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
-        run.get(2, TimeUnit.SECONDS);
+        // The throttle is 60s, so a coordinator that does not abort it on pause
+        // cannot finish inside this deadline: the test fails if the sleep is not
+        // interrupted, not merely later.
+        run.get(10, TimeUnit.SECONDS);
 
         MigrationRunRecord record = run(runId);
         assertNotNull(record.getPausedAt(), "the sleeping run is paused");
@@ -240,8 +243,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
             }
             Thread.sleep(50);
         }
-        fail("the run did not complete its first chunk");
-        return -1;
+        return fail("the run for " + label + " did not complete its first chunk");
     }
 
     /**
@@ -280,24 +282,45 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
      */
     private long awaitChunkInFlightAfter(String label, int completedAtLeast)
             throws InterruptedException {
-        for (int attempt = 0; attempt < 200; attempt++) {
-            Record row = dsl.fetchOne(
-                    "SELECT r.run_id FROM dml_utils_data.migration_run AS r"
-                            + " WHERE r.label = ?"
-                            + " AND r.total_chunks_completed >= ?"
-                            + " AND EXISTS (SELECT 1 FROM dml_utils_data.migration_boundary AS b"
-                            + " WHERE b.run_id = r.run_id)",
-                    label, completedAtLeast);
-            if (row != null
-                    && Boolean.TRUE.equals(dsl.fetchOne(
-                    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks"
-                            + " WHERE locktype = 'advisory' AND classid = 1 AND objid = 4242"
-                            + " AND pid <> pg_backend_pid())").get(0, Boolean.class))) {
-                return row.get(0, Long.class);
+        // Probe on an owner connection: pg_background workers launched by the
+        // owner are only fully visible in pg_stat_activity to their own role, and
+        // this ties the observation to this run's chunk worker instead of any
+        // other session holding the same advisory key.
+        try (Connection probeConnection = openOwnerConnection()) {
+            DSLContext probe = DSL.using(probeConnection, SQLDialect.POSTGRES);
+            for (int attempt = 0; attempt < 200; attempt++) {
+                Record row = probe.fetchOne(
+                        "SELECT r.run_id FROM dml_utils_data.migration_run AS r"
+                                + " WHERE r.label = ?"
+                                + " AND r.total_chunks_completed >= ?"
+                                + " AND EXISTS (SELECT 1 FROM dml_utils_data.migration_boundary AS b"
+                                + " WHERE b.run_id = r.run_id)",
+                        label, completedAtLeast);
+                if (row != null) {
+                    long runId = row.get(0, Long.class);
+                    if (Boolean.TRUE.equals(probe.fetchOne(
+                                    "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks AS l"
+                                            + " JOIN pg_catalog.pg_stat_activity AS a ON a.pid = l.pid"
+                                            + " WHERE l.locktype = 'advisory'"
+                                            + " AND l.classid = 1 AND l.objid = 4242"
+                                            + " AND a.backend_type = 'pg_background'"
+                                            + " AND a.datname = pg_catalog.current_database()"
+                                            + " AND a.query LIKE ?)",
+                                    "%process_migration_chunk(" + runId + ",%")
+                            .get(0, Boolean.class))) {
+                        return runId;
+                    }
+                }
+                Thread.sleep(50);
             }
-            Thread.sleep(50);
+            String observed = probe.fetchOne("SELECT coalesce(string_agg(r.label || ':'"
+                            + " || r.total_chunks_completed || ':' || r.run_id, ','), 'no runs')"
+                            + " FROM dml_utils_data.migration_run AS r WHERE r.label = ?", label)
+                    .get(0, String.class);
+            return fail("the chunk worker for " + label
+                    + " did not take the advisory lock; observed " + observed);
+        } catch (SQLException error) {
+            throw new CompletionException(error);
         }
-        fail("no chunk worker took the advisory lock");
-        return -1;
     }
 }

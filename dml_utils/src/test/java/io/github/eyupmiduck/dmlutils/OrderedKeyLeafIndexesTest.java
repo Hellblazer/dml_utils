@@ -44,6 +44,21 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
                         row -> row.get("table_name", String.class));
     }
 
+    /**
+     * Maps every relation OID to its qualified name, so a leaf OID can be paired
+     * with the table its child index is on in one catalog read.
+     *
+     * @return relation OID to qualified name
+     */
+    private Map<Long, String> relationNames() {
+        return dsl.fetch("""
+                        SELECT c.oid AS oid, c.oid::regclass::text AS name
+                        FROM pg_catalog.pg_class AS c
+                        """)
+                .intoMap(row -> row.get("oid", Long.class),
+                        row -> row.get("name", String.class));
+    }
+
     private List<OrderedKeyLeafIndexesRecord> childIndexes(String parentIndex) {
         return Routines.orderedKeyLeafIndexes(dsl.configuration(),
                 relationOid(SCHEMA + "." + parentIndex));
@@ -60,6 +75,7 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
 
         assertEquals(3, rows.size(), "one child index per range leaf");
         Map<Long, String> indexedTables = indexedTables();
+        Map<Long, String> relationNameByOid = relationNames();
         Set<String> indexedLeaves = new HashSet<>();
         Set<String> childNames = new HashSet<>();
         for (OrderedKeyLeafIndexesRecord row : rows) {
@@ -68,7 +84,10 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
             assertNotNull(row.getChildIndexName());
             assertTrue(childNames.add(row.getChildIndexName()),
                     "each child index name is distinct");
-            indexedLeaves.add(indexedTables.get(row.getChildIndexOid()));
+            String childTable = indexedTables.get(row.getChildIndexOid());
+            assertEquals(relationNameByOid.get(row.getLeafOid()), childTable,
+                    "the child index belongs to the leaf the row names");
+            indexedLeaves.add(childTable);
         }
         assertEquals(storageLeaves("test_partitioned_range"), indexedLeaves,
                 "the child indexes cover exactly the storage leaves");
@@ -85,9 +104,13 @@ class OrderedKeyLeafIndexesTest extends PostgresTestBase {
 
         assertEquals(3, rows.size(), "two hash leaves plus the high leaf");
         Map<Long, String> indexedTables = indexedTables();
+        Map<Long, String> relationNameByOid = relationNames();
         Set<String> indexedLeaves = new HashSet<>();
         for (OrderedKeyLeafIndexesRecord row : rows) {
-            indexedLeaves.add(indexedTables.get(row.getChildIndexOid()));
+            String childTable = indexedTables.get(row.getChildIndexOid());
+            assertEquals(relationNameByOid.get(row.getLeafOid()), childTable,
+                    "the child index belongs to the leaf the row names");
+            indexedLeaves.add(childTable);
         }
         assertEquals(storageLeaves("test_partitioned_multi"), indexedLeaves,
                 "the recursive walk covers every storage leaf");

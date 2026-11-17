@@ -50,8 +50,10 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             setRole(connection, "dml_utils_caller");
             DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
 
-            assertNotNull(caller.fetchOne(
-                    "SELECT count(*) FROM dml_utils_data.migration_run"));
+            // A count aggregate always returns one row; the call itself proves the
+            // caller can SELECT the metadata table (a denial would throw), so no
+            // assertion on the row is needed.
+            caller.fetchOne("SELECT count(*) FROM dml_utils_data.migration_run");
             assertSqlState("42501", () -> caller.execute(
                     "UPDATE dml_utils_data.migration_run SET label = label"));
             assertSqlState("42501", () -> caller.execute(
@@ -96,14 +98,6 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     .values(uuid(i), timestamp((i + 1) / 2))
                     .execute();
         }
-        try (Connection owner = openOwnerConnection();
-             Statement statement = owner.createStatement()) {
-            statement.execute("GRANT SELECT, UPDATE ON dml_utils_fixtures.test_ordered_key_uuid"
-                    + " TO dml_utils_caller");
-            statement.execute("GRANT SELECT ON dml_utils_fixtures.test_ordered_key"
-                    + " TO dml_utils_caller");
-        }
-
         try (Connection connection = openTestConnection()) {
             connection.setAutoCommit(true);
             setRole(connection, "dml_utils_caller");

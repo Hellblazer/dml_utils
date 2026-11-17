@@ -143,7 +143,7 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void rejectsAMismatchedFunction() {
-        dsl.execute("CREATE FUNCTION public.wrong_order(text, bigint) RETURNS void"
+        dsl.execute("CREATE OR REPLACE FUNCTION public.wrong_order(text, bigint) RETURNS void"
                 + " LANGUAGE sql AS $$ SELECT NULL::void $$");
 
         assertSqlState("22023", () -> Routines.explainFunctionOverTable(dsl.configuration(),
@@ -156,7 +156,7 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void rejectsANonVoidFunction() {
-        dsl.execute("CREATE FUNCTION public.bad_return(bigint, text) RETURNS integer"
+        dsl.execute("CREATE OR REPLACE FUNCTION public.bad_return(bigint, text) RETURNS integer"
                 + " LANGUAGE sql AS $$ SELECT 1 $$");
 
         assertSqlState("22023", () -> Routines.explainFunctionOverTable(dsl.configuration(),
@@ -192,7 +192,7 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
         String sql = plans.get(0).getOSqlText();
         assertTrue(sql.contains("SELECT public.mark_mixed(t.a, t.b)"),
                 "the plan explains the per-row function call");
-        assertTrue(sql.contains("t.a = '7'::bigint AND t.b >= 'a'::text AND t.b < 'b'::text"),
+        assertTrue(sql.matches("(?s).*t\\.a = '7'::bigint.*t\\.b >= 'a'::text.*t\\.b < 'b'::text.*"),
                 "the shared leading column is a prefix equality");
     }
 
@@ -227,8 +227,9 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
         assertEquals(3, plans.size());
         assertTrue(plans.get(1).getOSqlText().contains("SELECT public.mark_ordered_key(t.id)"),
                 "the chunk plan still calls the function with the primary-key column");
-        assertTrue(plans.get(1).getOSqlText().contains("t.created_at"),
-                "the chunk key comes from the distinct ordered key");
+        assertTrue(plans.get(1).getOSqlText()
+                        .matches("(?s).*t\\.created_at\\s*[><]=?.*"),
+                "the range predicate uses the ordered key column, not just mentions it");
     }
 
     /**

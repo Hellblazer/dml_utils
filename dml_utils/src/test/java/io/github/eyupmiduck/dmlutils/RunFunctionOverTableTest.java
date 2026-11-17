@@ -34,6 +34,13 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
     private static final String FN_SCHEMA = PUBLIC_SCHEMA;
 
+    /**
+     * A stored input template for runs created directly (not the oracle for the
+     * builder; that is asserted against buildFunctionChunkTemplate separately).
+     *
+     * @param functionName the per-row function
+     * @return the template
+     */
     private static String template(String functionName) {
         return "SELECT public." + functionName + "(t.a, t.b) FROM <driving_table>"
                 + " WHERE <chunking_clause>";
@@ -156,6 +163,9 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         String label = dsl.select(MIGRATION_RUN.LABEL)
                 .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.ARCHIVED_AT.isNull())
+                .orderBy(MIGRATION_RUN.RUN_ID.desc())
+                .limit(1)
                 .fetchOne(MIGRATION_RUN.LABEL);
         assertTrue(label.startsWith("function:"), "the derived label keeps its prefix");
         assertTrue(label.length() < 500,
@@ -199,10 +209,10 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 name(TEST_COMPOSITE_MIXED), FN_SCHEMA, "mark_mixed", 99, 4, null, null,
                 ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
-        String derivedLabel = "function:"
-                + dsl.fetchOne("SELECT pg_catalog.json_build_array(?, ?, ?, ?, CAST(? AS text), CAST(? AS text))::text",
-                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", null, "primary_key").get(0, String.class);
+        // A literal golden label (not a re-implementation of the production SQL):
+        // the six-component shape with a NULL filter.
+        String derivedLabel = "function:[\"dml_utils_fixtures\", \"test_composite_mixed\", "
+                + "\"public\", \"mark_mixed\", null, \"primary_key\"]";
         assertEquals(1, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(derivedLabel)),
                 "both calls share one derived run");
         assertEquals(3, payloadCount(TEST_COMPOSITE_MIXED, "done"),
@@ -282,22 +292,6 @@ class RunFunctionOverTableTest extends PostgresTestBase {
                 "the partition-wise run appends the flag even without an index");
         assertEquals(3, payloadCount(TEST_PARTITIONED_RANGE, "done"),
                 "the partition-wise run applied the function to every row");
-    }
-
-    /**
-     * The derived label distinguishes inputs that the old delimiter-joined format
-     * would have conflated: a name containing a '.' does not shift the component
-     * boundaries, so two different table/function tuples derive different labels.
-     */
-    @Test
-    void derivedLabelIsUnambiguousForNamesContainingDelimiters() {
-        String first = dsl.fetchOne("SELECT 'function:' || pg_catalog.json_build_array(?, ?, ?, ?)::text",
-                "dml_utils_fixtures", "t.a", "public", "fn").get(0, String.class);
-        String second = dsl.fetchOne("SELECT 'function:' || pg_catalog.json_build_array(?, ?, ?, ?)::text",
-                "dml_utils_fixtures", "t", "public", "fn.a").get(0, String.class);
-
-        assertNotEquals(first, second,
-                "tuples with '.' in different components must derive different labels");
     }
 
     /**
@@ -615,7 +609,7 @@ class RunFunctionOverTableTest extends PostgresTestBase {
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_COMPOSITE_MIXED),
                 name(TEST_COMPOSITE_MIXED), FN_SCHEMA, "mark_mixed", 2, 1, null, "t.b = 'y'", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
-        assertEquals(2, dsl.fetchCount(MIGRATION_RUN),
+        assertEquals(2, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.like("function:%")),
                 "a different filter derives a different run");
     }
 

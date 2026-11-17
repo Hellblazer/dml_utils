@@ -4,6 +4,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigrationCreationKey;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +26,20 @@ import static org.junit.jupiter.api.Assertions.*;
 class RunCreationHelpersTest extends PartitionTestBase {
 
     private static final String TEMPLATE = "SELECT 1";
+
+    /**
+     * Restores the fixture privileges even if a test's own finally could not run
+     * (for example a failed REVOKE test), so one failure cannot break the rest of
+     * the class.
+     *
+     * @throws Exception if the grant cannot be restored
+     */
+    @AfterEach
+    void restoreFixturePrivileges() throws Exception {
+        executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
+                + TEST_BIGINT.getSchema().getName() + "." + TEST_BIGINT.getName()
+                + " TO " + TEST_USER + ", dml_utils_caller");
+    }
 
     /**
      * Clears fixtures and metadata between tests.

@@ -6,6 +6,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.Migratio
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.LeafPartitionsRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.MigrationRunBoundaryKeyRecord;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +31,19 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
     private static final String ORDERED_KEY_INDEX = "test_partitioned_range_ordered_key_idx";
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
+
+    /**
+     * Re-grants the mid-partition SELECT revoked by one test, so a failure that
+     * skips its own finally cannot break later tests (the GRANT is idempotent).
+     *
+     * @throws Exception if the grant cannot be restored
+     */
+    @AfterEach
+    void restoreMidPartitionGrant() throws Exception {
+        executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
+                + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID + " TO "
+                + TEST_USER + ", dml_utils_caller");
+    }
 
     /**
      * Empties the range fixture between tests.
@@ -150,9 +164,13 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_RUN.LABEL);
 
-        while (calculate(runId) != null) {
-            // Calculate every leaf one call at a time; finalization is separate.
+        int calculated = 0;
+        Integer ordinal;
+        while ((ordinal = calculate(runId)) != null) {
+            assertTrue(++calculated <= 100,
+                    "leaf calculation did not terminate; last ordinal " + ordinal);
         }
+        assertEquals(3, calculated, "every leaf is calculated once");
         assertNull(run(runId).getBoundariesCalculatedAt());
         assertNotNull(io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.pauseMigrationRun(
                 dsl.configuration(), label));
@@ -249,9 +267,7 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         try {
             assertSqlState("55000", () -> calculate(runId));
         } finally {
-            executeAsOwner("ALTER TABLE " + SCHEMA + ".test_partitioned_range"
-                    + " ATTACH PARTITION " + SCHEMA + ".test_partitioned_range_mid"
-                    + " FOR VALUES FROM (100) TO (200)");
+            restoreMidPartition();
         }
 
         assertEquals(firstLeafBoundaries, boundaries(runId).size(),

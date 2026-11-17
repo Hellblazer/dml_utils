@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the strategy-specific explain helpers: each returns a boundary-insert
- * plan followed by a non-final and final chunk plan, and the rendered chunk SQL
- * uses the expected block or key range.
+ * plan followed by a non-final and final chunk plan, and each chunk plan renders
+ * the strategy's key column (ctid blocks or the key column).
  */
 class ExplainChunkPlanHelpersTest extends PostgresTestBase {
 

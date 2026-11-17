@@ -69,7 +69,10 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
         assertTrue(sql.contains("row_number() OVER (ORDER BY id)"));
         assertTrue(sql.contains("id1 DESC"));
         assertTrue(sql.contains(PACK));
-        assertTrue(sql.contains("42"));
+        assertTrue(sql.matches("(?s).*SELECT\\s+42,.*"),
+                "both inserts select the run id 42");
+        assertEquals(2, sql.split("SELECT\\s+42,", -1).length - 1,
+                "the run id is substituted in both the starts and the terminal insert");
     }
 
     /**

@@ -213,15 +213,16 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
             Future<Boolean> second = pool.submit(claim);
             start.countDown();
 
-            boolean firstClaimed = first.get();
-            boolean secondClaimed = second.get();
+            boolean firstClaimed = first.get(30, TimeUnit.SECONDS);
+            boolean secondClaimed = second.get(30, TimeUnit.SECONDS);
 
             assertNotEquals(firstClaimed, secondClaimed,
                     "exactly one caller should claim the boundary");
         } finally {
             pool.shutdownNow();
-            pool.awaitTermination(30, TimeUnit.SECONDS);
         }
+        assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS),
+                "the claim workers must terminate");
 
         assertTrue(boundaryCompleted(runId, 0), "the boundary should be completed once");
         assertEquals(2, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.eq("x")),

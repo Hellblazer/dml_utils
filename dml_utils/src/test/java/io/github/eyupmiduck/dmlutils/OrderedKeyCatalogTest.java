@@ -141,10 +141,11 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
         DataAccessException error = assertThrows(DataAccessException.class,
                 () -> attributes("test_bigint_pkey"));
 
-        assertTrue(error.getMessage().contains("exists on table"),
-                () -> "unexpected message: " + error.getMessage());
-        assertTrue(error.getMessage().contains("test_bigint"),
-                () -> "unexpected message: " + error.getMessage());
+        assertTrue(error.getMessage().contains("Hint:"),
+                () -> "expected a hint in the message: " + error.getMessage());
+        assertTrue(error.getMessage().contains(
+                        "exists on table " + FIXTURE_SCHEMA + ".test_bigint"),
+                () -> "the hint should name the table that owns the index: " + error.getMessage());
     }
 
     /**

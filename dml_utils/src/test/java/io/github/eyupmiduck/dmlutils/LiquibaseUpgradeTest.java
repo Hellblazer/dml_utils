@@ -87,19 +87,28 @@ class LiquibaseUpgradeTest extends UpgradeContract {
                         .get(0, Integer.class),
                 "the upgraded database should have the dml_utils schemas");
 
-        assertEquals(13, upgradeDsl().fetchOne(
-                                "SELECT count(*) FROM pg_catalog.pg_proc AS p"
-                                        + " JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace"
-                                        + " WHERE (n.nspname = 'dml_utils'"
-                                        + "   AND p.proname IN ('run_migration_chunks', 'run_function_over_table',"
-                                        + "                        'set_migration_run_sleep_ms', 'pause_migration_run',"
-                                        + "                        'resume_migration_run', 'set_migration_run_retries',"
-                                        + "                        'migration_run_leaves', 'migration_run_progress',"
-                                        + "                        'explain_migration_run_chunk',"
-                                        + "                        'migration_run_summary', 'migration_boundaries'))"
-                                        + " OR (n.nspname = 'dml_utils_lib'"
-                                        + "   AND p.proname IN ('resolve_migration_run', 'populate_migration_boundaries'))")
-                        .get(0, Integer.class),
-                "the changed routines should have one signature each after upgrade");
+        // One input signature per changed routine: counting all 13 rows together
+        // cannot prove that (they could be distributed unevenly).
+        var signatures = upgradeDsl().fetch(
+                "SELECT n.nspname, p.proname, count(*) AS signatures"
+                        + " FROM pg_catalog.pg_proc AS p"
+                        + " JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace"
+                        + " WHERE (n.nspname = 'dml_utils'"
+                        + "   AND p.proname IN ('run_migration_chunks', 'run_function_over_table',"
+                        + "                        'set_migration_run_sleep_ms', 'pause_migration_run',"
+                        + "                        'resume_migration_run', 'set_migration_run_retries',"
+                        + "                        'migration_run_leaves', 'migration_run_progress',"
+                        + "                        'explain_migration_run_chunk',"
+                        + "                        'migration_run_summary', 'migration_boundaries'))"
+                        + " OR (n.nspname = 'dml_utils_lib'"
+                        + "   AND p.proname IN ('resolve_migration_run', 'populate_migration_boundaries'))"
+                        + " GROUP BY n.nspname, p.proname");
+        assertEquals(13, signatures.size(), "every changed routine is present after upgrade");
+        for (org.jooq.Record signature : signatures) {
+            assertEquals(1, signature.get("signatures", Integer.class),
+                    () -> "the changed routine " + signature.get("nspname", String.class)
+                            + "." + signature.get("proname", String.class)
+                            + " must have one signature after upgrade");
+        }
     }
 }

@@ -15,6 +15,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class ExplainQueryPlanTest extends PostgresTestBase {
 
     /**
+     * Empties the fixture table so a row seeded by one test cannot collide with
+     * (or mask) another test's write.
+     */
+    @org.junit.jupiter.api.BeforeEach
+    void resetFixture() {
+        dsl.truncate(TEST_BIGINT).execute();
+    }
+
+    /**
      * A SELECT is planned and the json carries the top-level plan node.
      */
     @Test
@@ -25,29 +34,43 @@ class ExplainQueryPlanTest extends PostgresTestBase {
     }
 
     /**
-     * An UPDATE is planned as a ModifyTable and is not executed: the fixture
-     * table stays empty.
+     * An UPDATE is planned as a ModifyTable and is not executed: an existing row
+     * keeps its value. The row is seeded first, so a wrongly executed UPDATE
+     * would be observable (an empty table would hide it).
      */
     @Test
     void explainsAnUpdateWithoutExecutingIt() {
+        dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID, TEST_BIGINT.PAYLOAD)
+                .values(1L, "keep").execute();
+
         JSON plan = Routines.explainQueryPlan(dsl.configuration(),
                 "UPDATE dml_utils_fixtures.test_bigint SET payload = 'x'");
 
         assertEquals("ModifyTable", planNodeType(plan));
-        assertEquals(0, dsl.fetchCount(TEST_BIGINT), "EXPLAIN must not run the update");
+        assertEquals("keep", dsl.select(TEST_BIGINT.PAYLOAD)
+                        .from(TEST_BIGINT)
+                        .where(TEST_BIGINT.ID.eq(1L))
+                        .fetchOne(TEST_BIGINT.PAYLOAD),
+                "EXPLAIN must not run the update");
+        assertEquals(1, dsl.fetchCount(TEST_BIGINT), "no row is added or removed");
     }
 
     /**
-     * An INSERT is planned as a ModifyTable and is not executed: no row is
-     * inserted.
+     * An INSERT is planned as a ModifyTable and is not executed: the seeded row is
+     * still the only one.
      */
     @Test
     void explainsAnInsertWithoutExecutingIt() {
+        dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID, TEST_BIGINT.PAYLOAD)
+                .values(1L, "keep").execute();
+
         JSON plan = Routines.explainQueryPlan(dsl.configuration(),
-                "INSERT INTO dml_utils_fixtures.test_bigint (id, payload) VALUES (1, 'x')");
+                "INSERT INTO dml_utils_fixtures.test_bigint (id, payload) VALUES (2, 'x')");
 
         assertEquals("ModifyTable", planNodeType(plan));
-        assertEquals(0, dsl.fetchCount(TEST_BIGINT), "EXPLAIN must not run the insert");
+        assertEquals(1, dsl.fetchCount(TEST_BIGINT), "EXPLAIN must not run the insert");
+        assertEquals(0, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.ID.eq(2L)),
+                "the inserted row does not exist");
     }
 
     /**

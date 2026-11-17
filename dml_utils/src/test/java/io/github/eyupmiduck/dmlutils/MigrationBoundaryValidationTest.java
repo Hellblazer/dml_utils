@@ -12,7 +12,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeFour.TEST_COMPOSITE_FOUR;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositePk.TEST_COMPOSITE_PK;
@@ -541,6 +543,8 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID).values(1L).execute();
         int runsBefore = dsl.fetchCount(MIGRATION_RUN);
         int boundariesBefore = dsl.fetchCount(MIGRATION_BOUNDARY);
+        int leavesBefore = dsl.fetchCount(MIGRATION_RUN_LEAF);
+        int errorsBefore = dsl.fetchCount(MIGRATION_ERROR);
 
         // A domain failure, an unknown schema/table, and each catalog validation
         // failure must all leave the migration tables untouched.
@@ -555,6 +559,10 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN), "no run should be written");
         assertEquals(boundariesBefore, dsl.fetchCount(MIGRATION_BOUNDARY),
                 "no boundary should be written");
+        assertEquals(leavesBefore, dsl.fetchCount(MIGRATION_RUN_LEAF),
+                "no leaf manifest row should be written");
+        assertEquals(errorsBefore, dsl.fetchCount(MIGRATION_ERROR),
+                "no error row should be written");
     }
 
     /**
