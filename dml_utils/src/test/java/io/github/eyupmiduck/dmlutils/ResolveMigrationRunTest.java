@@ -309,12 +309,12 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
     /**
      * A resumed ordered run fails closed with {@code 55000} when the stored
-     * index is recreated with too many key columns (resolver {@code 22023}).
+     * index is recreated with too many key columns (five, resolver {@code 22023}).
      */
     @Test
     void resumeFailsWhenTheStoredIndexHasTooManyColumns() throws Exception {
         seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-four-columns");
+        String label = uniqueLabel("resolve-ordered-five-columns");
         resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
 
         try (Connection connection = openOwnerConnection();
@@ -322,7 +322,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
             statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
             statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
                     + " ON dml_utils_fixtures.test_ordered_key"
-                    + " (created_at, id, external_id, label)");
+                    + " (created_at, id, external_id, label, collated_label)");
             assertSqlState("55000", () -> resolveOrderedKey(label,
                     "test_ordered_key_created_at_id_idx"));
         } finally {

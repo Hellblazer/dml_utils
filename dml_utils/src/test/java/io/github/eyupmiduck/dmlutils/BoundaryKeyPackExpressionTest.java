@@ -61,6 +61,25 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     }
 
     /**
+     * A four-column key, the supported maximum, places a term for every kind in
+     * its own array, so each array has the key's four positions.
+     */
+    @Test
+    void packsAFourColumnKey() {
+        assertEquals("ROW(ARRAY[NULL, id2::bigint, NULL, NULL]::bigint[],"
+                        + " ARRAY[NULL, NULL, NULL, id4::text]::text[],"
+                        + " ARRAY[id1::uuid, NULL, NULL, NULL]::uuid[],"
+                        + " ARRAY[NULL, NULL, id3::timestamptz, NULL]::timestamptz[],"
+                        + " NULL::bytea[])::dml_utils_data.migration_key",
+                pack(new String[]{"uuid", "bigint", "timestamptz", "text"}));
+        assertEquals("ROW(NULL::bigint[], ARRAY[id1::text, id2::text, NULL, id4::text]::text[],"
+                        + " NULL::uuid[], NULL::timestamptz[],"
+                        + " ARRAY[NULL, NULL, id3::bytea, NULL]::bytea[])"
+                        + "::dml_utils_data.migration_key",
+                pack(new String[]{"text", "text", "bytea", "text"}));
+    }
+
+    /**
      * A bytea key populates only the bytea array, and a composite
      * (text, text, bytea) key keeps the bytea term at its own position.
      */
@@ -85,7 +104,7 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     void rejectsBadKindArrays() {
         assertSqlState("22023", () -> pack(null));
         assertSqlState("22023", () -> pack(new String[]{}));
-        assertSqlState("22023", () -> pack(new String[]{"bigint", "text", "uuid", "text"}));
+        assertSqlState("22023", () -> pack(new String[]{"bigint", "text", "uuid", "text", "bytea"}));
         assertSqlState("22023", () -> pack(new String[]{null}));
         assertSqlState("22023", () -> pack(new String[]{"integer"}));
         assertSqlState("22023", () -> pack(new String[]{"BIGINT"}));

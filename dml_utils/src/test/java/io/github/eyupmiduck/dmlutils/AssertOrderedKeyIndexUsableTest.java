@@ -39,6 +39,14 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
     }
 
     /**
+     * A four-column key, the supported maximum, is usable.
+     */
+    @Test
+    void acceptsAFourColumnKey() {
+        assertUsable(TABLE, "test_ordered_key_four_idx");
+    }
+
+    /**
      * Every index-level shape violation is rejected with its documented code.
      */
     @Test
@@ -49,7 +57,7 @@ class AssertOrderedKeyIndexUsableTest extends PartitionTestBase {
         assertRejected("0A000", "test_ordered_key_partial_idx");
         assertRejected("0A000", "test_ordered_key_desc_idx");
         assertRejected("0A000", "test_ordered_key_nulls_first_idx");
-        assertRejected("22023", "test_ordered_key_four_idx");
+        assertRejected("22023", "test_ordered_key_five_idx");
     }
 
     /**
