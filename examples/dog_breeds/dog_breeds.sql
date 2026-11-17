@@ -151,8 +151,8 @@ SELECT b.boundary_no,
                b.boundary_id,
                dml_utils_lib.primary_key_kinds(
                        i_schema_name => 'dog_breeds',
-                       i_table_name => 'dogs'))                     AS key_values,
-       b.completed_at IS NOT NULL                                   AS completed
+                       i_table_name => 'dogs')) AS key_values,
+       b.completed_at IS NOT NULL               AS completed
 -- noqa:disable=AM05,ST09
 FROM dml_utils_data.migration_run AS r
          JOIN dml_utils_data.migration_boundary AS b ON b.run_id = r.run_id
