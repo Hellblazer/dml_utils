@@ -9,10 +9,11 @@
 \set ON_ERROR_STOP on
 
 -- Archive any previous run with the example label so the label is free for the
--- new run (archive cancels an unfinished run first). Cancelling stops new chunks
--- and marks the unclaimed boundaries; a chunk that is already running may still
--- finish its statement, so the DROP TABLE below can wait for it.
-SELECT dml_utils.cancel_migration_run(i_label => 'dogs-status-backfill');
+-- new run. archive_migration_run cancels an unfinished run first: cancelling
+-- stops new chunks and marks the unclaimed boundaries before the DDL below runs,
+-- so the DROP does not wait on workers that have not started a chunk. A chunk
+-- that is already running may still finish its statement, so the DROP can
+-- briefly wait for it.
 SELECT dml_utils.archive_migration_run(i_label => 'dogs-status-backfill');
 
 -- 1. A driving table with a supported primary key, in its own schema so the
@@ -121,8 +122,9 @@ FROM dml_utils.explain_migration_chunks(
 --    the call resumes at the first unprocessed chunk if it is interrupted.
 --
 --    The label identifies the run; re-running with the same label resumes it,
---    and an already-complete run is a no-op. The previous run was cancelled and
---    archived at the top so the example can be re-run from scratch.
+--    and an already-complete run is a no-op. An earlier run with the label was
+--    archived (and cancelled, if unfinished) at the top so the example re-runs
+--    from scratch.
 SELECT dml_utils.run_migration_chunks(
                i_sql_text => 'UPDATE <driving_table> SET status = ''reviewed'' WHERE <chunking_clause>',
                i_driving_table_schema_name => 'dog_breeds',

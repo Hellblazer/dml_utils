@@ -41,9 +41,37 @@ class DogBreedsExampleTest extends PostgresTestBase {
     @Test
     void dogBreedsFunctionExampleBackfillsAndRerunsCleanly() throws Exception {
         runExample("dog_breeds_function");
-        assertExampleOutcome("public", "dogs-review-function");
+        assertExampleOutcome("dog_breeds_function", "dogs-review-function");
         runExample("dog_breeds_function");
-        assertExampleOutcome("public", "dogs-review-function");
+        assertExampleOutcome("dog_breeds_function", "dogs-review-function");
+    }
+
+    /**
+     * The function-over-table example creates its objects in its own
+     * {@code dog_breeds_function} schema: a pre-existing {@code public.dogs}
+     * table (which the script used to drop) is left untouched.
+     */
+    @Test
+    void dogBreedsFunctionExampleDoesNotTouchPublicTables() throws Exception {
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        try (Connection admin = openAdminConnection(database);
+             Statement statement = admin.createStatement()) {
+            statement.execute("CREATE TABLE public.dogs (breed text PRIMARY KEY)");
+            statement.execute("INSERT INTO public.dogs VALUES ('sentinel')");
+
+            runExample("dog_breeds_function");
+
+            // Read through the admin connection: dml_utils_test has no grants on
+            // a table the example must never reference.
+            try (var rows = statement.executeQuery(
+                    "SELECT count(*), min(breed) FROM public.dogs")) {
+                assertTrue(rows.next(), "the sentinel query returns a row");
+                assertEquals(1, rows.getInt(1),
+                        "the example must not touch a public.dogs table");
+                assertEquals("sentinel", rows.getString(2),
+                        "the public.dogs row is unchanged");
+            }
+        }
     }
 
     /**
