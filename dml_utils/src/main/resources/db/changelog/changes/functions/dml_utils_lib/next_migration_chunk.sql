@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.next_migration_chunk(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE
@@ -57,7 +58,7 @@ BEGIN
                        ON leaf.run_id = b.run_id
                            AND leaf.leaf_ordinal = b.leaf_ordinal
              CROSS JOIN LATERAL (
-        SELECT max(boundary_no) AS boundary_no
+        SELECT pg_catalog.max(boundary_no) AS boundary_no
         FROM dml_utils_data.migration_boundary
         WHERE run_id = b.run_id
         ) AS last

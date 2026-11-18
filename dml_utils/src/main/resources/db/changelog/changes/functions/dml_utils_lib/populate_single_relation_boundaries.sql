@@ -10,6 +10,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     RETURNS void
     LANGUAGE plpgsql
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE

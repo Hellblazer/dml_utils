@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_pair_values(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE

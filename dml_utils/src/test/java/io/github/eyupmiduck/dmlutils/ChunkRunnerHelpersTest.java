@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -119,6 +120,66 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         assertEquals("5", second.getOEndValues()[0]);
 
         assertNull(next(runId, false, new Long[]{0L, 1L, 2L, 3L}).getOBoundaryNo());
+    }
+
+    /**
+     * A caller that puts a schema with a shadowing max() aggregate before
+     * pg_catalog must not change the final-chunk decision: the helper pins
+     * search_path to pg_catalog and the generated SQL qualifies the aggregate.
+     */
+    @Test
+    void ignoresASearchPathShadowingTheMaxAggregate() throws Exception {
+        seedBigint(1, 2, 3, 4, 5);
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("next-shadow"),
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        try (java.sql.Connection admin = openAdminConnection(database);
+             java.sql.Statement statement = admin.createStatement()) {
+            statement.execute("CREATE SCHEMA next_shadow");
+            statement.execute("CREATE AGGREGATE next_shadow.max(bigint)"
+                    + " (SFUNC = pg_catalog.int8pl, STYPE = bigint, INITCOND = '1000000')");
+        }
+        try {
+            dsl.transaction(config -> {
+                org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+                tx.execute("SET LOCAL search_path = next_shadow, pg_catalog");
+
+                NextMigrationChunk next = Routines.nextMigrationChunk(tx.configuration(),
+                        runId, false, new String[]{"bigint"}, new Long[]{0L, 1L},
+                        schema(TEST_BIGINT), name(TEST_BIGINT));
+
+                assertEquals(2L, next.getOBoundaryNo());
+                assertTrue(next.getOIsFinal(),
+                        "the pinned path must use pg_catalog.max, not the shadow");
+            });
+        } finally {
+            try (java.sql.Connection admin = openAdminConnection(database);
+                 java.sql.Statement statement = admin.createStatement()) {
+                statement.execute("DROP SCHEMA IF EXISTS next_shadow CASCADE");
+            }
+        }
+    }
+
+    /**
+     * The runner helpers that build or run boundary SQL pin search_path, so a
+     * caller cannot shadow a built-in name they rely on.
+     */
+    @Test
+    void pinsTheSearchPathForTheRunnerHelpers() {
+        for (String function : List.of("next_migration_chunk",
+                "populate_single_relation_boundaries")) {
+            String config = dsl.fetchOne("""
+                            SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                            FROM pg_catalog.pg_proc AS p
+                            WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                              AND p.proname = ?
+                            """, function)
+                    .get(0, String.class);
+            assertTrue(config.contains("search_path=pg_catalog"),
+                    () -> function + " must pin search_path: " + config);
+        }
     }
 
     /**

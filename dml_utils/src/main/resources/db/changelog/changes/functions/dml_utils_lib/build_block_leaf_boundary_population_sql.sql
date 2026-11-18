@@ -42,7 +42,7 @@ BEGIN
                  pg_catalog.generate_series(1, counts.n_starts) AS g
         ),
         base AS (
-            SELECT coalesce(max(boundary_no), -1) + 1 AS first_boundary_no
+            SELECT coalesce(pg_catalog.max(boundary_no), -1) + 1 AS first_boundary_no
             FROM dml_utils_data.migration_boundary
             WHERE run_id = %1$s
         )

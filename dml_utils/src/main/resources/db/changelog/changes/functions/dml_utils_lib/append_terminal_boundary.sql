@@ -109,7 +109,7 @@ BEGIN
             i_run_id => i_run_id,
             i_leaf_ordinal => i_leaf_ordinal);
 
-    SELECT coalesce(max(boundary.boundary_no), -1) + 1
+    SELECT coalesce(pg_catalog.max(boundary.boundary_no), -1) + 1
     INTO l_boundary_no
     FROM dml_utils_data.migration_boundary AS boundary
     WHERE boundary.run_id = i_run_id;

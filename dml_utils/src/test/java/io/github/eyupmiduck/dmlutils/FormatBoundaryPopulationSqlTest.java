@@ -64,7 +64,7 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
         assertTrue(sql.contains("INSERT INTO dml_utils_data.migration_boundary"));
         assertTrue(sql.contains("dml_utils_fixtures.test_bigint"));
         assertTrue(sql.contains("id AS id1"));
-        assertTrue(sql.contains("row_number() OVER (ORDER BY id)"));
+        assertTrue(sql.contains("pg_catalog.row_number() OVER (ORDER BY id)"));
         assertTrue(sql.contains("id1 DESC"));
         assertTrue(sql.contains(PACK));
         assertTrue(sql.matches("(?s).*SELECT\\s+42,.*"),

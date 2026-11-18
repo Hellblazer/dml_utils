@@ -48,7 +48,7 @@ BEGIN
         WITH numbered AS (
             SELECT
                 %1$s,
-                row_number() OVER (ORDER BY %2$s) AS rn
+                pg_catalog.row_number() OVER (ORDER BY %2$s) AS rn
             FROM %3$I.%4$I
         ),
         starts AS MATERIALIZED (
@@ -59,7 +59,7 @@ BEGIN
             WHERE (rn - 1) %% %8$s::bigint = 0
         ),
         base AS (
-            SELECT coalesce(max(boundary_no), -1) + 1 AS first_boundary_no
+            SELECT coalesce(pg_catalog.max(boundary_no), -1) + 1 AS first_boundary_no
             FROM dml_utils_data.migration_boundary
             WHERE run_id = %7$s
         )

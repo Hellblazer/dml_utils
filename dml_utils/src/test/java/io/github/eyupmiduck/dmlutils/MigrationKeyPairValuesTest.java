@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.migration_key_pair_values}: it flattens a chunk's
@@ -30,6 +29,23 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
 
         assertArrayEquals(new String[]{"1"}, values.getOStartValues());
         assertArrayEquals(new String[]{"10"}, values.getOEndValues());
+    }
+
+    /**
+     * The helper pins search_path, so an unqualified operator or built-in in its
+     * body cannot be shadowed by a caller schema.
+     */
+    @Test
+    void pinsTheSearchPath() {
+        String config = dsl.fetchOne("""
+                        SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                        FROM pg_catalog.pg_proc AS p
+                        WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                          AND p.proname = 'migration_key_pair_values'
+                        """)
+                .get(0, String.class);
+        assertTrue(config.contains("search_path=pg_catalog"),
+                () -> "migration_key_pair_values must pin search_path: " + config);
     }
 
     /**

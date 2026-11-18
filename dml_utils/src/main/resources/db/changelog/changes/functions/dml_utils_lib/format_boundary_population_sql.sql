@@ -86,7 +86,7 @@ BEGIN
         WITH numbered AS (
             SELECT
                 %1$s,
-                row_number() OVER (ORDER BY %2$s) AS rn
+                pg_catalog.row_number() OVER (ORDER BY %2$s) AS rn
             FROM %3$I.%4$I
         ),
         starts AS MATERIALIZED (
@@ -105,7 +105,7 @@ BEGIN
         UNION ALL
         SELECT
             %8$s,
-            (SELECT max(boundary_no) + 1 FROM starts),
+            (SELECT pg_catalog.max(boundary_no) + 1 FROM starts),
             terminal.boundary_id,
             NULL::timestamptz AS completed_at
         FROM (
