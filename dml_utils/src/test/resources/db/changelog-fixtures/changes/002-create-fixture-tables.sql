@@ -728,3 +728,24 @@ CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p1
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p1 IS
     'Fixture: hash leaf remainder 1.';
+
+-- A traditional INHERITS parent and its child: the parent has relkind 'r' but
+-- is not one physical heap, so block chunking must reject it.
+CREATE TABLE dml_utils_fixtures.test_inheritance_parent
+(
+    id      bigint NOT NULL,
+    payload text
+);
+
+COMMENT ON TABLE dml_utils_fixtures.test_inheritance_parent IS
+    'Fixture: a traditional INHERITS parent (not a single physical heap).';
+COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.id IS
+    'Fixture key column.';
+COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_inheritance_child ()
+    INHERITS (dml_utils_fixtures.test_inheritance_parent);
+
+COMMENT ON TABLE dml_utils_fixtures.test_inheritance_child IS
+    'Fixture: the ordinary child of the INHERITS fixture.';

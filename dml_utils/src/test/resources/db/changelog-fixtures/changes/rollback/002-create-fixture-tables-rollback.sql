@@ -29,4 +29,6 @@ DROP TABLE IF EXISTS
     dml_utils_fixtures.test_partitioned_detach,
     dml_utils_fixtures.test_partitioned_foreign,
     dml_utils_fixtures.test_partitioned_quoted,
-    dml_utils_fixtures.test_partitioned_hash;
+    dml_utils_fixtures.test_partitioned_hash,
+    dml_utils_fixtures.test_inheritance_child,
+    dml_utils_fixtures.test_inheritance_parent;

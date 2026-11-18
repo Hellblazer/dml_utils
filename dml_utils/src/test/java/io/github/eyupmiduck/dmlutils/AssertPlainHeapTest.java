@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -44,6 +45,26 @@ class AssertPlainHeapTest extends PostgresTestBase {
     }
 
     /**
+     * A traditional INHERITS parent is rejected with {@code 42809}: its relkind
+     * is 'r', but it is not one physical heap.
+     */
+    @Test
+    void rejectsAnInheritanceParent() {
+        assertSqlState("42809", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.assertPlainHeap(
+                dsl.configuration(), SCHEMA, "test_inheritance_parent"));
+    }
+
+    /**
+     * The ordinary child of an INHERITS parent has no children of its own and is
+     * a plain heap, so it passes.
+     */
+    @Test
+    void acceptsAnInheritanceChild() {
+        assertDoesNotThrow(() -> io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.assertPlainHeap(
+                dsl.configuration(), SCHEMA, "test_inheritance_child"));
+    }
+
+    /**
      * A missing relation is rejected with {@code 42P01}.
      */
     @Test
@@ -62,6 +83,22 @@ class AssertPlainHeapTest extends PostgresTestBase {
 
         assertSqlState("42809", () -> Routines.runMigrationChunks(dsl.configuration(),
                 TEMPLATE, SCHEMA, "test_partitioned", uniqueLabel("block-partitioned"),
+                1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000));
+
+        assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN),
+                "a rejected block run must not create a run");
+    }
+
+    /**
+     * A block run against an INHERITS parent is rejected with {@code 42809}
+     * before any run is created.
+     */
+    @Test
+    void blockRunRejectsAnInheritanceParent() {
+        int runsBefore = dsl.fetchCount(MIGRATION_RUN);
+
+        assertSqlState("42809", () -> Routines.runMigrationChunks(dsl.configuration(),
+                TEMPLATE, SCHEMA, "test_inheritance_parent", uniqueLabel("block-inherits"),
                 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000));
 
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN),
