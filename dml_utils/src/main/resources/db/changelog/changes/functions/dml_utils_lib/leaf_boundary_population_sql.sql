@@ -1,10 +1,10 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.leaf_boundary_population_sql(
     i_chunk_by dml_utils_data.chunking_strategy,
-    i_chunk_size integer,
-    i_leaf_schema_name text,
-    i_leaf_name text,
-    i_run_id bigint,
-    i_leaf_ordinal integer
+    i_chunk_size dml_utils_data.positive_integer,
+    i_leaf_schema_name dml_utils_data.non_null_text,
+    i_leaf_name dml_utils_data.non_null_text,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -46,7 +46,9 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    IF i_chunk_size <> l_chunk_size THEN
+    -- IS DISTINCT FROM even though the parameter domain rejects NULL: the
+    -- comparison stays total if the types ever change.
+    IF i_chunk_size IS DISTINCT FROM l_chunk_size THEN
         RAISE EXCEPTION 'run % uses chunk_size %, not %', i_run_id, l_chunk_size, i_chunk_size
             USING ERRCODE = '22023';
     END IF;
@@ -78,16 +80,18 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
     dml_utils_data.chunking_strategy,
-    integer,
-    text,
-    text,
-    bigint,
-    integer
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer
     ) IS
     'Returns the statement that appends one claimed leaf''s chunk starts, '
         'dispatching on the run''s stored chunk_by (the same strategy that drives '
-        'the key descriptor). Raises invalid_parameter_value (22023) when '
-        'i_chunk_by is NULL or differs from the stored strategy, when i_chunk_size '
-        'differs from the stored size, and no_data_found (P0002) when the run does '
-        'not exist. The caller executes the statement in the leaf calculation '
-        'transaction.';
+        'the key descriptor). The chunk size, run id and leaf ordinal are typed '
+        'with the non-null/positive domains, so a NULL, zero or negative value and '
+        'a NULL or blank schema/name fail before the statement is built. Raises '
+        'invalid_parameter_value (22023) when i_chunk_by is NULL or differs from '
+        'the stored strategy, when i_chunk_size differs from the stored size, and '
+        'no_data_found (P0002) when the run does not exist. The caller executes the '
+        'statement in the leaf calculation transaction.';

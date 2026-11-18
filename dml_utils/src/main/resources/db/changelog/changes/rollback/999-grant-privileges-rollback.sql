@@ -1135,19 +1135,19 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.append_terminal_boundary(
 -- Leaf calculation SQL builder.
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
     dml_utils_data.chunking_strategy,
-    integer,
-    text,
-    text,
-    bigint,
-    integer
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
     dml_utils_data.chunking_strategy,
-    integer,
-    text,
-    text,
-    bigint,
-    integer
+    dml_utils_data.positive_integer,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer
     ) TO public;
 
 -- Run creation and resolution helpers.

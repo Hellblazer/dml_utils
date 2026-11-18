@@ -136,6 +136,46 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
     }
 
     /**
+     * The argument domains reject NULL/zero/negative sizes and ordinals, a NULL
+     * run id, and a NULL or blank leaf schema/name before any statement is built.
+     */
+    @Test
+    void rejectsNullAndOutOfRangeArguments() {
+        insertRangeRows(0L, 1L, 2L, 3L, 4L);
+        long runId = populatePartitionWise("leaf-builder-wrapper-args", TABLE, TEMPLATE,
+                ChunkingStrategy.primary_key, 2, null);
+
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, null, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 0, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, -1, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, PARTITION_SCHEMA,
+                "test_partitioned_range_low", (Long) null, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, null));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, PARTITION_SCHEMA,
+                "test_partitioned_range_low", runId, 0));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, null,
+                "test_partitioned_range_low", runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, "   ",
+                "test_partitioned_range_low", runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, PARTITION_SCHEMA, null, runId, 1));
+        assertDomainViolation(() -> Routines.leafBoundaryPopulationSql(dsl.configuration(),
+                ChunkingStrategy.primary_key, 2, PARTITION_SCHEMA, "   ", runId, 1));
+    }
+
+    /**
      * A chunk size that differs from the run's stored size would build boundaries
      * with a stride the run does not advertise.
      */

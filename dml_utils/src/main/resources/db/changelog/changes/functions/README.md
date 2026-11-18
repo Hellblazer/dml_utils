@@ -2198,22 +2198,25 @@ finalized, cancelled or fully calculated.
 
 ```sql
 i_chunk_by          dml_utils_data.chunking_strategy
-i_chunk_size        integer
-i_leaf_schema_name  text
-i_leaf_name         text
-i_run_id            bigint
-i_leaf_ordinal      integer
+i_chunk_size        dml_utils_data.positive_integer
+i_leaf_schema_name  dml_utils_data.non_null_text
+i_leaf_name         dml_utils_data.non_null_text
+i_run_id            dml_utils_data.non_null_bigint
+i_leaf_ordinal      dml_utils_data.positive_integer
 RETURNS text
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the statement that appends one claimed
 leaf's chunk starts, dispatching on the run's stored `chunk_by` (the same
 strategy that drives the key descriptor) and using the blocks builder or the
-stored key descriptor. Raises `invalid_parameter_value` (`22023`) when
-`i_chunk_by` is NULL or differs from the stored strategy, or when `i_chunk_size`
-differs from the stored size (a dual source of truth would render a statement
-for a strategy or stride the run does not use), and `no_data_found` (`P0002`)
-when the run does not exist. `calculate_migration_leaf` executes it.
+stored key descriptor. The chunk size and leaf ordinal use the positive-integer
+domain, the run id the non-null bigint domain, and the leaf schema/name the
+non-null text domain, so a NULL, zero or negative value or a NULL/blank name
+fails before a statement is built. Raises `invalid_parameter_value` (`22023`)
+when `i_chunk_by` is NULL or differs from the stored strategy, or when
+`i_chunk_size` differs from the stored size (a dual source of truth would render
+a statement for a strategy or stride the run does not use), and `no_data_found`
+(`P0002`) when the run does not exist. `calculate_migration_leaf` executes it.
 
 ### `dml_utils_lib.calculate_next_leaf_in_worker(i_run_id)`
 
