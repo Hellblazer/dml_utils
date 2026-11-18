@@ -6,10 +6,10 @@ AS
 $$
 BEGIN
     -- label, chunk_size, chunk_by, partition_wise, the ordered-key descriptor and
-    -- the driving table are set when the run is created and must never change:
-    -- together they identify the run and the boundaries computed from it.
-    -- driving_table_relation_filepath is fixed at boundary-calculation time for a
-    -- block run, so it is immutable too.
+    -- the driving table (schema, name, alias and, for a block run, the relation
+    -- filepath) are set when the run is created and must never change: together
+    -- they identify the run, its rendered chunk SQL and the boundaries computed
+    -- from it.
     IF NEW.label IS DISTINCT FROM OLD.label
         OR NEW.chunk_size IS DISTINCT FROM OLD.chunk_size
         OR NEW.chunk_by IS DISTINCT FROM OLD.chunk_by
@@ -19,9 +19,21 @@ BEGIN
         OR NEW.ordered_key_kinds IS DISTINCT FROM OLD.ordered_key_kinds
         OR NEW.driving_table_schema_name IS DISTINCT FROM OLD.driving_table_schema_name
         OR NEW.driving_table_name IS DISTINCT FROM OLD.driving_table_name
+        OR NEW.driving_table_alias IS DISTINCT FROM OLD.driving_table_alias
         OR NEW.driving_table_relation_filepath IS DISTINCT FROM OLD.driving_table_relation_filepath
     THEN
         RAISE EXCEPTION 'migration_run label, chunk_size, chunk_by, partition_wise, ordered key and driving table are immutable'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- started_at is the run's recorded start: boundary calculation sets it once,
+    -- and every milestone-ordering CHECK and the progress rates depend on it.
+    -- Clearing or moving it (in either direction) would falsify the run's
+    -- timeline. Setting it from NULL is still allowed; that is how it is recorded.
+    IF OLD.started_at IS NOT NULL
+        AND NEW.started_at IS DISTINCT FROM OLD.started_at
+    THEN
+        RAISE EXCEPTION 'migration_run.started_at is immutable once set'
             USING ERRCODE = '22023';
     END IF;
 
@@ -123,8 +135,9 @@ COMMENT ON FUNCTION dml_utils_data.reject_migration_run_update IS
         'migration_run.chunk_size, migration_run.chunk_by, '
         'migration_run.partition_wise, the ordered-key descriptor '
         '(ordered_key_index, ordered_key_columns, ordered_key_kinds), the driving '
-        'table schema/name or the driving table relation filepath. It also '
-        'rejects a change to migration_run.total_chunks once '
+        'table schema/name/alias or the driving table relation filepath. It also '
+        'rejects clearing or moving migration_run.started_at once set, rejects a '
+        'change to migration_run.total_chunks once '
         'boundaries_calculated_at is set (the value is written with that '
         'milestone), rejects clearing or moving boundaries_calculated_at once it '
         'is set, and rejects rewriting a migration_run.cancelled_at, '

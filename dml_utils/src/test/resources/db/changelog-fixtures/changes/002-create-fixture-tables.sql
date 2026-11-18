@@ -744,7 +744,9 @@ COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_inheritance_child ()
+CREATE TABLE dml_utils_fixtures.test_inheritance_child
+(
+)
     INHERITS (dml_utils_fixtures.test_inheritance_parent);
 
 COMMENT ON TABLE dml_utils_fixtures.test_inheritance_child IS

@@ -77,11 +77,12 @@ class MigrationRunProgressTest extends PartitionTestBase {
      * An in-flight run reports its completed fraction, rates and a forward ETA.
      */
     @Test
-    void reportsAnActiveRun() {
+    void reportsAnActiveRun() throws Exception {
         String label = uniqueLabel("progress-active");
         long runId = populateSingle(label, 2, 1L, 2L, 3L, 4L, 5L);
+        // The recorded start is immutable; let real time pass instead.
+        Thread.sleep(1200);
         completeBoundary(runId, 0L, 10L);
-        setStartedAtSecondsAgo(runId, 2);
 
         MigrationRunProgressRecord progress = progress(runId);
 
@@ -97,7 +98,7 @@ class MigrationRunProgressTest extends PartitionTestBase {
         long measuredMs = databaseElapsedMs(runId);
         // databaseElapsedMs is sampled after the view, so it can only be larger
         // than the reported elapsed; allow the round-trip gap in one direction.
-        assertTrue(progress.getElapsedMs() >= 1900,
+        assertTrue(progress.getElapsedMs() >= 1000,
                 "the elapsed time is measured from started_at");
         assertTrue(progress.getElapsedMs() <= measuredMs,
                 "the reported elapsed time does not exceed the sampled clock");
@@ -174,11 +175,11 @@ class MigrationRunProgressTest extends PartitionTestBase {
      * estimate instead of pretending it is still progressing.
      */
     @Test
-    void reportsAPausedRun() {
+    void reportsAPausedRun() throws Exception {
         String label = uniqueLabel("progress-paused");
         long runId = populateSingle(label, 2, 1L, 2L, 3L, 4L);
+        Thread.sleep(1200);
         completeBoundary(runId, 0L, 5L);
-        setStartedAtSecondsAgo(runId, 2);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         MigrationRunProgressRecord progress = progress(runId);
@@ -201,17 +202,17 @@ class MigrationRunProgressTest extends PartitionTestBase {
      * timestamp as the estimated finish.
      */
     @Test
-    void reportsACompletedRun() {
+    void reportsACompletedRun() throws Exception {
         String label = uniqueLabel("progress-completed");
         long runId = populateSingle(label, 2, 1L, 2L, 3L, 4L, 5L);
+        // The recorded start is immutable; give the run a measurable duration.
+        Thread.sleep(50);
         completeBoundary(runId, 0L, 10L);
         completeBoundary(runId, 1L, 10L);
         completeBoundary(runId, 2L, 10L);
         completeRun(runId);
         MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt());
-        // Freeze a ten-second run so the rates are exact.
-        setStartedAt(runId, run.getCompletedAt().minusSeconds(10));
 
         MigrationRunProgressRecord progress = progress(runId);
 
@@ -221,9 +222,12 @@ class MigrationRunProgressTest extends PartitionTestBase {
         assertEquals(0L, progress.getRemainingChunks());
         assertEquals(100.0, progress.getPercentComplete(), 0.001);
         assertEquals(30L, progress.getTotalRowsAffected());
-        assertEquals(10_000L, progress.getElapsedMs());
-        assertEquals(0.3, progress.getChunksPerSecond(), 0.001);
-        assertEquals(3.0, progress.getRowsPerSecond(), 0.001);
+        long elapsed = completedElapsedMs(runId);
+        assertTrue(elapsed > 0, "the run has a measurable duration");
+        assertEquals(elapsed, progress.getElapsedMs());
+        double seconds = elapsed / 1000.0;
+        assertEquals(3.0 / seconds, progress.getChunksPerSecond(), 0.001);
+        assertEquals(30.0 / seconds, progress.getRowsPerSecond(), 0.001);
         assertEquals(0L, progress.getEstimatedRemainingMs(),
                 "a finished run has nothing remaining");
         assertEquals(run.getCompletedAt(), progress.getEstimatedCompletionAt(),
@@ -235,14 +239,14 @@ class MigrationRunProgressTest extends PartitionTestBase {
      * than dividing by zero or returning NULL.
      */
     @Test
-    void reportsACompletedSingleZeroRowChunk() {
+    void reportsACompletedSingleZeroRowChunk() throws Exception {
         String label = uniqueLabel("progress-zero-rows");
         long runId = populateSingle(label, 2, 7L, 8L);
+        Thread.sleep(50);
         completeBoundary(runId, 0L, 0L);
         completeRun(runId);
         MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCompletedAt());
-        setStartedAt(runId, run.getCompletedAt().minusSeconds(10));
 
         MigrationRunProgressRecord progress = progress(runId);
 
@@ -251,7 +255,9 @@ class MigrationRunProgressTest extends PartitionTestBase {
         assertEquals(1L, progress.getCompletedChunks());
         assertEquals(100.0, progress.getPercentComplete(), 0.001);
         assertEquals(0L, progress.getTotalRowsAffected());
-        assertEquals(0.1, progress.getChunksPerSecond(), 0.001);
+        long elapsed = completedElapsedMs(runId);
+        assertTrue(elapsed > 0, "the run has a measurable duration");
+        assertEquals(1.0 / (elapsed / 1000.0), progress.getChunksPerSecond(), 0.001);
         assertEquals(0.0, progress.getRowsPerSecond(), 0.001,
                 "a productive chunk with zero rows reports a zero rate");
         assertEquals(0L, progress.getEstimatedRemainingMs());
@@ -452,29 +458,19 @@ class MigrationRunProgressTest extends PartitionTestBase {
     }
 
     /**
-     * Sets started_at to an explicit value (used to freeze a completed run's
-     * duration deterministically).
+     * The database's own duration of a completed run, read independently of the
+     * view under test.
      *
-     * @param runId     the run id
-     * @param startedAt the start instant
+     * @param runId the run id
+     * @return the completed-to-started difference in milliseconds
      */
-    private void setStartedAt(long runId, OffsetDateTime startedAt) {
-        dsl.update(MIGRATION_RUN)
-                .set(MIGRATION_RUN.STARTED_AT, startedAt)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .execute();
-    }
-
-    /**
-     * Sets started_at to the database clock, the given number of seconds ago.
-     *
-     * @param runId   the run id
-     * @param seconds the elapsed seconds
-     */
-    private void setStartedAtSecondsAgo(long runId, int seconds) {
-        dsl.execute("UPDATE dml_utils_data.migration_run"
-                + " SET started_at = pg_catalog.clock_timestamp() - make_interval(secs => ?)"
-                + " WHERE run_id = ?", seconds, runId);
+    private long completedElapsedMs(long runId) {
+        return dsl.fetchOne("""
+                        SELECT (extract(epoch FROM completed_at - started_at) * 1000)::bigint
+                        FROM dml_utils_data.migration_run
+                        WHERE run_id = ?
+                        """, runId)
+                .get(0, Long.class);
     }
 
     /**

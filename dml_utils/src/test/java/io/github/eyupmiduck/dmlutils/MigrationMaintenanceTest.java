@@ -248,6 +248,8 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         String label = "maint-summary-done";
         long runId = populateRun(label, 2, 1, 2, 3, 4);
         // Complete two of the three boundaries and finish the run.
+        OffsetDateTime runStarted = migrationRun(runId).getStartedAt();
+        assertNotNull(runStarted, "the populated run records its start");
         OffsetDateTime started = OffsetDateTime.parse("2020-01-01T00:00:00Z");
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, started)
@@ -257,7 +259,6 @@ class MigrationMaintenanceTest extends PostgresTestBase {
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.in(0L, 1L))
                 .execute();
         dsl.update(MIGRATION_RUN)
-                .set(MIGRATION_RUN.STARTED_AT, started)
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
@@ -272,7 +273,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         assertEquals(2L, summary.getCompletedBoundaryCount().longValue(),
                 "two of the three boundaries are completed");
         assertNotNull(summary.getStartedAt(), "the run start comes through");
-        assertTrue(started.isEqual(summary.getStartedAt()), "the run start value comes through");
+        assertEquals(runStarted, summary.getStartedAt(), "the recorded start comes through");
         assertNotNull(summary.getBoundariesCalculatedAt(),
                 "the range-calculation completion comes through");
         assertNotNull(summary.getCompletedAt(), "the run is completed");

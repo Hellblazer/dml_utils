@@ -2510,10 +2510,12 @@ RETURNS trigger
 granted to no one). The `BEFORE UPDATE ... FOR EACH ROW` trigger on
 `migration_run` that rejects any change to `label`, `chunk_size`, `chunk_by`,
 `partition_wise`, the ordered-key descriptor (`ordered_key_index`,
-`ordered_key_columns`, `ordered_key_kinds`) or the driving table (`driving_table_schema_name`, `driving_table_name`,
+`ordered_key_columns`, `ordered_key_kinds`) or the driving table
+(`driving_table_schema_name`, `driving_table_name`, `driving_table_alias`,
 `driving_table_relation_filepath`), all fixed when the run is created or (for the
-filepath) when its boundaries are computed, and to `total_chunks` once
-`boundaries_calculated_at` is set (the two are written together);
+filepath) when its boundaries are computed. It also freezes `started_at` once
+set, and `total_chunks` once `boundaries_calculated_at` is set (the two are
+written together);
 `total_chunks_completed` and `total_rows_affected` stay mutable for the chunk
 workers. It allows `paused_at` to be set or cleared on an unfinished,
 non-cancelled run, rejects pausing a terminal run, rejects a paused run that is

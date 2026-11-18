@@ -8,23 +8,23 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_single_statement(
 AS
 $function$
 DECLARE
-    l_characters          text[];
-    l_length              integer;
-    l_position            integer;
-    l_character           text;
-    l_next                text;
-    l_state               text    := 'code';
-    l_block_depth         integer := 0;
-    l_dollar_tag          text;
-    l_tag_position        integer;
-    l_tag_character       text;
-    l_tag_end             integer;
-    l_tag_valid           boolean;
-    l_code                integer;
-    l_previous_code       integer;
-    l_escape_quote        boolean := false;
-    l_terminated          boolean := false;
-    l_has_statement       boolean := false;
+    l_characters    text[];
+    l_length        integer;
+    l_position      integer;
+    l_character     text;
+    l_next          text;
+    l_state         text    := 'code';
+    l_block_depth   integer := 0;
+    l_dollar_tag    text;
+    l_tag_position  integer;
+    l_tag_character text;
+    l_tag_end       integer;
+    l_tag_valid     boolean;
+    l_code          integer;
+    l_previous_code integer;
+    l_escape_quote  boolean := false;
+    l_terminated    boolean := false;
+    l_has_statement boolean := false;
 BEGIN
     -- A lexical scan, not a parse: the routine answers "does this text contain
     -- more than one statement?" without running or planning anything. A

@@ -1222,6 +1222,40 @@ class MigrationTablesTest extends PostgresTestBase {
                         PUBLIC_SCHEMA, "migration_tables_source", "migration_tables_source_key")
                 .execute());
 
+        // A NULL element is not a key column or kind: cardinality and <@ both
+        // accept it (the whitelist comparison yields NULL), so the shape check
+        // rejects it explicitly.
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        ARRAY[NULL]::name[], ARRAY['bigint']::text[])
+                """, uniqueLabel("ordered-key-null-column")));
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        ARRAY['id']::name[], ARRAY[NULL]::text[])
+                """, uniqueLabel("ordered-key-null-kind")));
+        // A multidimensional array is rejected by the shape check too, instead of
+        // array_position raising its own 2202E for the malformed descriptor.
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        '{{id,id2,id3}}'::name[],
+                        ARRAY['bigint', 'bigint', 'bigint']::text[])
+                """, uniqueLabel("ordered-key-multidimensional")));
+
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
@@ -1316,9 +1350,10 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * {@code label}, {@code chunk_size} and the driving table schema/name are
-     * immutable: updating any of them is rejected, while updating a mutable
-     * column (for example {@code completed_at}) is allowed.
+     * {@code label}, {@code chunk_size}, the ordered-key/chunking strategy and
+     * the driving table schema/name/alias are immutable: updating any of them is
+     * rejected. A first write of {@code started_at} is allowed; the
+     * time-order check then sees the recorded start.
      */
     @Test
     void rejectsUpdatesToImmutableRunColumns() {
@@ -1341,6 +1376,10 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
         assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.DRIVING_TABLE_ALIAS, "other")
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CHUNK_BY, ChunkingStrategy.blocks)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
@@ -1349,13 +1388,36 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
 
-        // The mutable started_at/completed_at columns can still be updated, in
-        // the order the time-order check requires.
+        // started_at may be recorded once (it is NULL here), and completed_at is
+        // then set in the order the time-order check requires.
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
+    }
+
+    /**
+     * Once {@code started_at} is recorded it cannot be moved or cleared: the
+     * milestone ordering and the progress rates are derived from it.
+     */
+    @Test
+    void freezesStartedAtOnceSet() {
+        Long runId = insertRun();
+        OffsetDateTime started = OffsetDateTime.parse("2020-01-01T00:00:00Z");
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, started)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, started.plusSeconds(1))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
     }
 
     /**

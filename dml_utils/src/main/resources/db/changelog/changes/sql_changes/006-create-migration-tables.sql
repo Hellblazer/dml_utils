@@ -56,6 +56,22 @@ CREATE TABLE dml_utils_data.migration_run
             OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
             AND pg_catalog.cardinality(ordered_key_kinds)
                     = pg_catalog.cardinality(ordered_key_columns)
+            -- The descriptor is a key, every position is a column: require a
+            -- plain (one-dimensional) array, then reject a NULL member, which
+            -- would otherwise pass cardinality and the <@ whitelist (whose NULL
+            -- result makes the CHECK pass as unknown). CASE, not AND: a
+            -- multidimensional array makes array_position raise 2202E, so the
+            -- position test must only be evaluated for a 1-D array.
+            AND CASE
+                WHEN pg_catalog.array_ndims(ordered_key_columns) = 1
+                    THEN pg_catalog.array_position(ordered_key_columns, NULL::name) IS NULL
+                ELSE FALSE
+                END
+            AND CASE
+                WHEN pg_catalog.array_ndims(ordered_key_kinds) = 1
+                    THEN pg_catalog.array_position(ordered_key_kinds, NULL::text) IS NULL
+                ELSE FALSE
+                END
             AND ordered_key_kinds <@ ARRAY ['bigint', 'text', 'uuid', 'timestamptz']::text[])
         ),
     -- The run's milestones are ordered: the boundary calculation cannot finish
