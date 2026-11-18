@@ -68,9 +68,10 @@ BEGIN
             -- quote_ident/format('%I') renders it: an unquoted lower-case
             -- identifier, or a quoted one with doubled quotes. Both the schema and
             -- the name may be quoted (a schema like "My Schema"), and the value as
-            -- a whole cannot leave the identifier position.
+            -- a whole cannot leave the identifier position. The C collation makes
+            -- [a-z] a byte range, not a locale-dependent character class.
             IF i_key_collations[l_position] IS NOT NULL
-                AND i_key_collations[l_position] !~
+                AND i_key_collations[l_position] COLLATE pg_catalog."C" !~
                     '^(([a-z_][a-z0-9_$]*|"([^"]|"")*")\.)?("([^"]|"")*"|[a-z_][a-z0-9_$]*)$'
             THEN
                 RAISE EXCEPTION 'collation for column % is not a safe identifier: %',
