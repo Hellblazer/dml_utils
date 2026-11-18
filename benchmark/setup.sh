@@ -108,6 +108,37 @@ if ! docker inspect "$BENCH_CONTAINER" >/dev/null 2>&1; then
         -c shared_buffers="$BENCH_SHARED_BUFFERS" \
         -c max_connections="$BENCH_MAX_CONNECTIONS" >/dev/null
 else
+    # The container is reused only when it matches the effective config. Image,
+    # server settings, volume, network and published port are applied only in the
+    # docker run branch; comparing them here stops a changed config from
+    # benchmarking the old server (and silently attributing results to it).
+    config_mismatch=""
+    actual_image="$(docker inspect -f '{{.Config.Image}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_image" = "$BENCH_IMAGE" ] || config_mismatch="image"
+    expected_cmd="postgres -c max_worker_processes=$BENCH_MAX_WORKER_PROCESSES -c shared_buffers=$BENCH_SHARED_BUFFERS -c max_connections=$BENCH_MAX_CONNECTIONS"
+    actual_cmd="$(docker inspect -f '{{join .Config.Cmd " "}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_cmd" = "$expected_cmd" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }server settings"
+    actual_mounts="$(docker inspect -f '{{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    case "$actual_mounts" in
+        *"$BENCH_VOLUME:/var/lib/postgresql/data "*) ;;
+        *) config_mismatch="${config_mismatch:+$config_mismatch, }volume" ;;
+    esac
+    actual_network="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_network" = "$BENCH_NETWORK" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }network"
+    actual_port="$(docker port "$BENCH_CONTAINER" 5432 2>/dev/null || true)"
+    if [ -n "$BENCH_HOST_PORT" ]; then
+        [ "$actual_port" = "127.0.0.1:$BENCH_HOST_PORT" ] \
+            || config_mismatch="${config_mismatch:+$config_mismatch, }published port"
+    else
+        [ -z "$actual_port" ] \
+            || config_mismatch="${config_mismatch:+$config_mismatch, }published port"
+    fi
+    if [ -n "$config_mismatch" ]; then
+        echo "container $BENCH_CONTAINER does not match the current config ($config_mismatch); run setup.sh --refresh" >&2
+        exit 2
+    fi
     if ! docker start "$BENCH_CONTAINER" >/dev/null 2>&1 \
         || [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" != "true" ]; then
         echo "could not start the existing container $BENCH_CONTAINER" >&2
@@ -260,12 +291,16 @@ esac
     echo "BENCH_MAX_WORKER_PROCESSES ($BENCH_MAX_WORKER_PROCESSES) must be at least BENCH_THREADS_TO ($BENCH_THREADS_TO)" >&2
     exit 2
 }
-case "$BENCH_SCHEMA" in
+# PostgreSQL folds an unquoted schema name to lower case; the SQL below quotes
+# the exact configured name, so compare the folded value.
+_bench_schema_lower="$(printf '%s' "$BENCH_SCHEMA" | tr 'A-Z' 'a-z')"
+case "$_bench_schema_lower" in
     ''|public|pg_catalog|information_schema)
         echo "refusing to create benchmark fixtures in schema '$BENCH_SCHEMA'" >&2
         exit 2
         ;;
 esac
+unset _bench_schema_lower
 # A target that collides with any source would make create-target.sql drop the
 # freshly populated source and turn the benchmark into a self-insert.
 _sources=" $BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE $BENCH_PARTITIONED_ORDERED_SOURCE_TABLE "
@@ -277,11 +312,24 @@ for _target in "$BENCH_TARGET_TABLE" "$BENCH_ORDERED_TARGET_TABLE" \
             exit 2
             ;;
     esac
+    # The partitioned scripts also create <source>_p0..<source>_pN-1 leaves; a
+    # target with one of those names would be dropped by the later create-target
+    # step, after its source was populated.
+    case "$_target" in
+        "$BENCH_PARTITIONED_SOURCE_TABLE"_p*|"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE"_p*)
+            _leaf_suffix="${_target##*_p}"
+            case "$_leaf_suffix" in
+                ''|*[!0-9]*) ;;
+                *)
+                    echo "benchmark target '$_target' collides with a generated partition leaf" >&2
+                    exit 2
+                    ;;
+            esac
+            ;;
+    esac
 done
-unset _sources _target _e _j
+unset _sources _target _leaf_suffix _e _j
 pk_count="$BENCH_PK_COLUMNS"
-# m such that m^pk_count >= rows, in integer arithmetic: awk's m^p is a double
-# and rounds once the power exceeds 2^53.
 # m such that m^pk_count >= rows, by bisection: a linear scan is O(rows) for a
 # one-column key (the default). The power is clamped because mid^pk_count can
 # exceed the 64-bit range for a large midpoint.
@@ -292,11 +340,13 @@ while [ "$pk_lo" -lt "$pk_hi" ]; do
     pk_power=1
     _i=0
     while [ "$_i" -lt "$pk_count" ]; do
-        pk_power=$((pk_power * pk_mid))
-        if [ "$pk_power" -gt "$BENCH_ROWS" ]; then
+        # Check before multiplying: pk_mid^pk_count can exceed the 64-bit range
+        # and wrap to a small/negative value, which would accept the wrong half.
+        if [ "$pk_power" -gt $(( BENCH_ROWS / pk_mid )) ]; then
             pk_power="$BENCH_ROWS"
             break
         fi
+        pk_power=$((pk_power * pk_mid))
         _i=$((_i + 1))
     done
     if [ "$pk_power" -ge "$BENCH_ROWS" ]; then
@@ -316,11 +366,15 @@ while [ "$_i" -lt "$pk_count" ]; do
 done
 k1_values=$(( (BENCH_ROWS + k1_div - 1) / k1_div ))
 # The leaves are cut from 1..pk_mod, so the last leaf starts at
-# 1 + (n-1)*m/n; it is only non-empty when that value is itself a k1 value.
-last_leaf_lo=$(( 1 + (BENCH_PARTITIONED_LEAVES - 1) * pk_mod / BENCH_PARTITIONED_LEAVES ))
+# 1 + (n-1)*m/n = 1 + m - ceil(m/n). Compute it that way: (n-1)*m overflows the
+# shell's signed range for a large row count.
+if [ "$BENCH_PARTITIONED_LEAVES" -gt "$k1_values" ]; then
+    echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) exceeds the $k1_values distinct k1 values for $BENCH_ROWS rows" >&2
+    exit 2
+fi
+last_leaf_lo=$(( 1 + pk_mod - (pk_mod + BENCH_PARTITIONED_LEAVES - 1) / BENCH_PARTITIONED_LEAVES ))
 unset _i
-if [ "$BENCH_PARTITIONED_LEAVES" -gt "$k1_values" ] \
-    || [ "$last_leaf_lo" -gt "$k1_values" ]; then
+if [ "$last_leaf_lo" -gt "$k1_values" ]; then
     echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) would create an empty leaf: the last leaf starts at k1=$last_leaf_lo but only $k1_values distinct k1 values exist for $BENCH_ROWS rows" >&2
     exit 2
 fi
@@ -440,8 +494,8 @@ psql_stdin -q -v ON_ERROR_STOP=1 \
     -f - <<'SQL'
 SELECT pg_catalog.format('GRANT SELECT ON %I.%I TO %I',
                          n.nspname, c.relname, :'owner')
-FROM (VALUES (:'schema' || '.' || :'partitioned_source'),
-             (:'schema' || '.' || :'partitioned_ordered_source')) AS parents(rel)
+FROM (VALUES (pg_catalog.format('%I.%I', :'schema', :'partitioned_source')),
+             (pg_catalog.format('%I.%I', :'schema', :'partitioned_ordered_source'))) AS parents(rel)
          CROSS JOIN LATERAL pg_catalog.pg_partition_tree(parents.rel::regclass) AS leaf
          JOIN pg_catalog.pg_class c ON c.oid = leaf.relid
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace

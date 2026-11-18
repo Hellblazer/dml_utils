@@ -47,9 +47,10 @@ BENCH_THREADS_TO=2
 BENCH_RUNS=1
 BENCH_WARMUP_RUNS=0
 BENCH_PARTITIONED_LEAVES=3
-# Pin the output directory so an exported BENCH_RESULTS_DIR/BENCH_REPORT cannot
-# send the smoke rows somewhere the assertions do not read.
-BENCH_RESULTS_DIR=results
+# Scope the output directory by the same invocation suffix as the Docker
+# resources, so two concurrent smoke runs cannot delete or append to each
+# other's CSVs/report; the assertions derive every path from this variable.
+BENCH_RESULTS_DIR="results/smoke_$suffix"
 BENCH_REPORT=report.md
 export BENCH_IGNORE_LOCAL_CONFIG BENCH_CONTAINER BENCH_VOLUME BENCH_NETWORK \
     BENCH_HOST_PORT BENCH_ROWS BENCH_PK_COLUMNS BENCH_CHUNK_SIZE \
@@ -63,7 +64,14 @@ cleanup() {
     if [ "$keep" = 1 ]; then
         echo "leaving the smoke database running (--keep)" >&2
     else
-        "$here/teardown.sh" || echo "teardown.sh failed" >&2
+        # Do not let a cleanup failure be swallowed, but do not overwrite a
+        # non-zero status from the test itself.
+        teardown_status=0
+        "$here/teardown.sh" || teardown_status=$?
+        if [ "$teardown_status" -ne 0 ]; then
+            echo "teardown.sh failed" >&2
+            [ "$status" -eq 0 ] && status=$teardown_status
+        fi
     fi
     exit "$status"
 }
@@ -74,9 +82,10 @@ trap 'exit 143' TERM
 "$here/setup.sh"
 
 results_dir="$here/$BENCH_RESULTS_DIR"
-# Start from a clean slate: an interrupted earlier smoke run must not leave rows
-# the report then aggregates.
-rm -f "$results_dir/smoke-"*.csv
+# The directory is per-invocation; start clean rather than inheriting rows from
+# a previous run with the same PID (PIDs can be reused).
+rm -rf "$results_dir"
+mkdir -p "$results_dir"
 
 for strategy in primary_key blocks ordered_key; do
     BENCH_PARTITION_WISE=0 BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" \
@@ -114,20 +123,27 @@ grep -q '^### strategy `primary_key`, key k1+k2+k3, chunk_size 500 rows$' \
     "$report_dir/report.md"
 grep -q '^### strategy `blocks`, key k1+k2+k3, chunk_size 500 blocks$' \
     "$report_dir/report.md"
-grep -q '(partition-wise)' "$report_dir/report.md"
+grep -q '^### strategy `primary_key`, key k1+k2+k3, chunk_size 500 rows (partition-wise)$' \
+    "$report_dir/report.md"
+grep -q '^### strategy `blocks`, key k1+k2+k3, chunk_size 500 blocks (partition-wise)$' \
+    "$report_dir/report.md"
 grep -q '^### strategy `ordered_key`, key created_at+id, chunk_size 500 rows (partition-wise)' \
     "$report_dir/report.md"
-# Every group's table carries both thread values (a page-wide grep would pass
-# even if one group lost a row).
-awk '/^### strategy `/{group = $0; threads[group] = 0; next}
-     /^\| [12] \|/{threads[group]++}
-     END { for (g in threads) if (threads[g] != 2) { print "missing thread row in " g > "/dev/stderr"; exit 1 } }' \
-    "$report_dir/report.md"
+# Every group's table carries both thread values, each one exactly once. A page-
+# wide grep or a count of two rows would pass with a duplicated value.
+awk '/^### strategy `/{group = $0; t1[group] = 0; t2[group] = 0; next}
+     /^\| 1 \|/{t1[group]++}
+     /^\| 2 \|/{t2[group]++}
+     END {
+         for (g in t1)
+             if (t1[g] != 1 || t2[g] != 1) {
+                 print "missing or duplicated thread row in " g > "/dev/stderr"
+                 exit 1
+             }
+     }' "$report_dir/report.md"
 rm -rf "$report_dir"
 
-rm -f "$results_dir/smoke-primary_key.csv" "$results_dir/smoke-blocks.csv" \
-    "$results_dir/smoke-ordered_key.csv" \
-    "$results_dir/smoke-partitioned-primary_key.csv" \
-    "$results_dir/smoke-partitioned-blocks.csv" \
-    "$results_dir/smoke-partitioned-ordered_key.csv"
+# Remove the whole per-invocation output directory (the report directory is
+# inside it); the results parent and published snapshots are untouched.
+rm -rf "$results_dir"
 echo "benchmark smoke test passed" >&2

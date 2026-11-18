@@ -9,6 +9,9 @@
 
 CREATE SCHEMA IF NOT EXISTS :"schema";
 
+COMMENT ON SCHEMA :"schema" IS
+    'Benchmark fixture schema for the synthetic sweep.';
+
 DROP TABLE IF EXISTS :"schema".:"source_table";
 
 CREATE TABLE :"schema".:"source_table"

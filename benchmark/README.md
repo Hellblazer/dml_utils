@@ -117,6 +117,9 @@ benchmark/run.sh --reset
   `BENCH_THREADS_FROM`/`BENCH_THREADS_TO` to the range you still need and run
   without `--reset`; the mean then covers every run recorded for that thread
   value. Use `--reset` instead to discard everything and start clean.
+- The CSV is appended to without a lock, so run one sweep per results file at a
+  time. To sweep concurrently, give each invocation its own `BENCH_RESULTS_DIR`
+  (and therefore its own CSV), as `benchmark/smoke.sh` does.
 
 ### Step 4 — format the results
 
@@ -132,7 +135,9 @@ path. Re-run it any time to refresh the means after more runs.
 Open `results/lhorner_laptop_oct_2026/3_col_pk/report.md`. It contains:
 
 - the **configuration** that produced the results and a **dataset** section (live
-  source rows and blocks),
+  source rows and blocks, captured now — the CSV accumulates runs, so a report
+  regenerated after changing `BENCH_ROWS` or the fixtures divides older rows by
+  the current size),
 - the **hardware and PostgreSQL settings** captured on this machine,
 - a **results table per strategy, key and chunk size**, one row per thread value,
   with the number of chunks, the `rows/chunk` and `blocks/chunk` averages, the mean

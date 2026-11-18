@@ -61,7 +61,8 @@ hardware_file="$results_dir/hardware.txt"
 settings_file="$results_dir/postgres-settings.txt"
 if command -v docker >/dev/null 2>&1 \
     && [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" = "true" ]; then
-    docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -P pager=off -c "
+    settings_err="$results_dir/.settings.err"
+    if ! docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -P pager=off -c "
         SELECT name, setting, coalesce(unit, '') AS unit
         FROM pg_settings
         WHERE name IN ('server_version', 'max_worker_processes', 'shared_buffers',
@@ -69,7 +70,11 @@ if command -v docker >/dev/null 2>&1 \
                        'effective_cache_size', 'wal_level', 'fsync',
                        'synchronous_commit', 'full_page_writes', 'autovacuum',
                        'checkpoint_timeout', 'random_page_cost', 'seq_page_cost')
-        ORDER BY name" > "$settings_file" 2>&1 || true
+        ORDER BY name" > "$settings_file" 2>"$settings_err"; then
+        echo "(settings capture failed; settings unavailable)" > "$settings_file"
+        cat "$settings_err" >&2 || true
+    fi
+    rm -f "$settings_err"
 else
     echo "(benchmark container not running; settings unavailable)" > "$settings_file"
 fi
@@ -79,32 +84,44 @@ fi
 dataset_file="$results_dir/dataset.txt"
 if command -v docker >/dev/null 2>&1 \
     && [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" = "true" ]; then
-    docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -At -F' | ' -c "
-        SELECT 'rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}
+    q_source="\"$BENCH_SCHEMA\".\"$BENCH_SOURCE_TABLE\""
+    q_ordered="\"$BENCH_SCHEMA\".\"$BENCH_ORDERED_SOURCE_TABLE\""
+    q_partitioned="\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_SOURCE_TABLE\""
+    q_partitioned_ordered="\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE\""
+    reg_source="'\"$BENCH_SCHEMA\".\"$BENCH_SOURCE_TABLE\"'::regclass"
+    reg_partitioned="'\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_SOURCE_TABLE\"'::regclass"
+    reg_partitioned_ordered="'\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE\"'::regclass"
+    dataset_err="$results_dir/.dataset.err"
+    if ! docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -At -F' | ' -c "
+        SELECT 'rows', count(*)::text FROM $q_source
         UNION ALL
-        SELECT 'blocks', (pg_relation_size('${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}'::regclass)
+        SELECT 'blocks', (pg_relation_size($reg_source)
                           / current_setting('block_size')::bigint)::text
         UNION ALL
-        SELECT 'ordered_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_ORDERED_SOURCE_TABLE}
+        SELECT 'ordered_rows', count(*)::text FROM $q_ordered
         UNION ALL
-        SELECT 'partitioned_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}
+        SELECT 'partitioned_rows', count(*)::text FROM $q_partitioned
         UNION ALL
-        SELECT 'partitioned_ordered_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_PARTITIONED_ORDERED_SOURCE_TABLE}
+        SELECT 'partitioned_ordered_rows', count(*)::text FROM $q_partitioned_ordered
         UNION ALL
         SELECT 'partitioned_blocks',
                ((SELECT coalesce(sum(pg_relation_size(leaf.relid)), 0)::bigint
-                 FROM pg_partition_tree('${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}'::regclass) AS leaf
+                 FROM pg_partition_tree($reg_partitioned) AS leaf
                  WHERE leaf.isleaf) / current_setting('block_size')::bigint)::text
         UNION ALL
         SELECT 'partitioned_ordered_blocks',
                ((SELECT coalesce(sum(pg_relation_size(leaf.relid)), 0)::bigint
-                 FROM pg_partition_tree('${BENCH_SCHEMA}.${BENCH_PARTITIONED_ORDERED_SOURCE_TABLE}'::regclass) AS leaf
+                 FROM pg_partition_tree($reg_partitioned_ordered) AS leaf
                  WHERE leaf.isleaf) / current_setting('block_size')::bigint)::text
         UNION ALL
         SELECT 'partitioned_leaves', count(*)::text
-        FROM pg_partition_tree('${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}'::regclass)
+        FROM pg_partition_tree($reg_partitioned)
         WHERE isleaf
-        ORDER BY 1" > "$dataset_file" 2>&1 || true
+        ORDER BY 1" > "$dataset_file" 2>"$dataset_err"; then
+        echo "(dataset capture failed; dataset unavailable)" > "$dataset_file"
+        cat "$dataset_err" >&2 || true
+    fi
+    rm -f "$dataset_err"
 else
     echo "(benchmark container not running; dataset unavailable)" > "$dataset_file"
 fi
@@ -126,14 +143,18 @@ partitioned_blocks="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "partitioned_blo
 # --- Per-strategy charts ----------------------------------------------------
 # One group per (strategy, chunk size, key columns, partition-wise). Older CSVs
 # have no partition_wise column, so an absent value counts as "no".
-groups="$(awk -F, 'NR > 1 && $1 != "" { pw = ($11 == "yes") ? "yes" : "no"; print $1 "/" $3 "/" $10 "/" pw }' "$csv" | sort -u)"
-for g in $groups; do
-    s="${g%%/*}"
-    rest="${g#*/}"
-    cs="${rest%%/*}"
-    rest="${rest#*/}"
-    pk="${rest%%/*}"
-    pw="${rest#*/}"
+# Tab-separated, so a field cannot be split or glob-expanded. The CSV is an
+# input file that can be edited or come from an older version, so validate the
+# extracted fields before they become a filename.
+groups="$(awk -F, 'NR > 1 && $1 != "" { pw = ($11 == "yes") ? "yes" : "no"; print $1 "\t" $3 "\t" $10 "\t" pw }' "$csv" | sort -u)"
+printf '%s\n' "$groups" | while IFS="$(printf '\t')" read -r s cs pk pw; do
+    [ -n "$s" ] || continue
+    case "$s$cs$pk$pw" in
+        *[!A-Za-z0-9_+-]*)
+            echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
+            continue
+            ;;
+    esac
     suffix=""
     if [ "$pw" = yes ]; then
         suffix="-partitioned"
@@ -222,13 +243,14 @@ done
     if [ -z "$groups" ]; then
         echo "_no results yet_"
     fi
-    for g in $groups; do
-        s="${g%%/*}"
-        rest="${g#*/}"
-        cs="${rest%%/*}"
-        rest="${rest#*/}"
-        pk="${rest%%/*}"
-        pw="${rest#*/}"
+    while IFS="$(printf '\t')" read -r s cs pk pw; do
+        [ -n "$s" ] || continue
+        case "$s$cs$pk$pw" in
+            *[!A-Za-z0-9_+-]*)
+                echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
+                continue
+                ;;
+        esac
         unit="$(awk -F, -v s="$s" -v c="$cs" -v key="$pk" -v pw="$pw" '
             NR > 1 && $1 == s && $3 == c && $10 == key {
                 row_pw = ($11 == "yes") ? "yes" : "no"
@@ -287,7 +309,9 @@ done
         echo
         echo "![run_migration_chunks ($s$pw_label, key $pk, chunk_size $cs): mean total time vs threads](report-${s}${suffix}-${cs}-${pk}.svg)"
         echo
-    done
+    done <<EOF
+$groups
+EOF
     echo "## How the times are measured"
     echo
     echo "- **range calc** = \`boundaries_calculated_at - started_at\`: the"
@@ -303,6 +327,11 @@ done
     echo "  Dataset section) divided by the mean chunk count. A block holds a variable"
     echo "  number of rows, so for \`blocks\` these are averages and the final chunk is"
     echo "  usually smaller than the rest."
+    echo "- The live counts and the Configuration block describe the dataset/config as"
+    echo "  they are now, while the CSV accumulates runs across invocations. A"
+    echo "  historical row keeps its recorded timings but is divided by the current"
+    echo "  size, so re-run the sweep after changing BENCH_ROWS or the fixtures rather"
+    echo "  than appending to an old CSV."
     echo "- Warm-up runs are not recorded. The mean is over the measured runs only, and"
     echo "  the CSV accumulates across invocations, so the mean covers every run recorded"
     echo "  for that strategy and thread value."

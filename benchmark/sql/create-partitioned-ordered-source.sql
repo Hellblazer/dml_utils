@@ -14,6 +14,9 @@
 
 CREATE SCHEMA IF NOT EXISTS :"schema";
 
+COMMENT ON SCHEMA :"schema" IS
+    'Benchmark fixture schema for the synthetic sweep.';
+
 DROP TABLE IF EXISTS :"schema".:"source_table";
 
 CREATE TABLE :"schema".:"source_table"
@@ -77,7 +80,7 @@ ANALYZE :"schema".:"source_table";
 -- ANALYZE on the partitioned parent does not refresh the leaves, and the
 -- partition-wise chunks are planned per leaf, so analyze each storage leaf too.
 SELECT pg_catalog.format('ANALYZE %I.%I', n.nspname, c.relname)
-FROM pg_catalog.pg_partition_tree((:'schema' || '.' || :'source_table')::regclass) AS leaf
+FROM pg_catalog.pg_partition_tree(pg_catalog.format('%I.%I', :'schema', :'source_table')::regclass) AS leaf
          JOIN pg_catalog.pg_class AS c ON c.oid = leaf.relid
          JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
 WHERE leaf.isleaf

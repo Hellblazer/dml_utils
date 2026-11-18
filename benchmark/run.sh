@@ -8,7 +8,9 @@
 # BENCH_PARTITION_WISE=1 to run it inside the matching partitioned fixture
 # instead (the range-partitioned bigint copy for primary_key/blocks, the
 # hash-partitioned UUID copy for ordered_key). Results accumulate across
-# invocations; pass --reset to start a fresh CSV. Format it with report.sh.
+# invocations; pass --reset to start a fresh CSV. The CSV is not locked, so one
+# sweep per CSV at a time (give concurrent runs their own BENCH_RESULTS_DIR, as
+# smoke.sh does). Format it with report.sh.
 #
 # Usage: benchmark/run.sh [--reset]
 
@@ -51,12 +53,16 @@ require_non_negative BENCH_THREADS_TO "$BENCH_THREADS_TO"
     echo "BENCH_THREADS_FROM ($BENCH_THREADS_FROM) must not exceed BENCH_THREADS_TO ($BENCH_THREADS_TO)" >&2
     exit 2
 }
-case "$BENCH_SCHEMA" in
+# PostgreSQL folds an unquoted schema name to lower case, so compare the folded
+# value while the statements below quote the exact configured name.
+_bench_schema_lower="$(printf '%s' "$BENCH_SCHEMA" | tr 'A-Z' 'a-z')"
+case "$_bench_schema_lower" in
     ''|public|pg_catalog|information_schema)
         echo "refusing to benchmark schema '$BENCH_SCHEMA'" >&2
         exit 2
         ;;
 esac
+unset _bench_schema_lower
 case "$BENCH_ORDERED_INDEX" in
     ''|*[!a-z0-9_]*)
         echo "BENCH_ORDERED_INDEX must be a plain lowercase identifier: $BENCH_ORDERED_INDEX" >&2
@@ -202,13 +208,19 @@ validate_measurement() {
     esac
     old_ifs=$IFS
     IFS=,
+    # Disable globbing while splitting: a field such as * must stay a field.
+    set -f
     # shellcheck disable=SC2086
     set -- $1
+    set +f
     IFS=$old_ifs
     [ "$#" -eq 4 ] || return 1
     for field in "$@"; do
+        # A plain decimal: digits with at most one dot, no exponent, sign or
+        # whitespace. psql prints timings this way; anything else means the row
+        # was not produced by the measurement query.
         case "$field" in
-            ''|*[!0-9.eE+-]*) return 1 ;;
+            ''|.*|*.|*[!0-9.]*|*.*.*) return 1 ;;
         esac
     done
 }
@@ -226,7 +238,7 @@ run_once() {
 
     if [ "$BENCH_TRUNCATE_TARGET" = 1 ]; then
         psql_run -q -v ON_ERROR_STOP=1 \
-            -c "TRUNCATE ${BENCH_SCHEMA}.${run_target}"
+            -c "TRUNCATE \"${BENCH_SCHEMA}\".\"${run_target}\""
     fi
 
     # pg_background caps concurrent workers per session at
@@ -285,7 +297,7 @@ SQL
 }
 
 # Report the dataset the sweep runs against.
-src_rows="$(psql_run -At -c "SELECT count(*) FROM ${BENCH_SCHEMA}.${run_table}")"
+src_rows="$(psql_run -At -c "SELECT count(*) FROM \"${BENCH_SCHEMA}\".\"${run_table}\"")"
 if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
     key_desc="ordered key ${pk_columns_csv}"
 else
