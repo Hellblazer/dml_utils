@@ -698,6 +698,27 @@ class RunMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
+     * A template carrying a reserved substitution character is rejected at set
+     * time, so the next run does not fail on a template the renderer cannot use;
+     * the stored SQL is unchanged.
+     */
+    @Test
+    void setMigrationRunSqlTextRejectsAReservedCharacter() {
+        createSource(1, 2, 3, 4);
+        String label = label("set-sql-sentinel");
+        long runId = populate(TEST_BIGINT, label, TEMPLATE, 2);
+
+        assertSqlState("22023", () -> Routines.setMigrationRunSqlText(
+                dsl.configuration(), label, TEMPLATE + (char) 1));
+
+        assertEquals(TEMPLATE, dsl.select(MIGRATION_RUN.SQL_TEXT)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.SQL_TEXT),
+                "a rejected template must not replace the stored SQL");
+    }
+
+    /**
      * {@code set_migration_run_threads} rejects a count above
      * {@code max_worker_processes} with {@code 22023} at set time and leaves the
      * recorded count unchanged.

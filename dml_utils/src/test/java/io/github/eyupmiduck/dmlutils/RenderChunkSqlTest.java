@@ -138,6 +138,18 @@ class RenderChunkSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A template containing a reserved substitution character is rejected: the
+     * render path could not substitute the tokens unambiguously.
+     */
+    @Test
+    void rejectsATemplateWithAReservedCharacter() {
+        assertSqlState("22023", () -> Routines.assertChunkingTemplate(
+                dsl.configuration(), TEMPLATE + (char) 1));
+        assertSqlState("22023", () -> Routines.assertChunkingTemplate(
+                dsl.configuration(), TEMPLATE + (char) 2));
+    }
+
+    /**
      * A token appearing twice is rejected with 22023.
      */
     @Test

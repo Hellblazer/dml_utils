@@ -1248,7 +1248,7 @@ RETURNS void
 
 `IMMUTABLE`, `SECURITY INVOKER`. Raises `invalid_parameter_value` (`22023`)
 unless `i_sql_text` contains `<driving_table>` and `<chunking_clause>` exactly
-once each.
+once each and no reserved substitution character (chr (1)/chr (2)).
 
 ### `dml_utils_lib.assert_single_statement(i_sql_text)`
 
