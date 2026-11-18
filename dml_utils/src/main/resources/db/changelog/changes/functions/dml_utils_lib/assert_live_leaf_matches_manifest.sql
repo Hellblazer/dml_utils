@@ -10,6 +10,13 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     LANGUAGE plpgsql
     VOLATILE
     SECURITY INVOKER
+    -- The stored leaf_bound was deparsed by leaf_partitions under these pins;
+    -- read the live bound the same way or a session in another time zone would
+    -- report a spurious bound change.
+    SET timezone = 'UTC'
+    SET datestyle = 'ISO, MDY'
+    SET intervalstyle = 'postgres'
+    SET extra_float_digits = 0
 AS
 $$
 DECLARE

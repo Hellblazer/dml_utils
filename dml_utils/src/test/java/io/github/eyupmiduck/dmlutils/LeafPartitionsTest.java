@@ -234,6 +234,79 @@ class LeafPartitionsTest extends PostgresTestBase {
         }
     }
 
+    /**
+     * A NULL strategy is rejected instead of silently degrading to the key path
+     * (the filepath CASE would be NULL for every leaf).
+     */
+    @Test
+    void rejectsANullStrategy() {
+        assertSqlState("22023", () -> Routines.leafPartitions(dsl.configuration(), SCHEMA,
+                "test_partitioned_range", null));
+    }
+
+    /**
+     * Date bounds are deparsed and sorted in the manifest order, so the January
+     * leaf comes before the February one even though the fixtures were created
+     * late-first.
+     */
+    @Test
+    void ordersDateBoundsByBound() {
+        assertEquals(List.of("test_partitioned_date_january", "test_partitioned_date_february"),
+                leaves("test_partitioned_date", ChunkingStrategy.primary_key)
+                        .stream().map(LeafPartitionsRecord::getLeafName).toList(),
+                "the date bounds decide the manifest order, not the names or OIDs");
+    }
+
+    /**
+     * The manifest order sorts the deparsed bounds, whose text depends on
+     * TimeZone/DateStyle/IntervalStyle/extra_float_digits. Both the enumerator
+     * and the live-bound assertion pin them, so the manifest text and the
+     * byte-wise comparison are session-independent.
+     */
+    @Test
+    void pinsTheStylesThatDecideTheManifestOrder() {
+        for (String function : List.of("leaf_partitions",
+                "assert_live_leaf_matches_manifest")) {
+            String config = dsl.fetchOne("""
+                            SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                            FROM pg_catalog.pg_proc AS p
+                            WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                              AND p.proname = ?
+                            """, function)
+                    .get(0, String.class)
+                    .toLowerCase(java.util.Locale.ROOT);
+            assertTrue(config.contains("timezone=utc"),
+                    () -> function + " must pin TimeZone: " + config);
+            assertTrue(config.contains("datestyle=iso, mdy"),
+                    () -> function + " must pin DateStyle: " + config);
+            assertTrue(config.contains("intervalstyle=postgres"),
+                    () -> function + " must pin IntervalStyle: " + config);
+            assertTrue(config.contains("extra_float_digits=0"),
+                    () -> function + " must pin extra_float_digits: " + config);
+        }
+    }
+
+    /**
+     * A timestamptz bound is deparsed in the pinned UTC zone: the same tree
+     * yields the same text in a session set to another time zone.
+     */
+    @Test
+    void ordersTimestamptzBoundsIndependentlyOfTimeZone() {
+        List<String> utc = leaves("test_partitioned_time", ChunkingStrategy.primary_key)
+                .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, utc.size());
+        assertTrue(utc.getFirst().contains("+00"), utc.toString());
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL timezone = 'America/New_York'");
+            List<String> newYork = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_time", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(utc, newYork, "TimeZone must not change the deparsed bound");
+        });
+    }
+
     private List<LeafPartitionsRecord> leaves(String table, ChunkingStrategy chunkBy) {
         return Routines.leafPartitions(dsl.configuration(), SCHEMA, table, chunkBy);
     }

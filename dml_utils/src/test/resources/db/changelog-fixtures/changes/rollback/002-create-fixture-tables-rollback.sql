@@ -31,4 +31,9 @@ DROP TABLE IF EXISTS
     dml_utils_fixtures.test_partitioned_quoted,
     dml_utils_fixtures.test_partitioned_hash,
     dml_utils_fixtures.test_inheritance_child,
-    dml_utils_fixtures.test_inheritance_parent;
+    dml_utils_fixtures.test_inheritance_parent,
+    dml_utils_fixtures.test_partitioned_date_february,
+    dml_utils_fixtures.test_partitioned_date_january,
+    dml_utils_fixtures.test_partitioned_date,
+    dml_utils_fixtures.test_partitioned_time_2026,
+    dml_utils_fixtures.test_partitioned_time;

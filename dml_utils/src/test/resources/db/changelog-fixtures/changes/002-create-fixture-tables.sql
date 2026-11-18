@@ -751,3 +751,56 @@ CREATE TABLE dml_utils_fixtures.test_inheritance_child
 
 COMMENT ON TABLE dml_utils_fixtures.test_inheritance_child IS
     'Fixture: the ordinary child of the INHERITS fixture.';
+
+-- A date-partitioned parent: the manifest order sorts the deparsed bounds, and
+-- a date bound's text depends on DateStyle unless leaf_partitions pins it. The
+-- February leaf is created first and its name sorts before the January name, so
+-- only the bound can produce the January-first order.
+CREATE TABLE dml_utils_fixtures.test_partitioned_date
+(
+    created_at date NOT NULL,
+    payload    text
+) PARTITION BY RANGE (created_at);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_date IS
+    'Fixture: a date-range-partitioned parent for the DateStyle ordering case.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_date.created_at IS
+    'Fixture range key (date).';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_date.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_date_february
+    PARTITION OF dml_utils_fixtures.test_partitioned_date
+        FOR VALUES FROM ('2020-02-01') TO ('2020-02-02');
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_date_february IS
+    'Fixture: the February date leaf (created first, name sorts first).';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_date_january
+    PARTITION OF dml_utils_fixtures.test_partitioned_date
+        FOR VALUES FROM ('2020-01-02') TO ('2020-01-03');
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_date_january IS
+    'Fixture: the January date leaf (bound sorts first).';
+
+-- A timestamptz-partitioned parent: pg_get_expr renders a timestamptz bound in
+-- the session time zone unless leaf_partitions pins it.
+CREATE TABLE dml_utils_fixtures.test_partitioned_time
+(
+    created_at timestamptz NOT NULL,
+    payload    text
+) PARTITION BY RANGE (created_at);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_time IS
+    'Fixture: a timestamptz-range-partitioned parent for the TimeZone case.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_time.created_at IS
+    'Fixture range key (timestamptz).';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_time.payload IS
+    'Fixture payload column.';
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_time_2026
+    PARTITION OF dml_utils_fixtures.test_partitioned_time
+        FOR VALUES FROM ('2026-01-01 00:00:00+00') TO ('2026-02-01 00:00:00+00');
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_time_2026 IS
+    'Fixture: the January 2026 timestamptz leaf.';
