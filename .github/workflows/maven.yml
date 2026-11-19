@@ -16,6 +16,19 @@ permissions:
   packages: read
 
 jobs:
+  # The Maven entry points' retry/exit/diagnostics behaviour is shell-level, so
+  # it is covered by a stubbed-Maven test instead of the reactor build.
+  shell-tests:
+    name: Shell script tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Maven retry scripts
+        run: bash .github/scripts/maven-retry-test.sh
+
   build:
     # Pinned to the workflow_library commit; bump the SHA deliberately when
     # upgrading the library. Keep it in step with the scripts/ submodule.
