@@ -130,12 +130,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.ordered_key_column_attributes(
-    dml_utils_data.non_null_oid,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.ordered_key_column_attributes IS
     'Resolves the key columns of an index already accepted by '
         'assert_ordered_key_index_usable: each column''s type must collapse to a '
         'supported kind, be NOT NULL, use its default btree operator class and '

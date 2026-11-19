@@ -76,7 +76,7 @@ GROUP BY r.run_id, leaf.leaf_count, leaf.leaves_calculated, leaf.leaves_failed, 
 ORDER BY r.run_id;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_run_summary(dml_utils_data.non_null_text) IS
+COMMENT ON FUNCTION dml_utils.migration_run_summary IS
     'Returns one high-level row per run for the label, with its boundary and '
         'error counts, whether the run is partition-wise, the stored chunk '
         'totals, and the leaf counts. leaves_pending includes the leaves still '

@@ -40,12 +40,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
-    dml_utils_data.non_null_oid,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index IS
     'Validates one ordered-key index by OID (assert_ordered_key_index_usable) and '
         'returns its key columns in index order (ordered_key_column_attributes). '
         'Used for a plain table index and for each leaf''s child index of a '

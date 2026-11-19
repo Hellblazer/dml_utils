@@ -32,10 +32,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged IS
     'Raises object_not_in_prerequisite_state (55000) when a partition-wise run''s '
         'manifest leaf no longer matches the live relation: missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '

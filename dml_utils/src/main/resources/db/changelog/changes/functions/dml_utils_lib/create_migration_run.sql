@@ -113,21 +113,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.create_migration_run(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.create_migration_run IS
     'Creates a new run by calling populate_migration_boundaries in a pg_background '
         'worker, so the run and its boundaries commit autonomously, and returns '
         'the run id. Re-raises the worker''s SQLSTATE (for example a concurrent '

@@ -52,7 +52,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run IS
     'Returns the last non-empty manifest leaf of a partition-wise run with its '
         'stored high-water key arrays, or NULL fields when every leaf is empty. '
         'Raises P0002 for an unknown run and 55000 for a run with no leaf '

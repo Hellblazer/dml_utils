@@ -29,12 +29,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.record_migration_leaf_error(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.record_migration_leaf_error IS
     'Marks a partition-wise leaf failed with the worker''s SQLSTATE and message, '
         'so a resumed run can start at that leaf and an operator can see what '
         'failed. A calculated leaf is left untouched and a missing leaf is a no-op. '

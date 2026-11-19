@@ -136,13 +136,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest IS
     'Snapshots the deterministic leaf manifest for a new partition-wise run: one '
         'pending row per storage leaf with its identity, bound and blocks filepath. '
         'The run row is the authority for the driving table, strategy and ordered '

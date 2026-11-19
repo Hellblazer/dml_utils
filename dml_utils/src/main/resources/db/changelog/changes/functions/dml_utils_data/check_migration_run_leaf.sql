@@ -114,10 +114,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_data.check_migration_run_leaf IS
-    'BEFORE INSERT OR UPDATE trigger that requires a partition-wise run, rejects '
-        'a leaf for a finalized, completed, cancelled or archived run (an insert '
-        'only: it takes FOR SHARE on the run row, so a concurrent close is '
-        'serialized with it), enforces the per-leaf relation-filepath rule for '
-        'chunk_by = blocks, rejects changes to the manifest identity snapshot '
-        '(including created_at) on update, and freezes the high-water snapshot '
-        'once set.';
+    'BEFORE INSERT OR UPDATE trigger that rejects a leaf whose run does not '
+        'exist (23503) and requires a partition-wise run, rejects a leaf for a '
+        'finalized, completed, cancelled or archived run (an insert only: it takes '
+        'FOR SHARE on the run row, so a concurrent close is serialized with it), '
+        'enforces the per-leaf relation-filepath rule for chunk_by = blocks, '
+        'rejects changes to the manifest identity snapshot (including created_at) '
+        'on update, and freezes terminal_boundary_id once set.';

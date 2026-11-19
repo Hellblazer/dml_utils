@@ -102,10 +102,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_leaves(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_leaves IS
     'Validates the ordered-key child index of every leaf already snapshotted in a '
         'run''s manifest, walking multi-level index inheritance once. Raises 22023 '
         'when the supplied index is not the run''s stored ordered_key_index, 42704 '

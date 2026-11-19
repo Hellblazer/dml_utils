@@ -57,12 +57,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
-    dml_utils_data.non_null_oid,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes IS
     'Validates the supplied parent index, then walks the storage leaves of a '
         'partition-wise ordered-key run and requires each leaf''s matching '
         'descendant child index to exist and satisfy the ordered-key contract. A '

@@ -36,10 +36,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_table(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_table IS
     'Raises undefined_table (42P01) when the relation does not exist, or '
         'wrong_object_type (42809) when it is not a declarative partitioned '
         'table (relkind p), so a non-partitioned driving table is rejected '

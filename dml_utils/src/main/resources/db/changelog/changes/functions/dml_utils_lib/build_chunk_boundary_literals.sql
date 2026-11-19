@@ -193,13 +193,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    text[],
-    text[],
-    text[],
-    text[],
-    text[]
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_chunk_boundary_literals IS
     'Validates a chunk''s start/end boundary values, builds their typed SQL '
         'literals and returns the first differing column with its direction. A '
         'NULL value, an invalid literal for its kind or a malformed array is '

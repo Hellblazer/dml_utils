@@ -69,7 +69,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries IS
     'Writes the single terminal boundary from the last non-empty leaf and sets '
         'boundaries_calculated_at and total_chunks, once. terminal_leaf_for_run '
         'picks the leaf; append_terminal_boundary writes the boundary, checks the '

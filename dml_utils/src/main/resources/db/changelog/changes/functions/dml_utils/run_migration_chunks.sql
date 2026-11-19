@@ -586,22 +586,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.run_migration_chunks(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
     'Runs the chunk SQL for every chunk of the driving table (primary_key: fixed '
         'rows in primary-key order; ordered_key: fixed rows in the order of '
         'i_boundary_key_index, a unique index on the driving table; blocks: '

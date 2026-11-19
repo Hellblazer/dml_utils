@@ -128,7 +128,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries IS
     'Calculates a partition-wise run''s boundaries one leaf per pg_background '
         'transaction until every leaf is calculated, then finalizes the run in its '
         'own worker transaction. Serialized by a transaction-scoped advisory lock '

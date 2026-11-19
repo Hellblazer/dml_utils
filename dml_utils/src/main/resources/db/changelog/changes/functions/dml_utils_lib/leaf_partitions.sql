@@ -94,11 +94,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.leaf_partitions(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.leaf_partitions IS
     'Lists the storage leaves of a partitioned table in the deterministic '
         'manifest order (partition bound, schema, name, OID, byte-wise), with '
         'their OIDs, partition-bound expressions and, for chunk_by = blocks, '

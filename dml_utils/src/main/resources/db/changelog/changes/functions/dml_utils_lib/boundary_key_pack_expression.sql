@@ -82,7 +82,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[]) IS
+COMMENT ON FUNCTION dml_utils_lib.boundary_key_pack_expression IS
     'Builds the migration_key row expression for a one-to-three-column boundary '
         'key, placing each kind''s idN term in its position-aligned array. Shared '
         'by boundary_key_descriptor_sql.';

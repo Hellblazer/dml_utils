@@ -202,21 +202,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run IS
     'Resolves or creates the active run for the label and returns the inputs the '
         'coordinator should use: the run id, whether it was already complete, the '
         'effective sql_text/schema/table/alias/threads/sleep_ms/retry-policy and '

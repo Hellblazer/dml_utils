@@ -35,6 +35,6 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_leaf_relations(dml_utils_data.non_null_oid) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_leaf_relations IS
     'Raises wrong_object_type (42809) when any storage leaf of the partitioned '
         'parent is not an ordinary table, so a foreign-table leaf is rejected.';

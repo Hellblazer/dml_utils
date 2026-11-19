@@ -133,23 +133,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.run_function_over_table(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    text,
-    text,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils.run_function_over_table IS
     'Runs a user-supplied void function once per row of the driving table, chunk '
         'by chunk, resuming by label (derived from the table, function, filter, '
         'chunk key and partition flag when i_label is NULL; the filter is hashed so '

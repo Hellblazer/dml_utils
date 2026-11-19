@@ -96,10 +96,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.prepare_partition_wise_execution IS
     'Prepares a partition-wise run for processing: finishes any pending one-leaf-'
         'per-transaction boundary calculation, returns false after marking a run '
         'that was cancelled during calculation, returns false without processing '

@@ -42,10 +42,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.sleep_between_migration_chunks IS
     'Sleeps the run''s per-chunk delay in 100ms slices and returns the run''s '
         'cancelled_at if cancellation was noticed. A pause also interrupts the '
         'sleep; the caller re-reads the run state to see paused_at. A run row that '

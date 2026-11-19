@@ -78,14 +78,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.leaf_boundary_population_sql(
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.leaf_boundary_population_sql IS
     'Returns the statement that appends one claimed leaf''s chunk starts, '
         'dispatching on the run''s stored chunk_by (the same strategy that drives '
         'the key descriptor). The chunk size, run id and leaf ordinal are typed '

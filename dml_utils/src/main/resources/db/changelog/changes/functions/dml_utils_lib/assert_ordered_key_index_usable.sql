@@ -114,12 +114,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
-    dml_utils_data.non_null_oid,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable IS
     'Validates the index-level ordered-key contract: the named table exists, the '
         'OID exists, the OID belongs to that table and is the index the name '
         'resolves to, the index is a unique valid/ready/live btree, is not partial '

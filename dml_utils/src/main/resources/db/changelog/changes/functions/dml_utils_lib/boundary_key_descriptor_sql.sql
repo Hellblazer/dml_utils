@@ -111,10 +111,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
-    name[],
-    text[]
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql IS
     'Validates a one-to-three-column boundary key and returns the SQL fragments '
         'that read, order and pack it: o_select_list (each column quoted and '
         'aliased id1..idN), o_id_list (the same aliases), o_order_by (raw quoted '

@@ -104,17 +104,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.format_boundary_population_sql(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.format_boundary_population_sql IS
     'Returns the single-relation boundary-population statement from the key '
         'descriptor fragments. The domains reject a NULL run id, a non-positive '
         'chunk size and any NULL or blank fragment or identifier at the call; the '

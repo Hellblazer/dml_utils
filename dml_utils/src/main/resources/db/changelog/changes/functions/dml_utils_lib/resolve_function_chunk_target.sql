@@ -100,12 +100,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resolve_function_chunk_target(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resolve_function_chunk_target IS
     'Resolves the per-row function target for run_function_over_table: returns '
         'the driving table''s primary-key columns and the ''t.<column>'' call '
         'argument list, after checking the function exists, is an ordinary '

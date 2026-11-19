@@ -41,11 +41,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_primary_key_arity_matches(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_primary_key_arity_matches IS
     'Asserts that the number of primary-key columns a caller read from '
         'primary_key_attributes equals the key''s declared arity (indnkeyatts). '
         'Both reads share the caller''s snapshot, so a mismatch is a catalog '

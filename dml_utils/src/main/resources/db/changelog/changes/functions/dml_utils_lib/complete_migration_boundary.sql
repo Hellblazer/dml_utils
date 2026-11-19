@@ -59,12 +59,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.complete_migration_boundary(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_negative_bigint,
-    dml_utils_data.non_null_timestamptz,
-    dml_utils_data.non_negative_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.complete_migration_boundary IS
     'Records started_at/completed_at and rows_affected for one pending boundary '
         'and advances the run''s completed-chunk and total-rows-affected counters '
         'in the same transaction. The pending/cancelled guards make a second call '

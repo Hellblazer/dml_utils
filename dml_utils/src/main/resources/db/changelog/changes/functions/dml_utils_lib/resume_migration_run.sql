@@ -164,21 +164,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resume_migration_run(
-    dml_utils_data.migration_run,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resume_migration_run IS
     'Resolves the effective inputs of a resumed run from its stored row, emits '
         'notices for differing call inputs, re-validates a stored ordered-key '
         'descriptor (failing closed with 55000) and asserts the stored blocks '

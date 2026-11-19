@@ -110,14 +110,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_null_boolean,
-    text[],
-    bigint[],
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk IS
     'Selects the next unclaimed boundary for a run (not in flight), extracts its '
         'start and end keys and, for a partition-wise run, ends the last chunk of '
         'each leaf at the manifest high-water snapshot with an inclusive bound. '

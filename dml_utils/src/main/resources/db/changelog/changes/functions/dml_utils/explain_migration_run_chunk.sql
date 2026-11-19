@@ -232,10 +232,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.explain_migration_run_chunk(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_negative_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils.explain_migration_run_chunk IS
     'Returns the EXPLAIN (FORMAT JSON) plan for one real stored chunk of a run, '
         'selected by run id and boundary number, without decoding the boundary key '
         'or selecting a leaf. It resolves the boundary and its successor exactly as '

@@ -38,7 +38,7 @@ SELECT pg_catalog.count(*)::bigint
 FROM deleted;
 $$;
 
-COMMENT ON FUNCTION dml_utils.delete_archived_migration_runs(text, dml_utils_data.positive_integer) IS
+COMMENT ON FUNCTION dml_utils.delete_archived_migration_runs IS
     'Deletes up to i_limit terminal (completed or cancelled) archived migration '
         'runs - all of them, or only those for i_label - with their boundaries, '
         'errors and leaf manifest, returning the number of runs deleted. Call it in '

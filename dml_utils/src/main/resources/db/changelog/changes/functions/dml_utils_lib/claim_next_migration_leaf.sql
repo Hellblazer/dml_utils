@@ -107,7 +107,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.claim_next_migration_leaf(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.claim_next_migration_leaf IS
     'Locks the run and claims the first pending/failed/stale-calculating leaf in '
         'manifest order, verifies it still matches the manifest, checks the '
         'effective caller can SELECT it and marks it calculating. Returns the leaf '

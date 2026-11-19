@@ -16,9 +16,5 @@ FROM dml_utils_lib.partitioned_ordered_key_attributes(
              i_index_name => i_index_name) AS a;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.partitioned_ordered_key_kinds(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.partitioned_ordered_key_kinds IS
     'Validates a partition-wise ordered key and returns its boundary kinds in key order.';

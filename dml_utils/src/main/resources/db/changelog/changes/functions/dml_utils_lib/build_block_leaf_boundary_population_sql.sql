@@ -62,13 +62,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_block_leaf_boundary_population_sql(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_bigint,
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_block_leaf_boundary_population_sql IS
     'Returns the statement that inserts one blocks leaf''s chunk starts (one '
         'every i_chunk_size heap blocks, no per-leaf terminal) after the '
         'boundaries already committed for the run, tagged with the leaf ordinal.';

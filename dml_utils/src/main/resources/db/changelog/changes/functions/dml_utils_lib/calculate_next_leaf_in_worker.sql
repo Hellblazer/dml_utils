@@ -141,9 +141,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
-    dml_utils_data.non_null_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker IS
     'Runs one calculate_migration_leaf step in its own pg_background '
         'transaction and returns the calculated ordinal (NULL when no leaf is '
         'left). A worker-reported failure is recorded on the manifest in its own '

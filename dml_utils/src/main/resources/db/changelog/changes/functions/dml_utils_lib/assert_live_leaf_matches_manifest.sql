@@ -118,14 +118,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_oid,
-    dml_utils_data.non_null_text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest IS
     'Compares one manifest leaf identity with the live relation and raises '
         'object_not_in_prerequisite_state (55000) when it is missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '

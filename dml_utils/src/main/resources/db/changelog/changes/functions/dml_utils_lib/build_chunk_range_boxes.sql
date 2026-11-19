@@ -149,13 +149,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    text[],
-    text[],
-    text[],
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_null_boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_chunk_range_boxes IS
     'Builds the axis-aligned box disjunction that exactly tiles a lexicographic '
         '[start, end) chunk range. l_difference_position is the first column '
         'whose bounds differ (0 when all are equal); i_is_final makes the last '

@@ -18,7 +18,7 @@ SELECT pg_catalog.hashtextextended(
                'dml_utils.migration_run.calculation.' || i_run_id::text, 0);
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.migration_run_calculation_lock_key(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.migration_run_calculation_lock_key IS
     'Returns the advisory-lock key used to serialize partition-wise boundary '
         'calculation for a run. IMMUTABLE: the prefix concatenation with bigint''s '
         'text output and pg_catalog.hashtextextended are immutable (pg_catalog.format '

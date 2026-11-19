@@ -125,21 +125,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.populate_migration_boundaries(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean,
-    dml_utils_data.non_negative_integer,
-    dml_utils_data.non_negative_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.populate_migration_boundaries IS
     'Creates a run and returns its id. resolve_migration_creation_key resolves '
         'the key and filepath, and for a single-relation run '
         'populate_single_relation_boundaries scans the driving table and inserts '

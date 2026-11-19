@@ -103,13 +103,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resolve_migration_creation_key(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name,
-    dml_utils_data.non_null_boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resolve_migration_creation_key IS
     'Resolves the key descriptor and filepath a new run stores: the primary key '
         'for primary_key, the ordered descriptor for ordered_key (validating the '
         'parent index for a partition-wise run) and the relation filepath for a '

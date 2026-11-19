@@ -110,13 +110,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_key_render_columns(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    name[],
-    text[]
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_key_render_columns IS
     'Validates a chunk render key and returns the alias-qualified quoted column '
         'names plus the schema-qualified collation to use for each text column (NULL '
         'when the column is not in the catalog). Shared by prepare_chunk_sql_render '

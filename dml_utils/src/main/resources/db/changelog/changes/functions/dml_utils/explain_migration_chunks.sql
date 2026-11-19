@@ -150,17 +150,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.explain_migration_chunks(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name,
-    dml_utils_data.non_null_boolean,
-    integer
-    ) IS
+COMMENT ON FUNCTION dml_utils.explain_migration_chunks IS
     'Returns the EXPLAIN (FORMAT JSON) plans for the SQL a chunked run of the '
         'template would generate: the boundary-population insert, a non-final '
         'chunk and the final chunk, as rows boundary_population, chunk_non_final '

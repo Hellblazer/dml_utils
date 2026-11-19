@@ -65,13 +65,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.explain_block_chunk_plans(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.explain_block_chunk_plans IS
     'Returns the EXPLAIN (FORMAT JSON) plans for a blocks run: the boundary '
         'insert and two representative half-open ctid ranges. No run or boundary '
         'is read or written. Shared by explain_chunk_plans.';

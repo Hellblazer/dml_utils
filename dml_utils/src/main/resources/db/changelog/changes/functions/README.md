@@ -1911,10 +1911,15 @@ i_message     dml_utils_data.non_null_text
 RETURNS void
 ```
 
-`SECURITY INVOKER`. Inserts one row into `dml_utils_data.migration_error` for a
-failed chunk worker. Intended to run inside a `pg_background` worker so the row
-commits autonomously; `run_migration_chunks` calls it that way before re-raising
-a chunk failure, so the error outlives the aborted caller transaction.
+`SECURITY DEFINER` with `search_path = pg_catalog`. Inserts one row into
+`dml_utils_data.migration_error` for a failed chunk worker. Intended to run
+inside a `pg_background` worker so the row commits autonomously;
+`run_migration_chunks` calls it that way before re-raising a chunk failure, so
+the error outlives the aborted caller transaction. It is `SECURITY DEFINER` so
+a caller that holds only `EXECUTE` on the metadata helpers (no direct `INSERT` on
+`migration_error`) can record the failure; the insert is parameterized and
+writes only the caller-supplied values, and `EXECUTE` is granted explicitly with
+`PUBLIC` revoked.
 
 ### `dml_utils_lib.build_key_render_columns(i_table_alias, i_schema_name, i_table_name, i_key_columns, i_key_kinds)`
 
@@ -2089,9 +2094,10 @@ i_parent dml_utils_data.non_null_oid
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Raises `42809` when any storage leaf of the
+`VOLATILE`, `SECURITY INVOKER`. Raises `42809` when any storage leaf of the
 partitioned parent is not an ordinary table, so a foreign-table leaf is
-rejected before a run or manifest row exists.
+rejected before a run or manifest row exists. It is `VOLATILE` because
+`pg_partition_tree`, which enumerates the leaves, is itself `VOLATILE`.
 
 ### `dml_utils_lib.assert_partitioned_leaf_privileges(i_parent)`
 
@@ -2100,9 +2106,10 @@ i_parent dml_utils_data.non_null_oid
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Raises `42501` when the caller cannot SELECT any
+`VOLATILE`, `SECURITY INVOKER`. Raises `42501` when the caller cannot SELECT any
 storage leaf of the partitioned parent, so a partition-wise run fails before
-creating a manifest row.
+creating a manifest row. It is `VOLATILE` because `pg_partition_tree`, which
+enumerates the leaves, is itself `VOLATILE`.
 
 ### `dml_utils_lib.manifest_leaf_identity(i_run_id, i_leaf_ordinal)`
 

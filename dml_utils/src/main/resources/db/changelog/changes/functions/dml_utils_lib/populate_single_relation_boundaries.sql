@@ -131,15 +131,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name[],
-    text[],
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.populate_single_relation_boundaries IS
     'Inserts a single-relation run''s contiguous 0..N boundaries in one '
         'statement and records boundaries_calculated_at and total_chunks. Only a '
         'fresh, uncancelled single-relation run can be populated (P0002/55000 '

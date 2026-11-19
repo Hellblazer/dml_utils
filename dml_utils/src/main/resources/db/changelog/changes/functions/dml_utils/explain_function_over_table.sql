@@ -69,18 +69,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils.explain_function_over_table(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    text,
-    dml_utils_data.chunking_strategy,
-    name,
-    dml_utils_data.non_null_boolean,
-    integer
-    ) IS
+COMMENT ON FUNCTION dml_utils.explain_function_over_table IS
     'Returns the EXPLAIN (FORMAT JSON) plans for the SQL a '
         'run_function_over_table call would generate: the boundary-population '
         'insert, a non-final chunk and the final chunk, as rows '

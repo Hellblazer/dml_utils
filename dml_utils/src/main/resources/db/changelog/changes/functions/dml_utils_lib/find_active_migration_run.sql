@@ -16,9 +16,7 @@ WHERE run.label = i_label
   AND run.archived_at IS NULL;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.find_active_migration_run(
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.find_active_migration_run IS
     'Returns the active (not archived) run for a label, or no row, as the '
         'migration_run composite itself so the projection cannot drift from the '
         'table. Used by resolve_migration_run to decide between resume and '

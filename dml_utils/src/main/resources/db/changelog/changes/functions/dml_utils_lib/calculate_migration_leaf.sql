@@ -78,9 +78,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_migration_leaf(
-    dml_utils_data.non_null_bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_migration_leaf IS
     'Calculates one partition-wise leaf in the caller''s transaction: '
         'claim_next_migration_leaf claims and authorizes the first pending/failed/'
         'stale-calculating leaf, leaf_boundary_population_sql appends its chunk '

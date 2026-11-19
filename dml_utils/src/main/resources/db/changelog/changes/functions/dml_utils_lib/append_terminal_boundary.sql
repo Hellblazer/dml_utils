@@ -143,10 +143,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.append_terminal_boundary(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.append_terminal_boundary IS
     'Appends the single terminal boundary for a partition-wise run after the '
         'last committed boundary and returns its boundary number (the run''s '
         'chunk count). A single-relation run is rejected with 22023. Every other '

@@ -33,7 +33,7 @@ WHERE b.run_id = i_run_id
 ORDER BY b.boundary_no;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_boundaries(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils.migration_boundaries IS
     'Returns the run''s chunk boundaries in order, with the packed key, the '
         'partition leaf for a partition-wise run, the recorded row count, the '
         'start/completion/cancellation timestamps and the chunk duration. A '

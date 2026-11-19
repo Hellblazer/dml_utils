@@ -241,9 +241,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   (NULL means wait indefinitely), and the worker error SQLSTATE/message that are
   normalized from NULL or blank to a fallback.
 - A signature change is made in place, and the same argument list must be updated
-  in four places: the routine file, its `COMMENT ON FUNCTION`, the routine's
-  rollback `DROP`, and the `999-grant-privileges.sql`/rollback `REVOKE`/`GRANT`
-  entries, plus the routine's signature block in the functions README.
+  in the routine file, its rollback `DROP`, the
+  `999-grant-privileges.sql`/rollback `REVOKE`/`GRANT` entries, and the routine's
+  signature block in the functions README. The `COMMENT ON FUNCTION` uses the
+  short `schema.name` form (no argument list) for every non-overloaded routine,
+  so it needs no update; list the argument types only for an overloaded name.
 - Assigning a domain argument to a base-type local (for example
   `l_delay integer := i_delay;`) trips `plpgsql_check`'s "target type is different
   type than source type" performance warning; cast explicitly

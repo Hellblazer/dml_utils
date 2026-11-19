@@ -39,10 +39,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.manifest_leaf_identity(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.positive_integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.manifest_leaf_identity IS
     'Returns the stored identity of one partition-wise manifest leaf: chunk '
         'strategy, schema, name, OID, partition bound and blocks filepath. A '
         'missing run/leaf is object_not_in_prerequisite_state (55000).';

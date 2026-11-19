@@ -104,12 +104,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.stop_migration_workers(
-    integer[],
-    bigint[],
-    dml_utils_data.non_null_boolean,
-    integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.stop_migration_workers IS
     'Cancels (when requested) and waits for/detaches a set of pg_background '
         'worker handles, given as parallel non-null, one-dimensional pid/cookie '
         'arrays of equal length with a lower bound of 1 (the loops index from 1). '

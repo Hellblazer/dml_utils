@@ -169,7 +169,7 @@ SELECT c.run_id,
 FROM computed AS c;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_run_progress(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils.migration_run_progress IS
     'Returns one progress row for a run: derived status, chunk and row counts, '
         'percent complete, elapsed time, throughput rates and an estimated finish. '
         'The rates are NULL until the boundaries are calculated and at least one '

@@ -53,11 +53,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resolve_partitioned_ordered_key_index(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resolve_partitioned_ordered_key_index IS
     'Resolves the named unique index on a declarative partitioned parent, checks '
         'the parent relkind and validates the parent index shape, returning its '
         'OID for the leaf walk. Raises invalid_schema_name (3F000) for a missing '

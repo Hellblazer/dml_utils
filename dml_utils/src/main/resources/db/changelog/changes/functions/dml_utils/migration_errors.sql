@@ -20,5 +20,5 @@ WHERE e.run_id = i_run_id
 ORDER BY e.error_id;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_errors(dml_utils_data.non_null_bigint) IS
+COMMENT ON FUNCTION dml_utils.migration_errors IS
     'Returns the recorded errors of the run, ordered by error id.';

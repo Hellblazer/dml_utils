@@ -27,10 +27,10 @@ BEGIN
                 'SELECT dml_utils_lib.record_migration_error(%L, %L, %L, %L)',
                 i_run_id,
                 i_boundary_no,
-                -- A NULL *or blank* value would be rejected by
-                -- record_migration_error's non-null domain in the worker, losing
-                -- the record; blank means the same ASCII whitespace set the domain
-                -- trims.
+            -- A NULL *or blank* value would be rejected by
+            -- record_migration_error's non-null domain in the worker, losing
+            -- the record; blank means the same ASCII whitespace set the domain
+            -- trims.
                 COALESCE(NULLIF(pg_catalog.btrim(i_sqlstate, E' \t\n\r\f\013'), ''), '55000'),
                 COALESCE(
                         NULLIF(pg_catalog.btrim(i_error_message, E' \t\n\r\f\013'), ''),
@@ -55,12 +55,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.record_migration_worker_failure(
-    dml_utils_data.non_null_bigint,
-    dml_utils_data.non_negative_bigint,
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.record_migration_worker_failure IS
     'Records a failed chunk in dml_utils_data.migration_error through an '
         'autonomous pg_background transaction. A NULL or blank (any ASCII '
         'whitespace) sqlstate or message is replaced with a generic value so the '

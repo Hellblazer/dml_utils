@@ -44,11 +44,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.partitioned_ordered_key_attributes(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.partitioned_ordered_key_attributes IS
     'Validates a partition-wise ordered key: resolve_partitioned_ordered_key_index '
         'checks the parent and its index, '
         'assert_partitioned_ordered_key_child_indexes validates every storage '

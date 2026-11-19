@@ -28,9 +28,6 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_caller_can_select_relation(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_caller_can_select_relation IS
     'Raises insufficient_privilege (42501) when the effective caller cannot '
         'SELECT the named relation. Used before a definer-backed scan.';
