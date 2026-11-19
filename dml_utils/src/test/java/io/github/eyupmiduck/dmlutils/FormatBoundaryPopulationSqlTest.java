@@ -32,9 +32,10 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     /**
-     * A NULL run id, a non-positive chunk size or a blank identifier/fragment is
-     * rejected by its domain at the call, instead of producing a statement that
-     * fails later.
+     * Every argument that would render an unusable statement is rejected by its
+     * domain at the call: a NULL run id, a non-positive chunk size, and each blank
+     * identifier or fragment (schema, table, select list, id list, pack expression
+     * and both order-by forms).
      */
     @Test
     void rejectsInvalidRunInputs() {
@@ -45,8 +46,23 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
                 dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
                 name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 0L));
         assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), " \t", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
                 dsl.configuration(), "id AS id1", " \t", schema(TEST_BIGINT),
                 name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", " \t",
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                " \t", "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), " \t", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", " \t", "id1 DESC", 42L, 2L));
         assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
                 dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
                 name(TEST_BIGINT), "id1", PACK, " \t", 42L, 2L));
