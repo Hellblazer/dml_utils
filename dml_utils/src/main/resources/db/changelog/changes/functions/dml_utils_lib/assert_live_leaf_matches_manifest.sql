@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     i_leaf_schema_name dml_utils_data.non_null_text,
     i_leaf_name dml_utils_data.non_null_text,
     i_leaf_oid dml_utils_data.non_null_oid,
-    i_leaf_bound text,
+    i_leaf_bound dml_utils_data.non_null_text,
     i_relation_filepath text
 )
     RETURNS void
@@ -123,7 +123,7 @@ COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_oid,
-    text,
+    dml_utils_data.non_null_text,
     text
     ) IS
     'Compares one manifest leaf identity with the live relation and raises '
@@ -131,4 +131,6 @@ COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
         '(different OID), detached or rebound (different partition bound), not a '
         'plain table, or (for blocks) a rewritten heap. Takes ACCESS SHARE (NOWAIT) on '
         'the leaf so the verified identity cannot change before the caller uses it, '
-        'and reports a concurrent modification as the same 55000.';
+        'and reports a concurrent modification as the same 55000. A NULL strategy '
+        'is rejected with 22023 and a NULL or blank leaf bound by the non-null '
+        'domain, so a guard cannot fail open.';

@@ -96,7 +96,8 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
 
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), ChunkingStrategy.primary_key,
-                PARTITION_SCHEMA, TABLE, parentOid, null, null));
+                PARTITION_SCHEMA, TABLE, parentOid,
+                "FOR VALUES FROM ('0') TO ('99')", null));
     }
 
 
@@ -113,6 +114,23 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
         assertSqlState("22023", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), null, leaf.getOLeafSchemaName(),
                 leaf.getOLeafName(), leaf.getOLeafOid(), leaf.getOLeafBound(),
+                leaf.getORelationFilepath()));
+    }
+
+    /**
+     * A NULL leaf bound fails on the argument's non-null domain, exactly like the
+     * leaf schema and name: a NULL would compare equal to a detached leaf's NULL
+     * live bound and fail open.
+     */
+    @Test
+    void rejectsANullLeafBound() {
+        ManifestLeafIdentity leaf = identity(
+                populatePartitionWise("live-leaf-primary_key", TABLE, TEMPLATE,
+                        ChunkingStrategy.primary_key, 2, null));
+
+        assertDomainViolation(() -> Routines.assertLiveLeafMatchesManifest(
+                dsl.configuration(), leaf.getOChunkBy(), leaf.getOLeafSchemaName(),
+                leaf.getOLeafName(), leaf.getOLeafOid(), null,
                 leaf.getORelationFilepath()));
     }
 
@@ -145,7 +163,8 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
 
         assertSqlState("55000", () -> Routines.assertLiveLeafMatchesManifest(
                 dsl.configuration(), ChunkingStrategy.primary_key, PARTITION_SCHEMA,
-                "test_partitioned_range_ordered_key_idx", indexOid, null, null));
+                "test_partitioned_range_ordered_key_idx", indexOid,
+                "FOR VALUES FROM ('0') TO ('99')", null));
     }
 
     /**

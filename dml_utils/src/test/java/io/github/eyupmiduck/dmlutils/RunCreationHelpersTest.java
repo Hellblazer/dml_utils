@@ -254,6 +254,20 @@ class RunCreationHelpersTest extends PartitionTestBase {
                 new String[]{"id"}, new String[]{"bigint"}, 2);
     }
 
+    /**
+     * A direct call cannot populate a partition-wise run at the parent level: its
+     * boundaries are calculated and committed one leaf at a time, so a
+     * parent-level population would freeze the milestone and skip every leaf.
+     */
+    @Test
+    void rejectsAPartitionWiseRun() {
+        long runId = insertRunRow(ChunkingStrategy.primary_key, true, 2);
+
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+    }
+
     private long insertRunRow(ChunkingStrategy chunkBy, boolean partitionWise, int chunkSize) {
         String table = partitionWise ? "test_partitioned_range" : name(TEST_BIGINT);
         String tableSchema = partitionWise ? PARTITION_SCHEMA : schema(TEST_BIGINT);

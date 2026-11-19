@@ -2100,10 +2100,10 @@ filepath. A missing run/leaf is `55000`.
 
 ```sql
 i_chunk_by           dml_utils_data.chunking_strategy
-i_leaf_schema_name   text
-i_leaf_name          text
-i_leaf_oid           oid
-i_leaf_bound         text
+i_leaf_schema_name   dml_utils_data.non_null_text
+i_leaf_name          dml_utils_data.non_null_text
+i_leaf_oid           dml_utils_data.non_null_oid
+i_leaf_bound         dml_utils_data.non_null_text
 i_relation_filepath  text
 RETURNS void
 ```
@@ -2111,8 +2111,9 @@ RETURNS void
 `VOLATILE`, `SECURITY INVOKER`. Compares one manifest leaf identity with the live
 relation and raises `55000` when it is missing, replaced (different OID),
 detached or rebound (different partition bound), not a plain table, or (for
-blocks) a rewritten heap. The leaf name is a non-null domain and a NULL
-strategy is rejected with `22023`, so neither can fail open. It takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the
+blocks) a rewritten heap. The leaf name and bound are non-null domains and a
+NULL strategy is rejected with `22023`, so no guard can fail open. It
+takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the
 verified
 identity cannot change before the caller's transaction uses it, and reports a
 concurrent modification (or a dropped relation/schema) as the same `55000`.
@@ -2272,7 +2273,8 @@ the leaf schema/name (so the caller's SELECT privilege is checked on the leaf th
 is actually written) and the terminal high-water key (`migration_run_leaf.terminal_boundary_id`, which the runner uses
 as the end of
 the leaf's last chunk). It serializes on the run row, re-checks the stored leaf
-identity, rejects a run with uncalculated leaves, records
+identity, rejects a single-relation run (`22023`: only a partition-wise run has
+leaf boundaries) and a run with uncalculated leaves, records
 `boundaries_calculated_at`/`total_chunks` itself (a repeat call is `55000`), and
 rejects a cancelled run (`55000`) and a leaf without a snapshot (`55000`); the
 run id and ordinal are non-null/positive domains.
@@ -2330,7 +2332,7 @@ requires the effective caller to SELECT every stored leaf (`42501`).
 `dml_utils_lib.populate_single_relation_boundaries(i_run_id, i_schema_name, i_table_name, i_chunk_by, i_key_columns, i_key_kinds, i_chunk_size)`
 
 ```sql
-i_run_id      bigint
+i_run_id      dml_utils_data.non_null_bigint
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
 i_chunk_by    dml_utils_data.chunking_strategy
@@ -2342,8 +2344,10 @@ RETURNS void
 
 `SECURITY INVOKER`. Inserts a single-relation run's contiguous `0..N`
 boundaries in one statement and records `boundaries_calculated_at` and
-`total_chunks`. Called from `populate_migration_boundaries`' definer context, so
-the metadata write runs as the owner.
+`total_chunks`. A partition-wise run is rejected with `22023`: its boundaries are
+calculated and committed one leaf at a time, and a parent-level population would
+freeze its milestone. Called from `populate_migration_boundaries`' definer
+context, so the metadata write runs as the owner.
 
 ### `dml_utils_lib.find_active_migration_run(i_label)`
 

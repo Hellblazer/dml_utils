@@ -18,7 +18,8 @@ BEGIN
     -- Serialize on the run row. max(boundary_no)+1 is only safe while one
     -- appender holds the lock, and the same lock makes the single-terminal check
     -- and the milestone write atomic against finalization and leaf calculation.
-    SELECT run.boundaries_calculated_at,
+    SELECT run.partition_wise,
+           run.boundaries_calculated_at,
            run.cancelled_at
     INTO l_run
     FROM dml_utils_data.migration_run AS run
@@ -29,6 +30,15 @@ BEGIN
         RAISE EXCEPTION 'migration run % does not exist', i_run_id
             USING ERRCODE = 'P0002';
     END IF;
+
+    -- This is the partition-wise finalization path. A single-relation run has no
+    -- leaf manifest, so without this check the terminal-leaf lookup below would
+    -- report the misleading "leaf ... is not the terminal leaf".
+    IF NOT l_run.partition_wise THEN
+        RAISE EXCEPTION 'run % is not partition-wise', i_run_id
+            USING ERRCODE = '22023';
+    END IF;
+
     IF l_run.cancelled_at IS NOT NULL THEN
         RAISE EXCEPTION 'run % is cancelled', i_run_id
             USING ERRCODE = '55000';
@@ -139,8 +149,9 @@ COMMENT ON FUNCTION dml_utils_lib.append_terminal_boundary(
     ) IS
     'Appends the single terminal boundary for a partition-wise run after the '
         'last committed boundary and returns its boundary number (the run''s '
-        'chunk count). Every input is taken from the manifest: the leaf identity '
-        'and the caller''s SELECT privilege, and the terminal high-water key from '
+        'chunk count). A single-relation run is rejected with 22023. Every other '
+        'input is taken from the manifest: the leaf identity and the caller''s '
+        'SELECT privilege, and the terminal high-water key from '
         'migration_run_leaf. Serializes on the run row, records '
         'boundaries_calculated_at/total_chunks itself, and rejects a repeat '
         'append, a cancelled run, a run with uncalculated leaves, a non-terminal '

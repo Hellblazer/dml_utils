@@ -23,6 +23,7 @@ BEGIN
     -- 55000. The lock also covers the final UPDATE below.
     SELECT run.chunk_by,
            run.chunk_size,
+           run.partition_wise,
            run.driving_table_schema_name,
            run.driving_table_name,
            run.boundaries_calculated_at,
@@ -39,6 +40,15 @@ BEGIN
     IF l_run.boundaries_calculated_at IS NOT NULL OR l_run.cancelled_at IS NOT NULL THEN
         RAISE EXCEPTION 'run % is already calculated or cancelled', i_run_id
             USING ERRCODE = '55000';
+    END IF;
+
+    -- A partition-wise run is calculated per leaf and finalized through
+    -- append_terminal_boundary. Parent-level boundaries here would freeze its
+    -- milestone and make calculate_migration_run_boundaries skip every leaf, so
+    -- the caller's descriptor cannot make this safe.
+    IF l_run.partition_wise THEN
+        RAISE EXCEPTION 'run % is partition-wise and has no single-relation boundaries', i_run_id
+            USING ERRCODE = '22023';
     END IF;
 
     -- The caller supplies the configuration to render with, but the run row is
@@ -132,8 +142,9 @@ COMMENT ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     ) IS
     'Inserts a single-relation run''s contiguous 0..N boundaries in one '
         'statement and records boundaries_calculated_at and total_chunks. Only a '
-        'fresh, uncancelled run can be populated (P0002/55000 otherwise), so a '
-        'repeat call never moves the milestone or hits a raw duplicate-key error. '
-        'Runs in the caller''s context (inside populate_migration_boundaries'' '
-        'definer context), with an explicit effective-caller SELECT check on the '
-        'driving table.';
+        'fresh, uncancelled single-relation run can be populated (P0002/55000 '
+        'otherwise; a partition-wise run is 22023, since it is calculated per '
+        'leaf), so a repeat call never moves the milestone or hits a raw '
+        'duplicate-key error. Runs in the caller''s context (inside '
+        'populate_migration_boundaries'' definer context), with an explicit '
+        'effective-caller SELECT check on the driving table.';

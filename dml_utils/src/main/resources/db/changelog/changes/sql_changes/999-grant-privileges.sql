@@ -1082,7 +1082,7 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_oid,
-    text,
+    dml_utils_data.non_null_text,
     text
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
@@ -1090,7 +1090,7 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_oid,
-    text,
+    dml_utils_data.non_null_text,
     text
     ) TO dml_utils_caller;
 
