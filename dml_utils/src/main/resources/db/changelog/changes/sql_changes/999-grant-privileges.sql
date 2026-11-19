@@ -162,6 +162,16 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.primary_key_attributes(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_primary_key_arity_matches(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_negative_integer
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_primary_key_arity_matches(
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_negative_integer
+    ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.primary_key_kinds(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text

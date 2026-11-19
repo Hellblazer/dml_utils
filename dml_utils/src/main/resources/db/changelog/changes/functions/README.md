@@ -893,6 +893,24 @@ collapsed boundary kind (`bigint`/`text`/`uuid`/`timestamptz`, or NULL for an
 unsupported type). Raises `invalid_parameter_value` (`22023`) when the table has
 no primary key or more than 3 key columns.
 
+### `dml_utils_lib.assert_primary_key_arity_matches(i_schema_name, i_table_name, i_column_count)`
+
+```sql
+i_schema_name dml_utils_data.non_null_text
+i_table_name  dml_utils_data.non_null_text
+i_column_count dml_utils_data.non_negative_integer
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Asserts that the number of primary-key columns a
+caller read from `primary_key_attributes` equals the key's declared arity (`indnkeyatts`). Both reads share the caller's
+snapshot, so a mismatch is a
+catalog inconsistency, not a concurrent change: it raises
+`object_not_in_prerequisite_state` (`55000`) instead of letting callers zip
+misaligned column and kind arrays. A table without a primary key is
+`invalid_parameter_value` (`22023`). `primary_key_columns`, `primary_key_kinds`
+and `resolve_function_chunk_target` share this check.
+
 ### `dml_utils_lib.primary_key_columns(i_schema_name, i_table_name)`
 
 ```sql
@@ -902,9 +920,10 @@ RETURNS name[]
 ```
 
 `STABLE`, `SECURITY INVOKER`. Returns the table's primary-key columns in key
-order (from the index, so a key declared `(b, a)` returns `{b, a}`), raising
-`invalid_parameter_value` (`22023`) when the table has no primary key or more
-than 3 key columns. Delegates the column read to `primary_key_attributes`.
+order (from the index, so a key declared `(b, a)` returns `{b, a}`).
+`primary_key_attributes` validates the schema/table and the one-to-three-column
+limit (`22023`); `assert_primary_key_arity_matches` checks the array against the
+key's declared arity and reports a catalog inconsistency as `55000`.
 
 ### `dml_utils_lib.primary_key_kinds(i_schema_name, i_table_name)`
 
@@ -917,10 +936,10 @@ RETURNS text[]
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key kind of each primary-key
 column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
 `text` key, `uuid` for a `uuid` key and `timestamptz` for a `timestamptz` key.
-Raises `invalid_parameter_value` (`22023`) for any other type, and
-`object_not_in_prerequisite_state` (`55000`) if the returned kinds do not line up
-with the primary key's arity (a self-check on the catalog reads, not a concurrency
-detector: the routine is `STABLE`).
+`primary_key_attributes` validates the schema/table and the one-to-three-column
+limit; an unsupported column type is `invalid_parameter_value` (`22023`), and
+`assert_primary_key_arity_matches` reports a catalog inconsistency between the
+kinds read and the declared arity as `object_not_in_prerequisite_state` (`55000`).
 
 ### `dml_utils_lib.ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
 
@@ -1025,8 +1044,10 @@ RETURNS TABLE
 index OID and returns its key columns after applying the same checks as
 `ordered_key_attributes` (btree, unique, valid, non-partial, 1–3 simple
 ascending `NOT NULL` columns with default opclass and the column collation). The
-names are used only in error messages. It lets the partition-wise path validate
-a parent index and each leaf's child index without duplicating the rules.
+caller's schema/table/index names are validated against the OID (`42P01` when the
+table is missing, `42704` when the index name, OID and table disagree) as well as
+used in the error messages. It lets the partition-wise path validate a parent
+index and each leaf's child index without duplicating the rules.
 
 ### `dml_utils_lib.partitioned_ordered_key_attributes(i_schema_name, i_table_name, i_index_name)`
 

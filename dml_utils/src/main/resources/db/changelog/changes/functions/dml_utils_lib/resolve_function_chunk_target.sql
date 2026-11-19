@@ -34,12 +34,14 @@ BEGIN
                  i_schema_name => i_table_schema_name,
                  i_table_name => i_table_name) AS a;
 
-    IF pg_catalog.cardinality(l_argument_oids) IS DISTINCT FROM pg_catalog.array_length(o_primary_key_columns, 1)
-    THEN
-        RAISE EXCEPTION 'primary key of table %.% changed while reading its columns',
-            i_table_schema_name, i_table_name
-            USING ERRCODE = '22023';
-    END IF;
+    -- Both arrays come from the catalog reader; check the types against the key's
+    -- declared arity so a catalog inconsistency is 55000 rather than a function
+    -- lookup against misaligned lists (the names were checked by
+    -- primary_key_columns, which also read from the same reader).
+    PERFORM dml_utils_lib.assert_primary_key_arity_matches(
+            i_schema_name => i_table_schema_name,
+            i_table_name => i_table_name,
+            i_column_count => pg_catalog.cardinality(l_argument_oids));
 
     -- Look up the function by exact name, arity and argument types. proargtypes
     -- is a 0-based oidvector of the input argument types (IN/INOUT/VARIADIC);

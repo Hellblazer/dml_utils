@@ -14,9 +14,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the install changelog's role bootstrap: it creates
@@ -28,69 +26,6 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
 
     private static final String BOOTSTRAP =
             "db/changelog-install/sql/install-create-ddl-utils-caller.sql";
-
-    /**
-     * The loser of the role race succeeds: its {@code NOT EXISTS} passes while the
-     * winner's {@code CREATE ROLE} is uncommitted, the insert then hits
-     * {@code pg_authid}'s unique index and must be absorbed rather than failing
-     * the install.
-     *
-     * <p>The script's role name is replaced with a unique one so the race is
-     * isolated from the cluster's real role and from the template database's
-     * grants; the bootstrap logic under test is unchanged.
-     *
-     * @throws Exception if the connections, the racer or the cleanup fail
-     */
-    @Test
-    void concurrentBootstrapDoesNotFailTheInstall() throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
-        String role = "ddl_race_" + UUID.randomUUID().toString().replace("-", "");
-        String sql = TestResources.read(BOOTSTRAP).replace("ddl_utils_caller", role);
-
-        ExecutorService executor = Executors.newSingleThreadExecutor();
-        try (Connection winner = openAdminConnection(database);
-             Connection loser = openAdminConnection(database);
-             Connection observer = openAdminConnection(database)) {
-            int loserPid = backendPid(loser);
-            AtomicReference<Throwable> loserError = new AtomicReference<>();
-
-            // The winner creates the role but keeps its transaction open, so the
-            // loser's check cannot see it.
-            winner.setAutoCommit(false);
-            execute(winner, sql);
-
-            Future<?> call = executor.submit(() -> {
-                try {
-                    execute(loser, sql);
-                } catch (Throwable error) {
-                    loserError.set(error);
-                }
-            });
-            try {
-                awaitRoleLock(observer, loserPid);
-                winner.commit();
-                call.get(10, TimeUnit.SECONDS);
-                assertTrue(roleExists(observer, role),
-                        "the install created the role");
-            } finally {
-                winner.rollback();
-                try {
-                    call.get(5, TimeUnit.SECONDS);
-                } catch (Exception stillRunning) {
-                    // The failure path below reports the real problem; do not let
-                    // the cleanup replace it.
-                }
-                dropRole(database, role);
-            }
-
-            assertNull(loserError.get(),
-                    () -> "a concurrent install failed: " + loserError.get());
-        } finally {
-            executor.shutdownNow();
-            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS),
-                    "the racing install finished");
-        }
-    }
 
     /**
      * Waits until the given backend is blocked on the role insert, so the winner
@@ -166,6 +101,69 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
     private static void execute(Connection connection, String sql) throws SQLException {
         try (Statement statement = connection.createStatement()) {
             statement.execute(sql);
+        }
+    }
+
+    /**
+     * The loser of the role race succeeds: its {@code NOT EXISTS} passes while the
+     * winner's {@code CREATE ROLE} is uncommitted, the insert then hits
+     * {@code pg_authid}'s unique index and must be absorbed rather than failing
+     * the install.
+     *
+     * <p>The script's role name is replaced with a unique one so the race is
+     * isolated from the cluster's real role and from the template database's
+     * grants; the bootstrap logic under test is unchanged.
+     *
+     * @throws Exception if the connections, the racer or the cleanup fail
+     */
+    @Test
+    void concurrentBootstrapDoesNotFailTheInstall() throws Exception {
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String role = "ddl_race_" + UUID.randomUUID().toString().replace("-", "");
+        String sql = TestResources.read(BOOTSTRAP).replace("ddl_utils_caller", role);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection winner = openAdminConnection(database);
+             Connection loser = openAdminConnection(database);
+             Connection observer = openAdminConnection(database)) {
+            int loserPid = backendPid(loser);
+            AtomicReference<Throwable> loserError = new AtomicReference<>();
+
+            // The winner creates the role but keeps its transaction open, so the
+            // loser's check cannot see it.
+            winner.setAutoCommit(false);
+            execute(winner, sql);
+
+            Future<?> call = executor.submit(() -> {
+                try {
+                    execute(loser, sql);
+                } catch (Throwable error) {
+                    loserError.set(error);
+                }
+            });
+            try {
+                awaitRoleLock(observer, loserPid);
+                winner.commit();
+                call.get(10, TimeUnit.SECONDS);
+                assertTrue(roleExists(observer, role),
+                        "the install created the role");
+            } finally {
+                winner.rollback();
+                try {
+                    call.get(5, TimeUnit.SECONDS);
+                } catch (Exception stillRunning) {
+                    // The failure path below reports the real problem; do not let
+                    // the cleanup replace it.
+                }
+                dropRole(database, role);
+            }
+
+            assertNull(loserError.get(),
+                    () -> "a concurrent install failed: " + loserError.get());
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS),
+                    "the racing install finished");
         }
     }
 

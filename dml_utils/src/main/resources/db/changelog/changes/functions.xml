@@ -134,6 +134,17 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_primary_key_arity_matches" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_primary_key_arity_matches.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile
+                    path="functions-rollback/dml_utils_lib/assert_primary_key_arity_matches-rollback.sql"
+                    relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.primary_key_kinds" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/primary_key_kinds.sql"

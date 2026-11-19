@@ -49,5 +49,7 @@ COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
     'Validates one ordered-key index by OID (assert_ordered_key_index_usable) and '
         'returns its key columns in index order (ordered_key_column_attributes). '
         'Used for a plain table index and for each leaf''s child index of a '
-        'partition-wise parent. The caller supplies the names only for error '
-        'messages.';
+        'partition-wise parent. The caller supplies the schema/table/index names; '
+        'they are validated against the OID (42P01 when the table is missing, '
+        '42704 when the index name, OID and table disagree) as well as used in the '
+        'error messages.';

@@ -9,58 +9,32 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.primary_key_columns(
 AS
 $$
 DECLARE
-    l_key_column_count    smallint;
     l_primary_key_columns name[];
 BEGIN
-    PERFORM dml_utils_lib.assert_schema_exists(i_schema_name => i_schema_name);
-    PERFORM dml_utils_lib.assert_table_exists(
-            i_schema_name => i_schema_name,
-            i_table_name => i_table_name);
-
-    SELECT i.indnkeyatts
-    INTO l_key_column_count
-    FROM pg_catalog.pg_index AS i
-             JOIN pg_catalog.pg_class AS c ON c.oid = i.indrelid
-             JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE i.indisprimary
-      AND n.nspname = i_schema_name::name
-      AND c.relname = i_table_name::name;
-
-    IF l_key_column_count IS NULL THEN
-        RAISE EXCEPTION 'table %.% has no primary key', i_schema_name, i_table_name
-            USING ERRCODE = '22023';
-    END IF;
-
-    IF l_key_column_count > 3 THEN
-        RAISE EXCEPTION 'table %.% has a % column primary key; at most 3 are supported',
-            i_schema_name, i_table_name, l_key_column_count
-            USING ERRCODE = '22023';
-    END IF;
-
-    -- The columns, in key order, come from the shared catalog reader so all
-    -- callers agree on the key order.
+    -- primary_key_attributes is the single catalog reader: it validates the
+    -- schema and table and the one-to-three-column limit, and returns the key
+    -- columns in key order.
     SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality)
     INTO l_primary_key_columns
     FROM dml_utils_lib.primary_key_attributes(
                  i_schema_name => i_schema_name,
                  i_table_name => i_table_name) AS a;
 
-    -- Both reads share the caller's snapshot (STABLE), so this is a self-check
-    -- that the aggregate matches the arity read above rather than a concurrency
-    -- detector; fail loudly instead of returning a NULL/partial list to callers
-    -- that zip it with the kinds.
-    IF pg_catalog.cardinality(l_primary_key_columns) IS DISTINCT FROM l_key_column_count::integer
-    THEN
-        RAISE EXCEPTION 'primary key of table %.% changed while reading its columns',
-            i_schema_name, i_table_name
-            USING ERRCODE = '22023';
-    END IF;
+    -- The array is built from that one read, so its length is the count the
+    -- shared check compares with the key's declared arity: callers can zip it with
+    -- primary_key_kinds without a misaligned pair slipping through.
+    PERFORM dml_utils_lib.assert_primary_key_arity_matches(
+            i_schema_name => i_schema_name,
+            i_table_name => i_table_name,
+            i_column_count => pg_catalog.cardinality(l_primary_key_columns));
 
     RETURN l_primary_key_columns;
 END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.primary_key_columns IS
-    'Returns the primary-key columns in key order, raising '
-        'invalid_parameter_value (22023) when the table has no primary key or more '
-        'than 3 key columns.';
+    'Returns the primary-key columns in key order. primary_key_attributes '
+        'validates the schema/table and the one-to-three-column limit '
+        '(invalid_parameter_value 22023), and a catalog inconsistency between the '
+        'columns read and the declared arity is object_not_in_prerequisite_state '
+        '(55000).';
