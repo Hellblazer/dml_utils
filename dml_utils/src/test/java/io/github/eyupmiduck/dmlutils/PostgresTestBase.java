@@ -24,7 +24,6 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -302,8 +301,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
 
     /**
      * Splits an SQL script into statements on top-level semicolons, respecting
-     * single-quoted literals, dollar-quoted bodies, line comments and nested block
-     * comments. Whitespace-only fragments are dropped.
+     * quoting and comments; see {@link SqlStatements#split(String)}.
      * Used by the tests that execute changelog or example scripts, so a
      * semicolon inside a literal or a function body cannot corrupt a statement.
      *
@@ -311,92 +309,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the statements, in order
      */
     protected static List<String> splitStatements(String script) {
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        int i = 0;
-        while (i < script.length()) {
-            char c = script.charAt(i);
-            if (c == '-' && i + 1 < script.length() && script.charAt(i + 1) == '-') {
-                int end = script.indexOf('\n', i);
-                if (end < 0) {
-                    end = script.length();
-                }
-                current.append(script, i, end);
-                i = end;
-            } else if (c == '/' && i + 1 < script.length() && script.charAt(i + 1) == '*') {
-                // Block comments nest, and a semicolon inside one must not split.
-                int depth = 0;
-                int end = i;
-                while (end < script.length()) {
-                    if (script.startsWith("/*", end)) {
-                        depth++;
-                        end += 2;
-                    } else if (script.startsWith("*/", end)) {
-                        depth--;
-                        end += 2;
-                        if (depth == 0) {
-                            break;
-                        }
-                    } else {
-                        end++;
-                    }
-                }
-                current.append(script, i, end);
-                i = end;
-            } else if (c == '\'') {
-                current.append(c);
-                i++;
-                while (i < script.length()) {
-                    char quoted = script.charAt(i);
-                    current.append(quoted);
-                    i++;
-                    if (quoted == '\'' && i < script.length() && script.charAt(i) == '\'') {
-                        current.append('\'');
-                        i++;
-                    } else if (quoted == '\'') {
-                        break;
-                    }
-                }
-            } else if (c == '$' && isDollarQuoteStart(script, i)) {
-                int tagEnd = script.indexOf('$', i + 1);
-                String tag = script.substring(i, tagEnd + 1);
-                int close = script.indexOf(tag, tagEnd + 1);
-                if (close < 0) {
-                    throw new IllegalArgumentException("unterminated dollar quote " + tag);
-                }
-                current.append(script, i, close + tag.length());
-                i = close + tag.length();
-            } else if (c == ';') {
-                if (!current.toString().isBlank()) {
-                    statements.add(current.toString());
-                }
-                current.setLength(0);
-                i++;
-            } else {
-                current.append(c);
-                i++;
-            }
-        }
-        if (!current.toString().isBlank()) {
-            statements.add(current.toString());
-        }
-        return statements;
-    }
-
-    /**
-     * Whether the {@code $} at the given index opens a valid dollar-quote tag.
-     *
-     * @param script the script
-     * @param start  the index of the opening {@code $}
-     * @return true when a dollar quote starts here
-     */
-    private static boolean isDollarQuoteStart(String script, int start) {
-        int tagEnd = script.indexOf('$', start + 1);
-        if (tagEnd < 0) {
-            return false;
-        }
-        String tag = script.substring(start + 1, tagEnd);
-        return tag.isEmpty() || tag.matches("[A-Za-z_][A-Za-z0-9_]*");
+        return SqlStatements.split(script);
     }
 
     /**
