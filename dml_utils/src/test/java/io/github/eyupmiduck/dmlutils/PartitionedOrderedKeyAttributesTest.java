@@ -7,6 +7,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.sql.Connection;
+import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -99,6 +101,59 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
         assertSqlState("42704", () -> attributes(
                 "test_partitioned_range", "test_ordered_key_created_at_id_idx"));
         assertSqlState("0A000", () -> attributes("test_bigint", "test_bigint_pkey"));
+    }
+
+    /**
+     * Executes one statement as the container superuser, which is required for
+     * system-catalog changes.
+     *
+     * @param sql the statement
+     * @throws Exception if the connection or statement fails
+     */
+    private void executeAsSuperuser(String sql) throws Exception {
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        try (Connection admin = openAdminConnection(database);
+             Statement statement = admin.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    /**
+     * The live-tree walk reports a storage leaf whose child index is missing from
+     * the index inheritance tree as {@code 0A000}. The row is removed from
+     * {@code pg_inherits} (a supported DDL cannot detach a child index) and restored
+     * afterwards.
+     *
+     * @throws Exception if the inheritance row cannot be removed or restored
+     */
+    @Test
+    void rejectsALeafWithoutAChildIndexInTheLiveTree() throws Exception {
+        String parent = "test_partitioned_range_ordered_key_idx";
+        String child = dsl.fetchOne("""
+                        SELECT ic.relname
+                        FROM pg_catalog.pg_inherits AS inh
+                                 JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
+                                 JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
+                                 JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
+                                 JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
+                                 JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
+                        WHERE n.nspname = ? AND p.relname = ?
+                          AND tc.relname = 'test_partitioned_range_low'
+                        """, PARTITION_SCHEMA, parent)
+                .get(0, String.class);
+
+        // A system catalog can only be changed by the superuser, not the owner.
+        executeAsSuperuser("DELETE FROM pg_catalog.pg_inherits"
+                + " WHERE inhparent = '" + PARTITION_SCHEMA + "." + parent + "'::regclass"
+                + " AND inhrelid = '" + PARTITION_SCHEMA + "." + child + "'::regclass");
+        try {
+            assertSqlState("0A000", () -> attributes("test_partitioned_range", parent));
+        } finally {
+            executeAsSuperuser("INSERT INTO pg_catalog.pg_inherits"
+                    + " (inhrelid, inhparent, inhseqno, inhdetachpending)"
+                    + " VALUES ('" + PARTITION_SCHEMA + "." + child + "'::regclass, '"
+                    + PARTITION_SCHEMA + "." + parent + "'::regclass, 1, false)");
+        }
     }
 
     /**

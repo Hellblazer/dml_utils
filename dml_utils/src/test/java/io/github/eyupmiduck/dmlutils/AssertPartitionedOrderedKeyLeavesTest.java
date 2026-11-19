@@ -5,6 +5,9 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.Statement;
+
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -88,6 +91,62 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
     }
 
     /**
+     * The supplied name must be the run's stored ordered_key_index, so a caller
+     * cannot validate a different unique index on the same table ({@code 22023}).
+     */
+    @Test
+    void rejectsAnIndexThatIsNotTheRunsStoredIndex() {
+        long runId = populatePartitionWise("key-leaves-mismatch", PARTITIONED_RANGE, TEMPLATE,
+                ChunkingStrategy.ordered_key, 1, PARENT_INDEX);
+
+        assertSqlState("22023", () -> Routines.assertPartitionedOrderedKeyLeaves(
+                dsl.configuration(), runId, "some_other_ordered_key_idx"));
+    }
+
+    /**
+     * A parent index that no longer exists on the run's table is {@code 42704},
+     * before any leaf is walked.
+     *
+     * @throws Exception if the index cannot be dropped or recreated
+     */
+    @Test
+    void rejectsAMissingParentIndex() throws Exception {
+        long runId = populatePartitionWise("key-leaves-missing-parent", PARTITIONED_RANGE,
+                TEMPLATE, ChunkingStrategy.ordered_key, 1, PARENT_INDEX);
+        executeAsOwner("DROP INDEX " + PARTITION_SCHEMA + "." + PARENT_INDEX);
+        try {
+            assertSqlState("42704", () -> Routines.assertPartitionedOrderedKeyLeaves(
+                    dsl.configuration(), runId, PARENT_INDEX));
+        } finally {
+            executeAsOwner("CREATE UNIQUE INDEX " + PARENT_INDEX + " ON "
+                    + PARTITION_SCHEMA + "." + PARTITIONED_RANGE + " (id)");
+        }
+    }
+
+    /**
+     * A child index that exists in the tree but is not valid/ready fails the
+     * per-leaf validation with {@code 55000}, not the missing-child {@code 0A000}.
+     *
+     * @throws Exception if the child index cannot be flagged or restored
+     */
+    @Test
+    void rejectsAnUnusableChildIndex() throws Exception {
+        long runId = populatePartitionWise("key-leaves-bad-child", PARTITIONED_RANGE,
+                TEMPLATE, ChunkingStrategy.ordered_key, 1, PARENT_INDEX);
+        String child = childIndexFor("test_partitioned_range_low");
+        // A system catalog can only be updated by the superuser, not the owner.
+        executeAsSuperuser("UPDATE pg_catalog.pg_index SET indisvalid = false, indisready = false"
+                + " WHERE indexrelid = '" + PARTITION_SCHEMA + "." + child + "'::regclass");
+        try {
+            assertSqlState("55000", () -> Routines.assertPartitionedOrderedKeyLeaves(
+                    dsl.configuration(), runId, PARENT_INDEX));
+        } finally {
+            executeAsSuperuser("UPDATE pg_catalog.pg_index SET indisvalid = true, indisready = true"
+                    + " WHERE indexrelid = '" + PARTITION_SCHEMA + "." + child + "'::regclass");
+        }
+    }
+
+    /**
      * A NULL run id cannot reach the body: the non-null domain rejects it before
      * the lookup, so it is not reported as a missing run.
      */
@@ -95,6 +154,41 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
     void rejectsANullRunId() {
         assertDomainViolation(() -> Routines.assertPartitionedOrderedKeyLeaves(
                 dsl.configuration(), null, PARENT_INDEX));
+    }
+
+    /**
+     * Executes one statement as the container superuser, which is required for
+     * system-catalog changes.
+     *
+     * @param sql the statement
+     * @throws Exception if the connection or statement fails
+     */
+    private void executeAsSuperuser(String sql) throws Exception {
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        try (Connection admin = openAdminConnection(database);
+             Statement statement = admin.createStatement()) {
+            statement.execute(sql);
+        }
+    }
+
+    /**
+     * Returns the child index of one leaf under the fixture parent index.
+     *
+     * @param leaf the storage leaf name
+     * @return the child index name
+     */
+    private String childIndexFor(String leaf) {
+        return dsl.fetchOne("""
+                        SELECT ic.relname
+                        FROM pg_catalog.pg_inherits AS inh
+                                 JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
+                                 JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
+                                 JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
+                                 JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
+                                 JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
+                        WHERE n.nspname = ? AND p.relname = ? AND tc.relname = ?
+                        """, PARTITION_SCHEMA, PARENT_INDEX, leaf)
+                .get(0, String.class);
     }
 
     /**

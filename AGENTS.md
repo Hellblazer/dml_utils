@@ -222,8 +222,8 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   compatibility changesets — a fresh database (and every test and CI database)
   defines only the new signature.
 - **Every argument that must not be NULL is typed with a `dml_utils_data` domain,
-  not the base type.** Use `non_null_text` for identifiers, names and required messages
-  (including a SQLSTATE that must be present); `non_null_bigint` for ids; `non_negative_bigint` for a
+  not the base type.** Use `non_null_text` for identifiers, names and required messages (including a SQLSTATE that must
+  be present); `non_null_bigint` for ids; `non_negative_bigint` for a
   boundary number (0 is valid); `positive_integer`/`positive_bigint` for sizes and
   ordinals; `non_negative_integer` for a permitted zero (a delay); `non_null_oid`
   for catalog OIDs; `non_null_boolean` for flags; `non_null_timestamptz` for
@@ -237,8 +237,8 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   current sentinels are: an optional filter (NULL means no filter), an optional
   ordered-key index name (NULL means the strategy is not `ordered_key`), an
   optional recorded filepath (NULL means a key run, nothing to compare), an
-  optional leaf ordinal (NULL means the first leaf), an optional wait timeout
-  (NULL means wait indefinitely), and the worker error SQLSTATE/message that are
+  optional leaf ordinal (NULL means the first leaf), an optional wait timeout (NULL means wait indefinitely), and the
+  worker error SQLSTATE/message that are
   normalized from NULL or blank to a fallback.
 - A signature change is made in place, and the same argument list must be updated
   in the routine file, its rollback `DROP`, the
@@ -248,8 +248,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   so it needs no update; list the argument types only for an overloaded name.
 - Assigning a domain argument to a base-type local (for example
   `l_delay integer := i_delay;`) trips `plpgsql_check`'s "target type is different
-  type than source type" performance warning; cast explicitly
-  (`i_delay::integer`) or type the local with the domain.
+  type than source type" performance warning; cast explicitly (`i_delay::integer`) or type the local with the domain.
 - Do not wrap the `chunking_strategy` enum in a domain: jOOQ's generated
   `Domains` -> enum -> schema class -> tables -> `Domains` initialisation cycle
   fails at class load (the same reason composite types are not wrapped). Keep the
