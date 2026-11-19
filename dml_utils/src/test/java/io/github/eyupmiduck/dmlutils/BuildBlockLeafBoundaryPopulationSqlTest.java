@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedQuoted.TEST_PARTITIONED_QUOTED;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -25,11 +26,13 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
     private static final String QUOTED = "test partitioned \"odd\"";
 
     /**
-     * Empties the range fixture and the migration metadata between tests.
+     * Empties the range and quoted fixtures and the migration metadata between
+     * tests (quotesALeafNameThatNeedsIt inserts into the quoted leaf directly).
      */
     @BeforeEach
     void reset() {
         resetRunsAndRange();
+        dsl.truncate(TEST_PARTITIONED_QUOTED).execute();
     }
 
     /**

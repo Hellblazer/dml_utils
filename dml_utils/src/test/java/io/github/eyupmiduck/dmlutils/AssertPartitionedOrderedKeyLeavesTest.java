@@ -48,9 +48,10 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
     @Test
     void rejectsAnUnusableParentIndexEvenWithoutLeaves() throws Exception {
         long runId = insertOrderedRun(uniqueLabel("key-leaves-on-only"), ON_ONLY_INDEX);
-        executeAsOwner("CREATE UNIQUE INDEX " + ON_ONLY_INDEX + " ON ONLY "
-                + PARTITION_SCHEMA + "." + PARTITIONED_RANGE + " (id)");
         try {
+            executeAsOwner("CREATE UNIQUE INDEX " + ON_ONLY_INDEX + " ON ONLY "
+                    + PARTITION_SCHEMA + "." + PARTITIONED_RANGE + " (id)");
+
             assertEquals(0, dsl.fetchCount(MIGRATION_RUN_LEAF,
                             MIGRATION_RUN_LEAF.RUN_ID.eq(runId)),
                     "the run intentionally has no manifest");

@@ -10,6 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
+import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -178,7 +179,15 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
         ManifestLeafIdentity leaf = identity(runId,
                 leafOrdinal(runId, PARTITIONED_RANGE_MID));
 
-        try (Connection blocker = openOwnerConnection()) {
+        // A separate connection for the assertion, with a lock timeout: if the
+        // NOWAIT lock ever regresses, the assertion fails with 55P03 instead of
+        // blocking on the blocker (which is only released after it), which would
+        // hang the suite.
+        try (Connection blocker = openOwnerConnection();
+             Connection asserter = openTestConnection();
+             Statement asserterStatement = asserter.createStatement()) {
+            asserterStatement.execute("SET lock_timeout = '1s'");
+            DSLContext asserterDsl = DSL.using(asserter, SQLDialect.POSTGRES);
             DSLContext blockerDsl = DSL.using(blocker, SQLDialect.POSTGRES);
             RuntimeException rollback = new RollbackTransaction();
             try {
@@ -186,7 +195,7 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
                     DSLContext tx = DSL.using(config);
                     tx.execute("LOCK TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
                             + " IN ACCESS EXCLUSIVE MODE");
-                    assertSqlState("55000", () -> assertLeaf(leaf));
+                    assertSqlState("55000", () -> assertLeaf(asserterDsl, leaf));
                     throw rollback;
                 });
                 fail("the transaction should have been rolled back");

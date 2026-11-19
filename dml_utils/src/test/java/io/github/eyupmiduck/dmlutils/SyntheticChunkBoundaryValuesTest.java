@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Verifies {@code dml_utils_lib.synthetic_chunk_boundary_values}: it returns one
  * non-final and one final representative chunk range, position-aligned with the
- * key kinds and in key order, and rejects malformed kinds or a non-positive
- * chunk size.
+ * key kinds and in key order, rejects malformed kinds with {@code 22023}, and
+ * takes a non-positive chunk size as a {@code positive_bigint} domain violation.
  */
 class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
 

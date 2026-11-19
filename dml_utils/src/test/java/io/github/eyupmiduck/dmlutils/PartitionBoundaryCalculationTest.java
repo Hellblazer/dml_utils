@@ -358,8 +358,9 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
     }
 
     /**
-     * The key resolver returns the parent primary key, the stored ordered-key
-     * descriptor and NULL for blocks.
+     * The key resolver returns the parent primary key for a primary-key run and
+     * the stored ordered-key descriptor for an ordered-key run (the blocks case
+     * is covered above).
      */
     @Test
     void migrationRunBoundaryKeyResolvesPerStrategy() {

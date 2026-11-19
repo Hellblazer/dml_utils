@@ -93,6 +93,35 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * When the first of three columns differs, the lower tail and the upper tail
+     * each have one box per suffix column, plus the middle: five boxes. The
+     * final flag only affects the last column of the final upper-tail box.
+     */
+    @Test
+    void rendersFiveBoxesForAFirstColumnDifferenceOnThreeColumns() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b > '2'",
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a > '1' AND t.a < '2'",
+                        "t.a = '2' AND t.b < '5'",
+                        "t.a = '2' AND t.b = '5' AND t.c < '6'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'2'", "'5'", "'6'"},
+                        1, false));
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b > '2'",
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a > '1' AND t.a < '2'",
+                        "t.a = '2' AND t.b < '5'",
+                        "t.a = '2' AND t.b = '5' AND t.c <= '6'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'2'", "'5'", "'6'"},
+                        1, true));
+    }
+
+    /**
      * The same three-box shape with the final flag set only makes the upper
      * tail's last-column bound inclusive (the middle box stays a strict open
      * range), so the last chunk includes its end key.
