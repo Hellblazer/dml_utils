@@ -326,9 +326,11 @@ database:
   `benchmark.bench_partitioned_ordered_target`.
 
 All database access goes through `docker exec`, so no host `psql` is required;
-use `benchmark/psql.sh` for an interactive session. To remove the container and
-reclaim its disk space, run `benchmark/teardown.sh` (the host results are kept;
-recreate with `benchmark/setup.sh`).
+use `benchmark/psql.sh` for an interactive session. Its `-f file` reads the SQL
+file on the host and streams it into the container (the container cannot see
+host paths); `-f -` reads stdin, as does piping a file in. To remove the
+container and reclaim its disk space, run `benchmark/teardown.sh` (the host
+results are kept; recreate with `benchmark/setup.sh`).
 
 ## Smoke test
 

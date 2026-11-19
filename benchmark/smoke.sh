@@ -87,6 +87,11 @@ results_dir="$here/$BENCH_RESULTS_DIR"
 rm -rf "$results_dir"
 mkdir -p "$results_dir"
 
+# The documented host-file recipe: psql.sh must stream a host file into the
+# container, which cannot see host paths itself.
+printf 'SELECT 1;\n' > "$results_dir/psql-probe.sql"
+"$here/psql.sh" -f "$results_dir/psql-probe.sql" >/dev/null
+
 for strategy in primary_key blocks ordered_key; do
     BENCH_PARTITION_WISE=0 BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" \
         "$here/run.sh" --reset
