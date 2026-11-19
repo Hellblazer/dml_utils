@@ -15,9 +15,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.claim_next_migration_leaf(
 AS
 $$
 DECLARE
-    l_run    record;
-    l_leaf   record;
-    l_caller name;
+    l_run  record;
+    l_leaf record;
 BEGIN
     -- The run row lock serializes leaf calculation for this run: a second worker
     -- waits here, then sees the committed leaf state instead of appending the
@@ -72,19 +71,12 @@ BEGIN
             i_leaf_ordinal => l_leaf.leaf_ordinal);
 
     -- This function is SECURITY DEFINER so the metadata writes and the leaf scan
-    -- run as the owner. The scan must still be authorized by the caller, so
-    -- recover the effective caller from SET ROLE and check the leaf.
-    l_caller := COALESCE(NULLIF(pg_catalog.current_setting('role', true), 'none'),
-                         session_user)::name;
-    IF NOT pg_catalog.has_table_privilege(
-            l_caller,
-            pg_catalog.format('%I.%I', l_leaf.leaf_schema_name, l_leaf.leaf_name),
-            'SELECT')
-    THEN
-        RAISE EXCEPTION 'caller lacks SELECT privilege on leaf %.%',
-            l_leaf.leaf_schema_name, l_leaf.leaf_name
-            USING ERRCODE = '42501';
-    END IF;
+    -- run as the owner. The scan must still be authorized by the caller; the
+    -- shared helper recovers the effective caller from SET ROLE and checks the
+    -- leaf, so the rule lives in one place.
+    PERFORM dml_utils_lib.assert_caller_can_select_relation(
+            i_schema_name => l_leaf.leaf_schema_name::dml_utils_data.non_null_text,
+            i_table_name => l_leaf.leaf_name::dml_utils_data.non_null_text);
 
     -- Claim and calculation share the caller's transaction, so a crash leaves
     -- the leaf pending/failed rather than calculation without boundaries. A
@@ -110,6 +102,7 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.claim_next_migration_leaf IS
     'Locks the run and claims the first pending/failed/stale-calculating leaf in '
         'manifest order, verifies it still matches the manifest, checks the '
-        'effective caller can SELECT it and marks it calculating. Returns the leaf '
+        'effective caller can SELECT it (assert_caller_can_select_relation) and '
+        'marks it calculating. Returns the leaf '
         'identity plus the run''s chunk strategy and size, or no row when the run '
         'is finalized, cancelled or fully calculated.';

@@ -2221,8 +2221,9 @@ RETURNS TABLE
 
 `SECURITY DEFINER`. Locks the run and claims the first pending/failed/
 stale-calculating leaf in manifest order, verifies it still matches the manifest,
-checks the effective caller can SELECT it and marks it `calculating`. Returns the
-leaf identity plus the run's chunk strategy and size, or no row when the run is
+checks the effective caller can SELECT it through the shared
+`assert_caller_can_select_relation` and marks it `calculating`. Returns the leaf
+identity plus the run's chunk strategy and size, or no row when the run is
 finalized, cancelled or fully calculated.
 
 ###
