@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges(
-    i_parent oid
+    i_parent dml_utils_data.non_null_oid
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -33,7 +33,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges(oid) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges(dml_utils_data.non_null_oid) IS
     'Raises insufficient_privilege (42501) when the caller cannot SELECT any '
         'storage leaf of the partitioned parent, so a partition-wise run fails '
         'before creating a manifest row.';

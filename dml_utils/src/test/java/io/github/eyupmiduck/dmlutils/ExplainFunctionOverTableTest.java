@@ -187,6 +187,19 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
+     * An explicit NULL {@code i_is_final} is rejected by the wrapper's non-null
+     * domain, so it fails at the argument instead of deeper in
+     * {@code explain_migration_chunk}.
+     */
+    @Test
+    void rejectsANullIsFinal() {
+        assertDomainViolation(() -> Routines.explainFunctionOverTableChunk(
+                dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
+                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"},
+                null, null, ChunkingStrategy.primary_key, null, false, null));
+    }
+
+    /**
      * The explicit-boundary form explains one chunk of the per-row function call,
      * including the prefix-equality shape the synthetic explain never produces.
      */

@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.process_migration_chunk(
-    i_run_id bigint,
-    i_boundary_no bigint,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_boundary_no dml_utils_data.non_negative_bigint,
     i_sql_text dml_utils_data.non_null_text
 )
     RETURNS void

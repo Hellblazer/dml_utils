@@ -1,10 +1,10 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.next_migration_chunk(
-    i_run_id bigint,
-    i_partition_wise boolean,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_partition_wise dml_utils_data.non_null_boolean,
     i_key_kinds text[],
     i_in_flight_boundaries bigint[],
-    i_default_schema_name text,
-    i_default_table_name text,
+    i_default_schema_name dml_utils_data.non_null_text,
+    i_default_table_name dml_utils_data.non_null_text,
     OUT o_boundary_no bigint,
     OUT o_chunk_schema_name text,
     OUT o_chunk_table_name text,
@@ -77,7 +77,7 @@ BEGIN
         RETURN;
     END IF;
 
-    IF i_partition_wise THEN
+    IF i_partition_wise::boolean THEN
         IF o_chunk_schema_name IS NULL THEN
             RAISE EXCEPTION 'partition tree changed for run %: leaf ordinal % is missing from the manifest',
                 i_run_id, l_start_leaf_ordinal
@@ -111,12 +111,12 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk(
-    bigint,
-    boolean,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.non_null_boolean,
     text[],
     bigint[],
-    text,
-    text
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
     ) IS
     'Selects the next unclaimed boundary for a run (not in flight), extracts its '
         'start and end keys and, for a partition-wise run, ends the last chunk of '

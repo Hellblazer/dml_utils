@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
-    i_index_oid oid,
-    i_schema_name text,
-    i_table_name text,
-    i_index_name text
+    i_index_oid dml_utils_data.non_null_oid,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_index_name dml_utils_data.non_null_text
 )
     RETURNS TABLE
             (
@@ -41,10 +41,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
-    oid,
-    text,
-    text,
-    text
+    dml_utils_data.non_null_oid,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
     ) IS
     'Validates one ordered-key index by OID (assert_ordered_key_index_usable) and '
         'returns its key columns in index order (ordered_key_column_attributes). '

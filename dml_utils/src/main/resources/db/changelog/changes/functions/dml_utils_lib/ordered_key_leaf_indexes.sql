@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_leaf_indexes(
-    i_parent_index_oid oid
+    i_parent_index_oid dml_utils_data.non_null_oid
 )
     RETURNS TABLE
             (
@@ -35,6 +35,6 @@ FROM index_tree AS tree
 WHERE tc.relkind = 'r';
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.ordered_key_leaf_indexes(oid) IS
+COMMENT ON FUNCTION dml_utils_lib.ordered_key_leaf_indexes(dml_utils_data.non_null_oid) IS
     'Walks a partitioned index''s inheritance tree once and returns one row per '
         'storage leaf with its matching descendant index OID and name.';

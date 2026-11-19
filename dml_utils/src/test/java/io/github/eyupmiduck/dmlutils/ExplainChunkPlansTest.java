@@ -98,15 +98,16 @@ class ExplainChunkPlansTest extends PostgresTestBase {
     }
 
     /**
-     * The blocks explain bounds the chunk size: NULL, zero, negative and above
-     * 2147483647 are rejected, while the maximum accepted value still plans (its
-     * doubled end is the largest representable tid block).
+     * The blocks explain bounds the chunk size: its positive domain rejects NULL,
+     * zero and negative at the call, above 2147483647 is rejected explicitly, and
+     * the maximum accepted value still plans (its doubled end is the largest
+     * representable tid block).
      */
     @Test
     void boundsTheBlockChunkSize() {
-        assertSqlState("22023", () -> explainBlocks(null));
-        assertSqlState("22023", () -> explainBlocks(0L));
-        assertSqlState("22023", () -> explainBlocks(-1L));
+        assertDomainViolation(() -> explainBlocks(null));
+        assertDomainViolation(() -> explainBlocks(0L));
+        assertDomainViolation(() -> explainBlocks(-1L));
         assertSqlState("22023", () -> explainBlocks(2147483648L));
 
         assertPlanKinds(explainBlocks(2147483647L));

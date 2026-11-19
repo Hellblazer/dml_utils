@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.migration_run_boundary_key(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS TABLE
             (
@@ -70,7 +70,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.migration_run_boundary_key(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.migration_run_boundary_key(dml_utils_data.non_null_bigint) IS
     'Returns the boundary-key columns and kinds a run chunks by: NULL for blocks, '
         'the stored ordered-key descriptor for ordered_key, and the driving '
         'parent''s primary key for primary_key. Every leaf of a run must use the same '

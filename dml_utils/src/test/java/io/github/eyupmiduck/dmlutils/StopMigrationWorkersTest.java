@@ -34,6 +34,24 @@ class StopMigrationWorkersTest extends PostgresTestBase {
     }
 
     /**
+     * The loops index both arrays from 1, so a zero-based or multidimensional
+     * array is rejected with {@code 22023} instead of addressing the wrong
+     * element.
+     */
+    @Test
+    void rejectsZeroBasedOrMultidimensionalArrays() {
+        assertSqlState("22023", () -> dsl.execute(
+                "SELECT dml_utils_lib.stop_migration_workers("
+                        + "'[0:0]={1}'::integer[], '[0:0]={1}'::bigint[], false, 100)"));
+        assertSqlState("22023", () -> dsl.execute(
+                "SELECT dml_utils_lib.stop_migration_workers("
+                        + "'{1}'::integer[], '[0:0]={1}'::bigint[], false, 100)"));
+        assertSqlState("22023", () -> dsl.execute(
+                "SELECT dml_utils_lib.stop_migration_workers("
+                        + "'{{1}}'::integer[], '{{1}}'::bigint[], false, 100)"));
+    }
+
+    /**
      * A non-positive wait timeout is rejected; NULL is the explicit
      * wait-indefinitely spelling.
      */

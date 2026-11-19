@@ -7,5 +7,5 @@ DROP FUNCTION IF EXISTS dml_utils_lib.render_chunk_sql(
     text[],
     text[],
     text[],
-    boolean
+    dml_utils_data.non_null_boolean
 );

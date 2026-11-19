@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.manifest_leaf_identity(
-    i_run_id bigint,
-    i_leaf_ordinal integer,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer,
     OUT o_chunk_by dml_utils_data.chunking_strategy,
     OUT o_leaf_schema_name text,
     OUT o_leaf_name text,
@@ -40,8 +40,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.manifest_leaf_identity(
-    bigint,
-    integer
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer
     ) IS
     'Returns the stored identity of one partition-wise manifest leaf: chunk '
         'strategy, schema, name, OID, partition bound and blocks filepath. A '

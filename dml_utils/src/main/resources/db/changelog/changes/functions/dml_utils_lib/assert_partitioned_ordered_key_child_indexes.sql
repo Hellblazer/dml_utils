@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
-    i_index_oid oid,
+    i_index_oid dml_utils_data.non_null_oid,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_index_name dml_utils_data.non_null_text
@@ -58,7 +58,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_ordered_key_child_indexes(
-    oid,
+    dml_utils_data.non_null_oid,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text

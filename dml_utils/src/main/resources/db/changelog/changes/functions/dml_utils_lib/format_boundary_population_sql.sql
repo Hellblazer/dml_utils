@@ -1,13 +1,13 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.format_boundary_population_sql(
-    i_select_list text,
-    i_order_by text,
-    i_schema_name text,
-    i_table_name text,
-    i_id_list text,
-    i_pack_expression text,
-    i_order_by_desc text,
-    i_run_id bigint,
-    i_chunk_size bigint
+    i_select_list dml_utils_data.non_null_text,
+    i_order_by dml_utils_data.non_null_text,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_id_list dml_utils_data.non_null_text,
+    i_pack_expression dml_utils_data.non_null_text,
+    i_order_by_desc dml_utils_data.non_null_text,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -16,38 +16,11 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.format_boundary_population_sql(
 AS
 $$
 BEGIN
-    -- The two identifiers rendered with %I and the numbers interpolated below are
-    -- validated here, like the descriptor's caller does: a NULL argument renders as
-    -- an empty string through format(), so a NULL run id, a non-positive chunk size
-    -- or a missing fragment would only fail when the statement is finally executed
-    -- (after the run and its boundaries exist). A blank ORDER BY is a syntax error.
-    -- The fragments are otherwise unvalidated trusted SQL (see the trust boundary
+    -- The identifiers, fragments, run id and chunk size are typed with domains, so
+    -- a missing or blank fragment and a NULL run id or non-positive chunk size fail
+    -- at the call instead of rendering an empty string after the run exists. The
+    -- fragments are otherwise unvalidated trusted SQL (see the trust boundary
     -- below).
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'i_run_id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-    IF i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'i_chunk_size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
-    IF i_select_list IS NULL
-        OR i_order_by IS NULL
-        OR i_schema_name IS NULL
-        OR i_table_name IS NULL
-        OR i_id_list IS NULL
-        OR i_pack_expression IS NULL
-        OR i_order_by_desc IS NULL
-    THEN
-        RAISE EXCEPTION 'the select list, order-by, identifiers, id list and pack expression must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-    IF pg_catalog.btrim(i_order_by, E' \t\n\r\f\013') = ''
-        OR pg_catalog.btrim(i_order_by_desc, E' \t\n\r\f\013') = ''
-    THEN
-        RAISE EXCEPTION 'i_order_by and i_order_by_desc must not be blank'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- Boundaries are picked by row position, so the computation never needs
     -- min()/max() on the key: PostgreSQL defines those aggregates for the integer
@@ -132,20 +105,20 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.format_boundary_population_sql(
-    text,
-    text,
-    text,
-    text,
-    text,
-    text,
-    text,
-    bigint,
-    bigint
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_bigint
     ) IS
     'Returns the single-relation boundary-population statement from the key '
-        'descriptor fragments. Raises invalid_parameter_value (22023) for a NULL '
-        'run id, a non-positive chunk size, any NULL fragment or identifier, or a '
-        'blank ORDER BY; the fragments are otherwise trusted SQL produced by '
+        'descriptor fragments. The domains reject a NULL run id, a non-positive '
+        'chunk size and any NULL or blank fragment or identifier at the call; the '
+        'fragments are otherwise trusted SQL produced by '
         'boundary_key_descriptor_sql. The statement streams the boundary key in '
         'index order, materialises only the chunk starts and takes the terminal from '
         'a backward index scan. The boundary key must be unique with '

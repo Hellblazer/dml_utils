@@ -27,8 +27,14 @@ BEGIN
                 'SELECT dml_utils_lib.record_migration_error(%L, %L, %L, %L)',
                 i_run_id,
                 i_boundary_no,
-                COALESCE(i_sqlstate, '55000'),
-                COALESCE(i_error_message, 'chunk failed without an error message'))
+                -- A NULL *or blank* value would be rejected by
+                -- record_migration_error's non-null domain in the worker, losing
+                -- the record; blank means the same ASCII whitespace set the domain
+                -- trims.
+                COALESCE(NULLIF(pg_catalog.btrim(i_sqlstate, E' \t\n\r\f\013'), ''), '55000'),
+                COALESCE(
+                        NULLIF(pg_catalog.btrim(i_error_message, E' \t\n\r\f\013'), ''),
+                        'chunk failed without an error message'))
              ) AS outcome;
 
         -- A worker that never ran its payload reports completed = false (and
@@ -56,7 +62,8 @@ COMMENT ON FUNCTION dml_utils_lib.record_migration_worker_failure(
     text
     ) IS
     'Records a failed chunk in dml_utils_data.migration_error through an '
-        'autonomous pg_background transaction. A NULL sqlstate or message is '
-        'replaced with a generic value so the record is never lost. A recording '
+        'autonomous pg_background transaction. A NULL or blank (any ASCII '
+        'whitespace) sqlstate or message is replaced with a generic value so the '
+        'record is never lost. A recording '
         'failure is reported as a WARNING instead of being raised, so the caller '
         'can still re-raise the original worker error.';

@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.leaf_terminal_boundary_id(
-    i_run_id bigint,
-    i_leaf_ordinal integer
+    i_run_id dml_utils_data.non_null_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer
 )
     RETURNS dml_utils_data.migration_key
     LANGUAGE plpgsql
@@ -90,8 +90,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.leaf_terminal_boundary_id(
-    bigint,
-    integer
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer
     ) IS
     'Returns the high-water migration_key for a leaf: the last row in the run''s '
         'key order, or one-past-end block number for blocks. finalize_'

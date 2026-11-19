@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.render_chunk_sql(
     i_key_kinds text[],
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean
+    i_is_final dml_utils_data.non_null_boolean
 )
     RETURNS text
     LANGUAGE plpgsql

@@ -65,6 +65,35 @@ class MigrationErrorTest extends PostgresTestBase {
     }
 
     /**
+     * A blank (ASCII-whitespace-only) sqlstate or message is normalized like NULL,
+     * so the record is not lost to the non-null domain inside the worker.
+     */
+    @Test
+    void recordsAWorkerFailureWithBlankValuesAsFallbacks() {
+        Long blankBoth = insertRunWithBoundary();
+        Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), blankBoth, 0L, " \t", "\n ");
+
+        MigrationErrorRecord both = dsl.selectFrom(MIGRATION_ERROR)
+                .where(MIGRATION_ERROR.RUN_ID.eq(blankBoth))
+                .fetchOne();
+        assertNotNull(both, "blank inputs still record the failure");
+        assertEquals("55000", both.getSqlstate());
+        assertEquals("chunk failed without an error message", both.getMessage());
+
+        Long blankMessage = insertRunWithBoundary();
+        Routines.recordMigrationWorkerFailure(
+                dsl.configuration(), blankMessage, 0L, "22012", "   ");
+
+        MigrationErrorRecord kept = dsl.selectFrom(MIGRATION_ERROR)
+                .where(MIGRATION_ERROR.RUN_ID.eq(blankMessage))
+                .fetchOne();
+        assertNotNull(kept, "a blank message still records the failure");
+        assertEquals("22012", kept.getSqlstate(), "the sqlstate is kept");
+        assertEquals("chunk failed without an error message", kept.getMessage());
+    }
+
+    /**
      * The worker-failure keys are non-null domains.
      */
     @Test

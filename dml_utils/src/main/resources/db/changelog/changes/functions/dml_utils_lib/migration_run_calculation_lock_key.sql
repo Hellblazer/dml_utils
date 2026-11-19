@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.migration_run_calculation_lock_key(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS bigint
     LANGUAGE sql
@@ -18,10 +18,11 @@ SELECT pg_catalog.hashtextextended(
                'dml_utils.migration_run.calculation.' || i_run_id::text, 0);
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.migration_run_calculation_lock_key(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.migration_run_calculation_lock_key(dml_utils_data.non_null_bigint) IS
     'Returns the advisory-lock key used to serialize partition-wise boundary '
         'calculation for a run. IMMUTABLE: the prefix concatenation with bigint''s '
         'text output and pg_catalog.hashtextextended are immutable (pg_catalog.format '
-        'is only STABLE, so it is not used). STRICT: a NULL run id yields NULL '
-        'instead of collapsing every NULL caller onto one shared key. PARALLEL '
+        'is only STABLE, so it is not used). STRICT: a NULL argument would yield '
+        'NULL instead of collapsing every NULL caller onto one shared key, but the '
+        'non-null run-id domain rejects NULL at the call. PARALLEL '
         'SAFE: it reads no state and takes no lock.';

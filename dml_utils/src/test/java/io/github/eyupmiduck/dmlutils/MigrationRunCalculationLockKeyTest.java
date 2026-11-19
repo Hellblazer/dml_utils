@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.migration_run_calculation_lock_key}: the advisory
- * lock key is declared immutable, strict and parallel safe, maps a NULL run id to
- * NULL instead of a shared key, and is deterministic per run.
+ * lock key is declared immutable, strict and parallel safe, rejects a NULL run
+ * id through its domain, and is deterministic per run.
  */
 class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
 
@@ -32,18 +32,18 @@ class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
         assertEquals("i", attributes.get("provolatile", String.class),
                 "the key derivation is immutable (bigint::text, not format())");
         assertTrue(attributes.get("proisstrict", Boolean.class),
-                "STRICT keeps a NULL run id from collapsing onto a shared key");
+                "STRICT would keep a NULL run id from collapsing onto a shared key");
         assertEquals("s", attributes.get("proparallel", String.class),
                 "the key derivation is parallel safe");
     }
 
     /**
-     * A NULL run id yields NULL; every NULL caller must not share one key.
+     * A NULL run id is rejected by the non-null domain at the call, so no caller
+     * can reach the STRICT body with NULL.
      */
     @Test
-    void nullRunIdYieldsNull() {
-        assertNull(dsl.fetchOne("SELECT " + FUNCTION + "(NULL)")
-                .get(0, Long.class));
+    void rejectsANullRunId() {
+        assertDomainViolation(() -> dsl.fetchOne("SELECT " + FUNCTION + "(NULL)"));
     }
 
     /**

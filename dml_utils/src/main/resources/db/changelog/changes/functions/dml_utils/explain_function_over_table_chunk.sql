@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION dml_utils.explain_function_over_table_chunk(
     i_function_name dml_utils_data.non_null_text,
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean,
+    i_is_final dml_utils_data.non_null_boolean,
     -- Plain text, not non_null_text: an omitted filter is NULL and means no
     -- filter. non_null_text would reject the DEFAULT NULL before the body.
     i_filter text DEFAULT NULL,
@@ -81,7 +81,7 @@ COMMENT ON FUNCTION dml_utils.explain_function_over_table_chunk(
     dml_utils_data.non_null_text,
     text[],
     text[],
-    boolean,
+    dml_utils_data.non_null_boolean,
     text,
     dml_utils_data.chunking_strategy,
     name,

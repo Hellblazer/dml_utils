@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_key_chunk_plans(
     i_table_alias dml_utils_data.non_null_text,
     i_key_columns name[],
     i_key_kinds text[],
-    i_chunk_size bigint
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS TABLE
             (
@@ -70,7 +70,7 @@ COMMENT ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
     dml_utils_data.non_null_text,
     name[],
     text[],
-    bigint
+    dml_utils_data.positive_bigint
     ) IS
     'Returns the EXPLAIN (FORMAT JSON) plans for a key-chunked run: the boundary '
         'insert and a representative non-final and final chunk rendered from '

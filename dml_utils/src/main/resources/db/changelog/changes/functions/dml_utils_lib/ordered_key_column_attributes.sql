@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_column_attributes(
-    i_index_oid oid,
-    i_schema_name text,
-    i_table_name text,
-    i_index_name text
+    i_index_oid dml_utils_data.non_null_oid,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_index_name dml_utils_data.non_null_text
 )
     RETURNS TABLE
             (
@@ -131,10 +131,10 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.ordered_key_column_attributes(
-    oid,
-    text,
-    text,
-    text
+    dml_utils_data.non_null_oid,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text,
+    dml_utils_data.non_null_text
     ) IS
     'Resolves the key columns of an index already accepted by '
         'assert_ordered_key_index_usable: each column''s type must collapse to a '

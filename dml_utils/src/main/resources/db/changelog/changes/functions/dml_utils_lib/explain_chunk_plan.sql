@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plan(
     i_key_kinds text[],
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean
+    i_is_final dml_utils_data.non_null_boolean
 )
     RETURNS TABLE
             (

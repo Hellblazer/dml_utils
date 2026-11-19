@@ -5,7 +5,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_chunk_plans(
     i_table_alias dml_utils_data.non_null_text,
     i_key_columns name[],
     i_key_kinds text[],
-    i_chunk_size bigint,
+    i_chunk_size dml_utils_data.positive_bigint,
     i_chunk_by dml_utils_data.chunking_strategy DEFAULT 'primary_key'
 )
     RETURNS TABLE

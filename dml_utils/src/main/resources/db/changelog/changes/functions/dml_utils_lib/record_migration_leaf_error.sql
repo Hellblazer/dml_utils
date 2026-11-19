@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.record_migration_leaf_error(
-    i_run_id bigint,
-    i_leaf_ordinal integer,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer,
     i_sqlstate dml_utils_data.non_null_text,
     i_error_message dml_utils_data.non_null_text
 )
@@ -30,8 +30,8 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.record_migration_leaf_error(
-    bigint,
-    integer,
+    dml_utils_data.non_null_bigint,
+    dml_utils_data.positive_integer,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) IS

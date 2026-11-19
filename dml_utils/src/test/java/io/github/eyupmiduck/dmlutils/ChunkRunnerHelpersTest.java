@@ -251,6 +251,18 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * A negative or NULL delay is rejected by the non-negative domain before the
+     * loop, so it cannot silently behave like a zero-delay no-op.
+     */
+    @Test
+    void rejectsANegativeOrNullSleep() {
+        assertDomainViolation(() -> Routines.sleepBetweenMigrationChunks(
+                dsl.configuration(), 1L, -1));
+        assertDomainViolation(() -> Routines.sleepBetweenMigrationChunks(
+                dsl.configuration(), 1L, null));
+    }
+
+    /**
      * A run row deleted through the supported path (archive, then delete the
      * archived terminal run) ends the sleep at the next slice instead of making
      * it loop on a vanished run.
