@@ -56,20 +56,26 @@ class DogBreedsExampleTest extends PostgresTestBase {
         String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {
+            // Drop the probe afterwards so the test is re-executable against the
+            // same database (as the other admin-created probes in the suite are).
+            statement.execute("DROP TABLE IF EXISTS public.dogs");
             statement.execute("CREATE TABLE public.dogs (breed text PRIMARY KEY)");
             statement.execute("INSERT INTO public.dogs VALUES ('sentinel')");
+            try {
+                runExample("dog_breeds_function");
 
-            runExample("dog_breeds_function");
-
-            // Read through the admin connection: dml_utils_test has no grants on
-            // a table the example must never reference.
-            try (var rows = statement.executeQuery(
-                    "SELECT count(*), min(breed) FROM public.dogs")) {
-                assertTrue(rows.next(), "the sentinel query returns a row");
-                assertEquals(1, rows.getInt(1),
-                        "the example must not touch a public.dogs table");
-                assertEquals("sentinel", rows.getString(2),
-                        "the public.dogs row is unchanged");
+                // Read through the admin connection: dml_utils_test has no grants
+                // on a table the example must never reference.
+                try (var rows = statement.executeQuery(
+                        "SELECT count(*), min(breed) FROM public.dogs")) {
+                    assertTrue(rows.next(), "the sentinel query returns a row");
+                    assertEquals(1, rows.getInt(1),
+                            "the example must not touch a public.dogs table");
+                    assertEquals("sentinel", rows.getString(2),
+                            "the public.dogs row is unchanged");
+                }
+            } finally {
+                statement.execute("DROP TABLE IF EXISTS public.dogs");
             }
         }
     }
