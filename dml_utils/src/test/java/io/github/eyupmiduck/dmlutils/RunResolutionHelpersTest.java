@@ -4,10 +4,19 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResumeMigrationRun;
+import org.jooq.SQLDialect;
+import org.jooq.exception.DataAccessException;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.OffsetDateTime;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -85,6 +94,118 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                 "the partition-wise run stores the retry count");
         assertEquals(1000, migrationRun(partitioned).getRetryBackoffMs(),
                 "the partition-wise run stores the retry backoff");
+    }
+
+    /**
+     * A wait that is aborted (here by {@code pg_cancel_backend} on the waiter
+     * only) cancels the worker, so its uncommitted run row rolls back and no
+     * worker is left behind. Without the cancel the worker survives, and the
+     * moment the driving table is released it commits a run the caller never
+     * received, holding the label.
+     */
+    @Test
+    void cancelledWaitCancelsTheWorkerAndLeavesNoRun() throws Exception {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("create-cancelled");
+        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection admin = openAdminConnection(database);
+             Connection caller = openTestConnection()) {
+            // Hold the worker in populate_migration_boundaries' boundary scan.
+            admin.setAutoCommit(false);
+            try (Statement statement = admin.createStatement()) {
+                statement.execute("LOCK TABLE " + schema(TEST_BIGINT) + "."
+                        + name(TEST_BIGINT) + " IN ACCESS EXCLUSIVE MODE");
+            }
+
+            int callerPid = backendPid(caller);
+            AtomicReference<String> sqlstate = new AtomicReference<>();
+            Future<?> call = executor.submit(() -> {
+                try {
+                    Routines.createMigrationRun(
+                            DSL.using(caller, SQLDialect.POSTGRES).configuration(),
+                            schema(TEST_BIGINT), name(TEST_BIGINT), label, TEMPLATE, 2, 1,
+                            ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+                } catch (DataAccessException e) {
+                    sqlstate.set(e.sqlState());
+                }
+            });
+            try {
+                awaitWorker(label);
+                dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", callerPid);
+
+                call.get(10, TimeUnit.SECONDS);
+                assertEquals("57014", sqlstate.get(),
+                        "the aborted wait re-raises its own error");
+                assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                        "the cancelled worker must not commit a run the caller never received");
+                assertEquals(0, workerCount(label),
+                        "the aborted wait must cancel the worker, not leave it running");
+            } finally {
+                admin.rollback();
+                try {
+                    call.get(5, TimeUnit.SECONDS);
+                } catch (TimeoutException e) {
+                    // The worker never appeared or the wait was not interrupted:
+                    // unblock the waiter so the connection can close.
+                    dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", callerPid);
+                }
+            }
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS),
+                    "the caller task finished");
+        }
+    }
+
+    /**
+     * Waits until the launched worker is visible in {@code pg_stat_activity},
+     * bounded so a launch failure cannot hang the test.
+     *
+     * @param label the run label embedded in the launched SQL
+     * @throws InterruptedException if the poll is interrupted
+     */
+    private void awaitWorker(String label) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (workerCount(label) == 0) {
+            if (System.nanoTime() > deadline) {
+                fail("the worker for " + label + " never started");
+            }
+            Thread.sleep(10);
+        }
+    }
+
+    /**
+     * Counts the live {@code pg_background} workers whose current statement is
+     * this run's boundary population.
+     *
+     * @param label the run label embedded in the launched SQL
+     * @return the number of matching live workers
+     */
+    private int workerCount(String label) {
+        return dsl.fetchOne("""
+                SELECT count(*)
+                FROM pg_catalog.pg_stat_activity
+                WHERE backend_type = 'pg_background'
+                  AND query LIKE '%populate_migration_boundaries%'
+                  AND query LIKE ?
+                """, "%" + label + "%").get(0, Integer.class);
+    }
+
+    /**
+     * Returns a connection's backend pid.
+     *
+     * @param connection the connection to identify
+     * @return its backend pid
+     * @throws SQLException if the query fails
+     */
+    private int backendPid(Connection connection) throws SQLException {
+        try (Statement statement = connection.createStatement();
+             ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+            assertTrue(rows.next(), "pg_backend_pid() returns a row");
+            return rows.getInt(1);
+        }
     }
 
     /**
