@@ -109,18 +109,23 @@ BEGIN
                     USING ERRCODE = '55000';
             END IF;
         ELSE
-            PERFORM dml_utils_lib.assert_usable_ordered_key(
-                    i_schema_name => i_driving_table_schema_name,
-                    i_table_name => i_driving_table_name,
-                    i_index_name => i_boundary_key_index);
-            l_key_columns := dml_utils_lib.ordered_key_columns(
-                    i_schema_name => i_driving_table_schema_name,
-                    i_table_name => i_driving_table_name,
-                    i_index_name => i_boundary_key_index);
-            l_key_kinds := dml_utils_lib.ordered_key_kinds(
-                    i_schema_name => i_driving_table_schema_name,
-                    i_table_name => i_driving_table_name,
-                    i_index_name => i_boundary_key_index);
+            -- One traversal returns both arrays: ordered_key_attributes validates
+            -- the index (the same checks assert_usable_ordered_key, ordered_key_
+            -- columns and ordered_key_kinds would repeat) and yields one row per
+            -- key column, so the aggregates are ordered and aligned.
+            SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                   pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+            INTO l_key_columns, l_key_kinds
+            FROM dml_utils_lib.ordered_key_attributes(
+                         i_schema_name => i_driving_table_schema_name,
+                         i_table_name => i_driving_table_name,
+                         i_index_name => i_boundary_key_index) AS a;
+
+            IF l_key_columns IS NULL OR l_key_kinds IS NULL THEN
+                RAISE EXCEPTION 'ordered key %.% resolved no key columns',
+                    i_driving_table_schema_name, i_driving_table_name
+                    USING ERRCODE = '55000';
+            END IF;
         END IF;
     ELSE
         l_key_columns := dml_utils_lib.primary_key_columns(
