@@ -135,13 +135,13 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
                 TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
-        try (java.sql.Connection admin = openAdminConnection(database);
-             java.sql.Statement statement = admin.createStatement()) {
-            statement.execute("CREATE SCHEMA next_shadow");
-            statement.execute("CREATE AGGREGATE next_shadow.max(bigint)"
-                    + " (SFUNC = pg_catalog.int8pl, STYPE = bigint, INITCOND = '1000000')");
-        }
         try {
+            try (java.sql.Connection admin = openAdminConnection(database);
+                 java.sql.Statement statement = admin.createStatement()) {
+                statement.execute("CREATE SCHEMA next_shadow");
+                statement.execute("CREATE AGGREGATE next_shadow.max(bigint)"
+                        + " (SFUNC = pg_catalog.int8pl, STYPE = bigint, INITCOND = '1000000')");
+            }
             dsl.transaction(config -> {
                 org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
                 tx.execute("SET LOCAL search_path = next_shadow, pg_catalog");

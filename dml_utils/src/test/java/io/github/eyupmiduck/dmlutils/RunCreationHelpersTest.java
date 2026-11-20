@@ -38,6 +38,9 @@ class RunCreationHelpersTest extends PartitionTestBase {
         executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                 + TEST_BIGINT.getSchema().getName() + "." + TEST_BIGINT.getName()
                 + " TO " + TEST_USER + ", dml_utils_caller");
+        executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
+                + PARTITION_SCHEMA + ".test_partitioned_range_low"
+                + " TO " + TEST_USER + ", dml_utils_caller");
     }
 
     /**

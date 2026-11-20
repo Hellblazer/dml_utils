@@ -409,14 +409,14 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 2L);
         long runId = createRun(ChunkingStrategy.primary_key, 2);
 
-        executeAsOwner("CREATE OR REPLACE FUNCTION dml_utils_fixtures.suppress_boundary()"
-                + " RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN"
-                + " IF NEW.run_id = " + runId + " THEN RETURN NULL; END IF;"
-                + " RETURN NEW; END $fn$");
-        executeAsOwner("CREATE TRIGGER suppress_boundary BEFORE INSERT"
-                + " ON dml_utils_data.migration_boundary FOR EACH ROW"
-                + " EXECUTE FUNCTION dml_utils_fixtures.suppress_boundary()");
         try {
+            executeAsOwner("CREATE OR REPLACE FUNCTION dml_utils_fixtures.suppress_boundary()"
+                    + " RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN"
+                    + " IF NEW.run_id = " + runId + " THEN RETURN NULL; END IF;"
+                    + " RETURN NEW; END $fn$");
+            executeAsOwner("CREATE TRIGGER suppress_boundary BEFORE INSERT"
+                    + " ON dml_utils_data.migration_boundary FOR EACH ROW"
+                    + " EXECUTE FUNCTION dml_utils_fixtures.suppress_boundary()");
             assertSqlState("55000", () -> calculate(runId));
         } finally {
             executeAsOwner("DROP TRIGGER IF EXISTS suppress_boundary"

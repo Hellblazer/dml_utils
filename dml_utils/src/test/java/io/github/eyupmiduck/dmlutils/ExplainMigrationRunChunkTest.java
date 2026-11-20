@@ -284,12 +284,36 @@ class ExplainMigrationRunChunkTest extends PartitionTestBase {
         long runId = populate(TEST_PARTITIONED_RANGE, uniqueLabel("explain-run-changed"),
                 ChunkingStrategy.primary_key, null, true, 2);
         calculateRun(runId);
+        Throwable failure = null;
         try {
             executeAsOwner("ALTER TABLE " + SCHEMA + "." + TABLE
                     + " DETACH PARTITION " + SCHEMA + ".test_partitioned_range_mid");
             assertSqlState("55000", () -> explain(runId, 0L));
+        } catch (Error | RuntimeException e) {
+            failure = e;
+            throw e;
+        } catch (Exception e) {
+            failure = e;
+            throw e;
         } finally {
-            restoreMidPartition();
+            // Restore in the finally but keep the original failure primary: a
+            // restore error is attached as suppressed instead of masking the
+            // assertion (or leaving the leaf detached with no record of why).
+            try {
+                restoreMidPartition();
+            } catch (Exception restore) {
+                if (failure != null) {
+                    failure.addSuppressed(restore);
+                } else {
+                    throw restore;
+                }
+            } catch (Error restore) {
+                if (failure != null) {
+                    failure.addSuppressed(restore);
+                } else {
+                    throw restore;
+                }
+            }
         }
     }
 

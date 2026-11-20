@@ -201,6 +201,13 @@ abstract class PartitionTestBase extends PostgresTestBase {
      * @throws SQLException if the restore fails
      */
     protected void restoreMidPartition() throws SQLException {
+        // Keep the standalone table's OID and rows: the detach/reattach tests
+        // resume a run over the same leaf, and its rows are the fixture's data, not
+        // leftovers. The next test's @BeforeEach truncates the parent (and so the
+        // reattached child), which clears anything a test changed. Only a missing
+        // leaf is recreated, and only a failed attach triggers the canonical
+        // recreate below, so a half-finished detach/attach cannot leave every later
+        // test on a detached fixture.
         if (partitionAttached()) {
             executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
                     + " DETACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
@@ -210,12 +217,32 @@ abstract class PartitionTestBase extends PostgresTestBase {
                     + " PARTITION OF " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
                     + " FOR VALUES FROM (100) TO (200)");
         } else {
-            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
-                    + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
-                    + " FOR VALUES FROM (100) TO (200)");
+            try {
+                executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                        + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
+                        + " FOR VALUES FROM (100) TO (200)");
+            } catch (SQLException attachFailure) {
+                // A standalone table that cannot be reattached (for example a row
+                // outside the bound) would otherwise stay detached for every later
+                // test. Recreate the canonical partition, preserving the original
+                // failure if the recovery also fails.
+                try {
+                    executeAsOwner("DROP TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
+                    executeAsOwner("CREATE TABLE " + PARTITION_SCHEMA + "."
+                            + PARTITIONED_RANGE_MID
+                            + " PARTITION OF " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                            + " FOR VALUES FROM (100) TO (200)");
+                } catch (SQLException recoveryFailure) {
+                    attachFailure.addSuppressed(recoveryFailure);
+                    throw attachFailure;
+                }
+            }
         }
         executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                 + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
                 + " TO " + TEST_USER + ", dml_utils_caller");
+        if (!partitionAttached()) {
+            throw new IllegalStateException("the middle range leaf is not attached after restore");
+        }
     }
 }
