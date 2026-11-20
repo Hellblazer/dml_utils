@@ -13,8 +13,27 @@
 -- literal). They are trusted, pre-validated fragments produced by
 -- benchmark/setup.sh; never feed them external input. :rows must be at least 1:
 -- generate_series(1, 0) would create an empty fixture and the benchmark would
--- silently run over zero rows (setup.sh enforces it).
+-- silently run over zero rows (the guard below and setup.sh enforce it).
 \set ON_ERROR_STOP on
+
+-- One transaction: a failure after the DROP leaves the previous fixture intact
+-- instead of a partially created table.
+BEGIN;
+
+-- Reject an empty fixture before any DDL: generate_series(1, 0) would create an
+-- empty table that the sweep would silently run over. setup.sh validates this
+-- too; the guard keeps the script safe when it is run directly. psql does not
+-- substitute variables inside a dollar-quoted body, so pass the value through a
+-- transaction-local setting.
+SELECT pg_catalog.set_config('benchmark.rows', :'rows', true);
+DO $guard$
+BEGIN
+    IF pg_catalog.current_setting('benchmark.rows')::bigint < 1 THEN
+        RAISE EXCEPTION 'rows must be at least 1: %',
+            pg_catalog.current_setting('benchmark.rows');
+    END IF;
+END
+$guard$;
 
 CREATE SCHEMA IF NOT EXISTS :"schema";
 
@@ -46,3 +65,5 @@ FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;
 -- Refresh planner statistics so a run is not planned from an empty relation and
 -- the timings do not depend on whether autovacuum has run yet.
 ANALYZE :"schema".:"source_table";
+
+COMMIT;

@@ -6,6 +6,10 @@
 -- variable must stay on one line: a psql variable is only substituted when the
 -- name follows the colon with no whitespace, so a formatter that splits it breaks
 -- the script.
+--
+-- :pk_def is interpolated verbatim as SQL text (unlike :schema/:target_table,
+-- which are identifier-quoted). It is a trusted, pre-validated fragment produced
+-- by benchmark/setup.sh from BENCH_PK_COLUMNS; never feed it external input.
 \set ON_ERROR_STOP on
 
 CREATE SCHEMA IF NOT EXISTS :"schema";

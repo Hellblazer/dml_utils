@@ -297,7 +297,8 @@ SQL
 }
 
 # Report the dataset the sweep runs against.
-src_rows="$(psql_run -At -c "SELECT count(*) FROM \"${BENCH_SCHEMA}\".\"${run_table}\"")"
+src_rows="$(psql_run -At -v ON_ERROR_STOP=1 \
+    -c "SELECT count(*) FROM \"${BENCH_SCHEMA}\".\"${run_table}\"")"
 if [ "$BENCH_CHUNK_BY" = ordered_key ]; then
     key_desc="ordered key ${pk_columns_csv}"
 else

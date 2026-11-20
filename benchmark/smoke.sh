@@ -31,8 +31,10 @@ done
 # config.local.env.
 BENCH_IGNORE_LOCAL_CONFIG=1
 # Scope the names to this invocation so two concurrent smoke runs (or a run next
-# to a developer's benchmark stack) cannot stop each other's database.
-suffix="$$"
+# to a developer's benchmark stack) cannot stop each other's database. Include
+# random bits: a PID can be reused, and a previous --keep run with the same PID
+# would otherwise collide with (and rm -rf) its resources.
+suffix="$$_$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
 BENCH_CONTAINER="dml_utils_benchmark_smoke_pg_$suffix"
 BENCH_VOLUME="dml_utils_benchmark_smoke_pgdata_$suffix"
 BENCH_NETWORK="dml_utils_benchmark_smoke_net_$suffix"
@@ -134,6 +136,8 @@ BENCH_RESULTS_DIR="$BENCH_RESULTS_DIR/smoke-report" BENCH_CSV=combined.csv \
 grep -q '^### strategy `primary_key`, key k1+k2+k3, chunk_size 500 rows$' \
     "$report_dir/report.md"
 grep -q '^### strategy `blocks`, key k1+k2+k3, chunk_size 500 blocks$' \
+    "$report_dir/report.md"
+grep -q '^### strategy `ordered_key`, key created_at+id, chunk_size 500 rows$' \
     "$report_dir/report.md"
 grep -q '^### strategy `primary_key`, key k1+k2+k3, chunk_size 500 rows (partition-wise)$' \
     "$report_dir/report.md"

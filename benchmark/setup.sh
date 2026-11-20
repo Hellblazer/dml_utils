@@ -115,6 +115,12 @@ else
     config_mismatch=""
     actual_image="$(docker inspect -f '{{.Config.Image}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
     [ "$actual_image" = "$BENCH_IMAGE" ] || config_mismatch="image"
+    # The tag can be reused by a rebuild: the running container keeps the old
+    # image id, so comparing the tag alone would silently benchmark stale code.
+    image_id="$(docker image inspect -f '{{.Id}}' "$BENCH_IMAGE" 2>/dev/null || true)"
+    container_image_id="$(docker inspect -f '{{.Image}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$container_image_id" = "$image_id" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }image was rebuilt"
     expected_cmd="postgres -c max_worker_processes=$BENCH_MAX_WORKER_PROCESSES -c shared_buffers=$BENCH_SHARED_BUFFERS -c max_connections=$BENCH_MAX_CONNECTIONS"
     actual_cmd="$(docker inspect -f '{{join .Config.Cmd " "}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
     [ "$actual_cmd" = "$expected_cmd" ] \
@@ -301,34 +307,34 @@ case "$_bench_schema_lower" in
         ;;
 esac
 unset _bench_schema_lower
-# A target that collides with any source would make create-target.sql drop the
-# freshly populated source and turn the benchmark into a self-insert.
-_sources=" $BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE $BENCH_PARTITIONED_ORDERED_SOURCE_TABLE "
-for _target in "$BENCH_TARGET_TABLE" "$BENCH_ORDERED_TARGET_TABLE" \
-    "$BENCH_PARTITIONED_TARGET_TABLE" "$BENCH_PARTITIONED_ORDERED_TARGET_TABLE"; do
-    case "$_sources" in
-        *" $_target "*)
-            echo "benchmark target '$_target' collides with a source table" >&2
-            exit 2
-            ;;
-    esac
-    # The partitioned scripts also create <source>_p0..<source>_pN-1 leaves; a
-    # target with one of those names would be dropped by the later create-target
-    # step, after its source was populated.
-    case "$_target" in
+# Every fixture name must be distinct: a target that collides with a source
+# would make create-target.sql drop the freshly populated source and turn the
+# benchmark into a self-insert, and two sources or two targets with one name
+# would silently replace each other as the scripts run.
+_fixture_names="$BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE $BENCH_PARTITIONED_ORDERED_SOURCE_TABLE $BENCH_TARGET_TABLE $BENCH_ORDERED_TARGET_TABLE $BENCH_PARTITIONED_TARGET_TABLE $BENCH_PARTITIONED_ORDERED_TARGET_TABLE"
+_duplicates="$(printf '%s\n' $_fixture_names | sort | uniq -d)"
+if [ -n "$_duplicates" ]; then
+    echo "benchmark fixture names must be distinct; duplicated: $(printf '%s' "$_duplicates" | tr '\n' ' ')" >&2
+    exit 2
+fi
+# The partitioned scripts also create <source>_p0..<source>_pN-1 leaves; any
+# fixture with one of those names would be dropped or would block the leaf
+# creation, depending on the order.
+for _name in $_fixture_names; do
+    case "$_name" in
         "$BENCH_PARTITIONED_SOURCE_TABLE"_p*|"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE"_p*)
-            _leaf_suffix="${_target##*_p}"
+            _leaf_suffix="${_name##*_p}"
             case "$_leaf_suffix" in
                 ''|*[!0-9]*) ;;
                 *)
-                    echo "benchmark target '$_target' collides with a generated partition leaf" >&2
+                    echo "benchmark fixture '$_name' collides with a generated partition leaf" >&2
                     exit 2
                     ;;
             esac
             ;;
     esac
 done
-unset _sources _target _leaf_suffix _e _j
+unset _fixture_names _duplicates _name _leaf_suffix _e _j
 pk_count="$BENCH_PK_COLUMNS"
 # m such that m^pk_count >= rows, by bisection: a linear scan is O(rows) for a
 # one-column key (the default). The power is clamped because mid^pk_count can
@@ -365,19 +371,15 @@ while [ "$_i" -lt "$pk_count" ]; do
     _i=$((_i + 1))
 done
 k1_values=$(( (BENCH_ROWS + k1_div - 1) / k1_div ))
-# The leaves are cut from 1..pk_mod, so the last leaf starts at
-# 1 + (n-1)*m/n = 1 + m - ceil(m/n). Compute it that way: (n-1)*m overflows the
-# shell's signed range for a large row count.
+# The leaves are cut from 1..k1_values (the largest k1 the generator produces),
+# so one leaf per distinct value is the most that can be non-empty. Passing
+# pk_mod (the modulus, an upper bound) would cut leaves over values no row
+# reaches and make the last leaves empty for a multi-column key.
 if [ "$BENCH_PARTITIONED_LEAVES" -gt "$k1_values" ]; then
     echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) exceeds the $k1_values distinct k1 values for $BENCH_ROWS rows" >&2
     exit 2
 fi
-last_leaf_lo=$(( 1 + pk_mod - (pk_mod + BENCH_PARTITIONED_LEAVES - 1) / BENCH_PARTITIONED_LEAVES ))
 unset _i
-if [ "$last_leaf_lo" -gt "$k1_values" ]; then
-    echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) would create an empty leaf: the last leaf starts at k1=$last_leaf_lo but only $k1_values distinct k1 values exist for $BENCH_ROWS rows" >&2
-    exit 2
-fi
 pk_def=""
 pk_key=""
 pk_exprs=""
@@ -438,7 +440,7 @@ psql_stdin -v ON_ERROR_STOP=1 \
     -v pk_key="$pk_key" \
     -v pk_exprs="$pk_exprs" \
     -v leaves="$BENCH_PARTITIONED_LEAVES" \
-    -v k1_max="$pk_mod" \
+    -v k1_max="$k1_values" \
     -f - < "$here/sql/create-partitioned-source.sql"
 psql_stdin -v ON_ERROR_STOP=1 \
     -v schema="$BENCH_SCHEMA" \

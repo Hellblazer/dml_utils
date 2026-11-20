@@ -34,6 +34,19 @@ if [ ! -f "$csv" ]; then
     exit 1
 fi
 
+# The report reads the CSV positionally, so a header that is not the shape this
+# version writes would silently shift every field. Accept the current 11-column
+# header and the older 10-column one (no partition_wise), and reject anything
+# else instead of producing a plausible-looking wrong report.
+csv_header="$(head -n 1 "$csv")"
+case ",$csv_header," in
+    ,strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,partition_wise,|,strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,) ;;
+    *)
+        echo "unexpected CSV header in $csv; regenerate it with benchmark/run.sh --reset" >&2
+        exit 2
+        ;;
+esac
+
 mkdir -p "$results_dir"
 
 # --- Hardware and software --------------------------------------------------
@@ -148,7 +161,7 @@ partitioned_blocks="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "partitioned_blo
 # extracted fields before they become a filename.
 groups="$(awk -F, 'NR > 1 && $1 != "" { pw = ($11 == "yes") ? "yes" : "no"; print $1 "\t" $3 "\t" $10 "\t" pw }' "$csv" | sort -u)"
 printf '%s\n' "$groups" | while IFS="$(printf '\t')" read -r s cs pk pw; do
-    [ -n "$s" ] || continue
+    [ -n "$s" ] && [ -n "$cs" ] && [ -n "$pk" ] && [ -n "$pw" ] || continue
     case "$s$cs$pk$pw" in
         *[!A-Za-z0-9_+-]*)
             echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
@@ -164,6 +177,10 @@ printf '%s\n' "$groups" | while IFS="$(printf '\t')" read -r s cs pk pw; do
 done
 
 # --- Report -----------------------------------------------------------------
+# Generate into a temporary file and move it into place, so a failure part-way
+# through generation leaves the previous report intact instead of truncating it.
+report_tmp="$report.tmp.$$"
+trap 'rm -f "$report_tmp"' EXIT
 {
     echo "# Chunked migration thread-scaling benchmark"
     echo
@@ -244,7 +261,7 @@ done
         echo "_no results yet_"
     fi
     while IFS="$(printf '\t')" read -r s cs pk pw; do
-        [ -n "$s" ] || continue
+        [ -n "$s" ] && [ -n "$cs" ] && [ -n "$pk" ] && [ -n "$pw" ] || continue
         case "$s$cs$pk$pw" in
             *[!A-Za-z0-9_+-]*)
                 echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
@@ -362,6 +379,9 @@ EOF
     echo "  measured runs (increase \`BENCH_RUNS\`) to tighten the mean."
     echo "- Each thread is one \`pg_background\` worker; the count is capped by"
     echo "  \`max_worker_processes\`, which is why the benchmark uses its own container."
-} > "$report"
+} > "$report_tmp"
+
+mv "$report_tmp" "$report"
+trap - EXIT
 
 echo "wrote $report" >&2

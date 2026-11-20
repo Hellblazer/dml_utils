@@ -301,7 +301,9 @@ database:
 - **`max_worker_processes`**: set to `BENCH_MAX_WORKER_PROCESSES` (default 30).
   `run_migration_chunks` refuses a thread count above `max_worker_processes`, so
   this must be at least `BENCH_THREADS_TO` plus headroom for autovacuum and other
-  workers. Changing it needs `setup.sh --refresh`.
+  workers. Changing it needs `setup.sh --refresh`, as does rebuilding the image
+  under the same tag: `setup.sh` compares the running container's image id with
+  the current image and refuses a container built from stale code.
 - **`pg_background.max_workers`**: pg_background independently caps concurrent
   workers per session (default 16). `run.sh` raises it to the run's thread count
   in the session that calls `run_migration_chunks`, so a sweep past 16 threads
