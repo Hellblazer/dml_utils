@@ -44,6 +44,10 @@ BEGIN
                     i_table_name => i_table_name);
         END IF;
     ELSIF i_chunk_by = 'ordered_key' THEN
+        IF i_boundary_key_index IS NULL THEN
+            RAISE EXCEPTION 'i_boundary_key_index is required for an ordered_key run'
+                USING ERRCODE = '22023';
+        END IF;
         IF i_partition_wise::boolean THEN
             -- Validate the parent index shape and take its descriptor now. The
             -- leaf child indexes are checked against the manifest after it is
@@ -84,13 +88,18 @@ BEGIN
                     USING ERRCODE = '55000';
             END IF;
         END IF;
-    ELSE
+    ELSIF i_chunk_by = 'primary_key' THEN
         o_key_columns := dml_utils_lib.primary_key_columns(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
         o_key_kinds := dml_utils_lib.primary_key_kinds(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
+    ELSE
+        -- The enum has exactly the three values above; reject anything else
+        -- rather than giving it primary-key semantics.
+        RAISE EXCEPTION 'unsupported chunking strategy %', i_chunk_by
+            USING ERRCODE = '22023';
     END IF;
 
     -- The run-row constraint requires the ordered descriptor all-or-nothing; build

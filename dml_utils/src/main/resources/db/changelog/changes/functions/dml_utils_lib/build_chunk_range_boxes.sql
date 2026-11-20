@@ -17,6 +17,39 @@ DECLARE
     l_boxes               text[];
     l_box                 text;
 BEGIN
+    -- Every array is one-dimensional, 1-based, the same non-empty length, with
+    -- no NULL elements (a NULL name/literal would render an empty token) and a
+    -- difference position inside the key. The value arrays come from
+    -- build_chunk_boundary_literals, which already rejects NULL values, but this
+    -- helper is directly callable.
+    IF pg_catalog.array_ndims(i_column_names) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_column_names, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_ndims(i_start_literals) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_start_literals, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_ndims(i_end_literals) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_end_literals, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_length(i_column_names, 1) IS NULL
+        OR pg_catalog.array_length(i_column_names, 1) < 1
+        OR pg_catalog.array_length(i_start_literals, 1)
+            IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_length(i_end_literals, 1)
+            IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_position(i_column_names, NULL::text) IS NOT NULL
+        OR pg_catalog.array_position(i_start_literals, NULL::text) IS NOT NULL
+        OR pg_catalog.array_position(i_end_literals, NULL::text) IS NOT NULL
+        OR i_first_difference_position::integer > pg_catalog.array_length(i_column_names, 1)
+    THEN
+        RAISE EXCEPTION 'range-box inputs must be non-null, one-dimensional, 1-based, same-length, non-empty and NULL-free, with a difference position within the key'
+            USING ERRCODE = '22023';
+    END IF;
+    IF EXISTS (SELECT 1
+               FROM pg_catalog.unnest(i_column_names) AS c(column_name)
+               WHERE pg_catalog.btrim(c.column_name, E' \t\n\r\f\013') = '')
+    THEN
+        RAISE EXCEPTION 'range-box column names must not be blank'
+            USING ERRCODE = '22023';
+    END IF;
+
     l_column_count := pg_catalog.array_length(i_column_names, 1);
     -- Copy the domain-typed argument into a plain integer: a FOR loop with a
     -- domain bound makes plpgsql_check warn about a loop-variable type mismatch.

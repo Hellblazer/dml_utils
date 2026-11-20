@@ -114,5 +114,7 @@ COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk IS
     'Selects the next unclaimed boundary for a run (not in flight), extracts its '
         'start and end keys and, for a partition-wise run, ends the last chunk of '
         'each leaf at the manifest high-water snapshot with an inclusive bound. '
-        'Returns no boundary number when nothing is left to launch. A missing '
-        'leaf or terminal snapshot raises 55000.';
+        'Returns no boundary number when nothing is left to launch. Selection is '
+        'advisory: the coordinator claims the boundary atomically before running '
+        'it, so two coordinators can select the same boundary and the claim '
+        'decides. A missing leaf or terminal snapshot raises 55000.';

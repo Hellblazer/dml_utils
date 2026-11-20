@@ -31,7 +31,13 @@ BEGIN
         ),
         counts AS (
             SELECT block_count,
-                   (block_count + %3$s::bigint - 1) / %3$s::bigint AS n_starts
+                   -- Compute the start count without block_count + chunk_size - 1,
+                   -- which overflows bigint for a huge (positive bigint) chunk
+                   -- size and would silently produce no starts.
+                   CASE
+                       WHEN block_count = 0 THEN 0
+                       ELSE (block_count - 1) / %3$s::bigint + 1
+                       END AS n_starts
             FROM params
         ),
         starts AS (

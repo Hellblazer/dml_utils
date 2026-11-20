@@ -50,6 +50,25 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
     }
 
     /**
+     * A repeated key column is rejected: it cannot be ordered consistently.
+     */
+    @Test
+    void rejectsDuplicateKeyColumns() {
+        assertSqlState("22023", () -> columns("t", "test_bigint",
+                new String[]{"id", "id"}, new String[]{"bigint", "bigint"}));
+    }
+
+    /**
+     * The alias is baked into every column name, so a reserved substitution
+     * sentinel in it is rejected.
+     */
+    @Test
+    void rejectsASentinelInTheAlias() {
+        assertSqlState("22023", () -> columns("t" + (char) 1, "test_bigint",
+                new String[]{"id"}, new String[]{"bigint"}));
+    }
+
+    /**
      * Every key column is alias-qualified, a text column is paired with the
      * schema-qualified collation from the catalog (or a NULL collation when the
      * table/column is not in it), and an alias that needs quoting is quoted.

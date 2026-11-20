@@ -67,15 +67,15 @@ BEGIN
         -- The integer family collapses to bigint, as it does for a primary
         -- key; the other supported types map one-to-one.
             l_key_kind := CASE
-                              WHEN l_key.key_column_oid IN ('smallint'::pg_catalog.regtype,
-                                                            'integer'::pg_catalog.regtype,
-                                                            'bigint'::pg_catalog.regtype)
+                              WHEN l_key.key_column_oid IN ('pg_catalog.int2'::pg_catalog.regtype,
+                                                            'pg_catalog.int4'::pg_catalog.regtype,
+                                                            'pg_catalog.int8'::pg_catalog.regtype)
                                   THEN 'bigint'
-                              WHEN l_key.key_column_oid = 'text'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.text'::pg_catalog.regtype
                                   THEN 'text'
-                              WHEN l_key.key_column_oid = 'uuid'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.uuid'::pg_catalog.regtype
                                   THEN 'uuid'
-                              WHEN l_key.key_column_oid = 'timestamptz'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.timestamptz'::pg_catalog.regtype
                                   THEN 'timestamptz'
                 END;
 

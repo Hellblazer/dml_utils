@@ -14,6 +14,7 @@ DECLARE
     l_leaf_name        text;
     l_terminal_key     dml_utils_data.migration_key;
     l_boundary_no      bigint;
+    l_updated          integer;
 BEGIN
     -- Serialize on the run row. max(boundary_no)+1 is only safe while one
     -- appender holds the lock, and the same lock makes the single-terminal check
@@ -138,6 +139,17 @@ BEGIN
         total_chunks             = l_boundary_no
     WHERE run_id = i_run_id
       AND boundaries_calculated_at IS NULL;
+    GET DIAGNOSTICS l_updated = ROW_COUNT;
+    IF l_updated <> 1 THEN
+        -- The table already keeps the milestone single-valued (run_id is the
+        -- primary key) and immutable once set; this is the statement-level
+        -- assertion that the transition this call makes actually applied, as in
+        -- populate_single_relation_boundaries. The row lock makes it unreachable
+        -- unless that guard is lost in a refactor.
+        RAISE EXCEPTION 'run % boundaries milestone did not update exactly one row',
+            i_run_id
+            USING ERRCODE = '55000';
+    END IF;
 
     RETURN l_boundary_no;
 END;

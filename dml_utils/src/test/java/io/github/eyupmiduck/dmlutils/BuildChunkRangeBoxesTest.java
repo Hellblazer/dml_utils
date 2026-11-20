@@ -139,6 +139,25 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * Malformed arrays are rejected with {@code 22023} instead of rendering a
+     * degenerate box: a NULL element, mismatched lengths, a difference position
+     * outside the key, a blank column name and an empty key.
+     */
+    @Test
+    void rejectsMalformedRangeInputs() {
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{null},
+                new String[]{"'5'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{"'1'"},
+                new String[]{"'5'", "'6'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{"'1'"},
+                new String[]{"'5'"}, 2, false));
+        assertSqlState("22023", () -> boxes(new String[]{"  "}, new String[]{"'1'"},
+                new String[]{"'5'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[0], new String[0],
+                new String[0], 0, false));
+    }
+
+    /**
      * A NULL final flag is rejected with {@code 22023}.
      */
     @Test

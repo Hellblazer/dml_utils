@@ -32,6 +32,16 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- The alias is concatenated into every returned column name and then
+    -- substituted by the per-chunk renderer, so screen it for the reserved
+    -- sentinels like the column names.
+    IF pg_catalog.strpos(i_table_alias, pg_catalog.chr(1)) > 0
+        OR pg_catalog.strpos(i_table_alias, pg_catalog.chr(2)) > 0
+    THEN
+        RAISE EXCEPTION 'table alias contains a reserved substitution character'
+            USING ERRCODE = '22023';
+    END IF;
+
     l_column_count := pg_catalog.array_length(i_key_columns, 1);
     o_column_names := ARRAY []::text[];
     o_key_collations := ARRAY []::text[];
@@ -86,8 +96,12 @@ BEGIN
             -- different collation (or none).
             IF l_kind = 'text' THEN
                 l_collation := NULL;
+                -- A text column is collatable, so attcollation is never 0; a row
+                -- with no joined collation (the column is absent, or a synthetic
+                -- table in a renderer unit test) leaves l_collation NULL, which
+                -- the consumer reads as "use the default operator".
                 SELECT CASE
-                           WHEN a.attcollation = 0 THEN 'pg_catalog."default"'
+                           WHEN c.oid IS NULL THEN NULL
                            ELSE pg_catalog.format('%I.%I', cn.nspname, c.collname)
                            END
                 INTO l_collation
@@ -107,6 +121,16 @@ BEGIN
                 o_key_collations := pg_catalog.array_append(o_key_collations, NULL);
             END IF;
         END LOOP;
+
+    -- A key with the same column twice cannot be ordered consistently.
+    IF (SELECT pg_catalog.count(*)
+        FROM pg_catalog.unnest(i_key_columns) AS c(column_name))
+        <> (SELECT pg_catalog.count(DISTINCT c.column_name)
+            FROM pg_catalog.unnest(i_key_columns) AS c(column_name))
+    THEN
+        RAISE EXCEPTION 'key columns must be distinct'
+            USING ERRCODE = '22023';
+    END IF;
 END;
 $$;
 

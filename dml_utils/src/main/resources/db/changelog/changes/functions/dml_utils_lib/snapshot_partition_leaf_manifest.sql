@@ -30,7 +30,8 @@ BEGIN
            run.ordered_key_index
     INTO l_run
     FROM dml_utils_data.migration_run AS run
-    WHERE run.run_id = i_run_id;
+    WHERE run.run_id = i_run_id
+        FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'migration run % does not exist', i_run_id
@@ -80,7 +81,7 @@ BEGIN
             RAISE EXCEPTION 'i_boundary_key_index is required for an ordered_key run'
                 USING ERRCODE = '22023';
         END IF;
-        IF i_boundary_key_index <> l_run.ordered_key_index THEN
+        IF i_boundary_key_index IS DISTINCT FROM l_run.ordered_key_index THEN
             RAISE EXCEPTION 'run % uses ordered key index %, not %',
                 i_run_id, l_run.ordered_key_index, i_boundary_key_index
                 USING ERRCODE = '22023';

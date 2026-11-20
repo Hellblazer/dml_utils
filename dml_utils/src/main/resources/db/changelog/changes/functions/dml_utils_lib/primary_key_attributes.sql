@@ -57,13 +57,13 @@ BEGIN
                a.atttypid,
                a.atttypid::pg_catalog.regtype,
                CASE
-                   WHEN a.atttypid IN ('smallint'::pg_catalog.regtype,
-                                       'integer'::pg_catalog.regtype,
-                                       'bigint'::pg_catalog.regtype)
+                   WHEN a.atttypid IN ('pg_catalog.int2'::pg_catalog.regtype,
+                                       'pg_catalog.int4'::pg_catalog.regtype,
+                                       'pg_catalog.int8'::pg_catalog.regtype)
                        THEN 'bigint'
-                   WHEN a.atttypid = 'text'::pg_catalog.regtype THEN 'text'
-                   WHEN a.atttypid = 'uuid'::pg_catalog.regtype THEN 'uuid'
-                   WHEN a.atttypid = 'timestamptz'::pg_catalog.regtype THEN 'timestamptz'
+                   WHEN a.atttypid = 'pg_catalog.text'::pg_catalog.regtype THEN 'text'
+                   WHEN a.atttypid = 'pg_catalog.uuid'::pg_catalog.regtype THEN 'uuid'
+                   WHEN a.atttypid = 'pg_catalog.timestamptz'::pg_catalog.regtype THEN 'timestamptz'
                    ELSE NULL
                    END AS key_kind
         FROM pg_catalog.pg_index AS i

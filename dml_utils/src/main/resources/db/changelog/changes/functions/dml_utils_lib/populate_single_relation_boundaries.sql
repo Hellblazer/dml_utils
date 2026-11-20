@@ -14,8 +14,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
 AS
 $$
 DECLARE
-    l_run     record;
-    l_updated integer;
+    l_run         record;
+    l_updated     integer;
+    l_key_columns name[];
+    l_key_kinds   text[];
 BEGIN
     -- Lock the run row before checking its state: a concurrent population or
     -- cancellation must serialize here, or the loser would fail with a raw
@@ -72,9 +74,18 @@ BEGIN
             l_run.chunk_size, i_chunk_size
             USING ERRCODE = '22023';
     END IF;
-    IF (SELECT boundary_key.o_key_columns IS DISTINCT FROM i_key_columns
-                   OR boundary_key.o_key_kinds IS DISTINCT FROM i_key_kinds
-        FROM dml_utils_lib.migration_run_boundary_key(i_run_id => i_run_id) AS boundary_key)
+    -- Read the key into variables: a scalar subquery over a set-returning
+    -- helper would silently yield NULL (and skip the check) if it returned no
+    -- row.
+    SELECT boundary_key.o_key_columns, boundary_key.o_key_kinds
+    INTO l_key_columns, l_key_kinds
+    FROM dml_utils_lib.migration_run_boundary_key(i_run_id => i_run_id) AS boundary_key;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'run % has no boundary key', i_run_id
+            USING ERRCODE = '55000';
+    END IF;
+    IF l_key_columns IS DISTINCT FROM i_key_columns
+        OR l_key_kinds IS DISTINCT FROM i_key_kinds
     THEN
         RAISE EXCEPTION 'key columns/kinds do not match run %''s boundary key', i_run_id
             USING ERRCODE = '22023';

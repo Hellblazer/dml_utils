@@ -57,6 +57,29 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A chunk size near the bigint maximum would overflow the old
+     * {@code block_count + chunk_size - 1} start-count expression; the safe form
+     * still yields one start plus the terminal boundary.
+     */
+    @Test
+    void aHugeChunkSizeDoesNotOverflowTheStartCount() {
+        seedBigint(1, 2, 3, 4, 5);
+        long blockCount = blockCount();
+        long runId = insertBlockRun();
+
+        dsl.execute(Routines.buildBlockBoundaryPopulationSql(dsl.configuration(),
+                schema(), name(), runId, Long.MAX_VALUE));
+
+        List<MigrationBoundaryRecord> boundaries = dsl.selectFrom(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
+                .fetch();
+        assertEquals(2, boundaries.size(), "one start plus the terminal");
+        assertEquals(0L, boundaries.get(0).getBoundaryId().getBigintValues()[0]);
+        assertEquals(blockCount, boundaries.get(1).getBoundaryId().getBigintValues()[0]);
+    }
+
+    /**
      * A table with no blocks yields no boundaries.
      */
     @Test
