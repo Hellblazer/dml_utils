@@ -634,6 +634,48 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_empty.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_empty.payload IS
     'Fixture payload column.';
 
+-- A text partition key whose bound contains a backslash, so the deparsed bound
+-- text exposes standard_conforming_strings ('a\b' when on, 'a\\b' when off).
+CREATE TABLE dml_utils_fixtures.test_partitioned_text_escape
+(
+    s       text NOT NULL,
+    payload text
+) PARTITION BY RANGE (s);
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_text_escape_a
+    PARTITION OF dml_utils_fixtures.test_partitioned_text_escape
+    FOR VALUES FROM (E'a\\b') TO (E'a\\c');
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_text_escape IS
+    'Fixture: a text-partitioned parent whose bound contains a backslash.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_text_escape.s IS
+    'Fixture range key (text).';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_text_escape.payload IS
+    'Fixture payload column.';
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_text_escape_a IS
+    'Fixture: the only leaf, bound by a backslash-containing value.';
+
+-- A bytea partition key, so the deparsed bound text exposes bytea_output
+-- ('\x01' with hex, '\001' with escape).
+CREATE TABLE dml_utils_fixtures.test_partitioned_bytea
+(
+    b       bytea NOT NULL,
+    payload text
+) PARTITION BY RANGE (b);
+
+CREATE TABLE dml_utils_fixtures.test_partitioned_bytea_a
+    PARTITION OF dml_utils_fixtures.test_partitioned_bytea
+    FOR VALUES FROM ('\x01'::bytea) TO ('\x02'::bytea);
+
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_bytea IS
+    'Fixture: a bytea-partitioned parent, to pin the deparsed bound text.';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_bytea.b IS
+    'Fixture range key (bytea).';
+COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_bytea.payload IS
+    'Fixture payload column.';
+COMMENT ON TABLE dml_utils_fixtures.test_partitioned_bytea_a IS
+    'Fixture: the only leaf, bound by bytea values.';
+
 CREATE TABLE dml_utils_fixtures.test_partitioned_detach
 (
     id      integer NOT NULL,

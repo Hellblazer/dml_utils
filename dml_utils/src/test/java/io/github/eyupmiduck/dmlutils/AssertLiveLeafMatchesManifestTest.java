@@ -3,6 +3,7 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ManifestLeafIdentity;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.LeafPartitionsRecord;
 import org.jooq.DSLContext;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
@@ -46,6 +47,27 @@ class AssertLiveLeafMatchesManifestTest extends PartitionTestBase {
         long blocksRun = populatePartitionWise("live-leaf-blocks", TABLE, TEMPLATE, ChunkingStrategy.blocks, 2, null);
         ManifestLeafIdentity blocks = identity(blocksRun);
         assertDoesNotThrow(() -> assertLeaf(blocks));
+    }
+
+    /**
+     * The stored bound is compared under the same deparse pins
+     * {@code leaf_partitions} used, so a session with a different bytea rendering
+     * does not report a spurious change.
+     */
+    @Test
+    void comparesBoundsUnderThePinnedDeparseSettings() {
+        LeafPartitionsRecord leaf = Routines.leafPartitions(dsl.configuration(),
+                PARTITION_SCHEMA, "test_partitioned_bytea",
+                ChunkingStrategy.primary_key).getFirst();
+
+        dsl.transaction(config -> {
+            DSLContext tx = DSL.using(config);
+            tx.execute("SET LOCAL bytea_output = 'escape'");
+            assertDoesNotThrow(() -> Routines.assertLiveLeafMatchesManifest(
+                    tx.configuration(), ChunkingStrategy.primary_key,
+                    leaf.getLeafSchemaName(), leaf.getLeafName(), leaf.getLeafOid(),
+                    leaf.getLeafBound(), null));
+        });
     }
 
     /**

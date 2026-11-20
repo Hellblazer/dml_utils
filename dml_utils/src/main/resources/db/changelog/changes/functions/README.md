@@ -890,7 +890,10 @@ and numbers them by the manifest order: partition-bound expression, then schema,
 then name, then OID, all byte-wise (`COLLATE "C"`). Each row carries the leaf
 identity, its `pg_get_expr(relpartbound)` snapshot and, for
 `chunk_by = 'blocks'`, its `pg_relation_filepath`; the filepath is NULL for the
-key strategies. A leaf with no rows is still returned (emptiness is a calculation
+key strategies. The bound deparse is pinned (`TimeZone`, `DateStyle`,
+`IntervalStyle`, `extra_float_digits`, `standard_conforming_strings`,
+`bytea_output`, `lc_monetary`), so the stored text and the manifest order do not
+depend on the caller's session. A leaf with no rows is still returned (emptiness is a calculation
 result). Raises `wrong_object_type` (`42809`) for a non-partitioned parent or a
 leaf that is not an ordinary table (for example a foreign-table partition), and
 `insufficient_privilege` (`42501`) when the caller cannot `SELECT` a leaf.
@@ -2172,7 +2175,11 @@ NULL strategy is rejected with `22023`, so no guard can fail open. It
 takes `ACCESS SHARE` (`NOWAIT`) on the leaf so the
 verified
 identity cannot change before the caller's transaction uses it, and reports a
-concurrent modification (or a dropped relation/schema) as the same `55000`.
+concurrent modification (or a dropped relation/schema) as the same `55000`. The
+live bound is deparsed under the same pins `leaf_partitions` used (`TimeZone`,
+`DateStyle`, `IntervalStyle`, `extra_float_digits`,
+`standard_conforming_strings`, `bytea_output`, `lc_monetary`), so a different
+session setting cannot produce a spurious bound change.
 
 ###
 

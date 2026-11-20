@@ -16,13 +16,19 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.leaf_partitions(
     SECURITY INVOKER
     -- The manifest order sorts the deparsed partition bounds byte-wise. Those
     -- expressions depend on TimeZone for timestamptz bounds, DateStyle for
-    -- date/timestamp bounds, IntervalStyle for interval bounds and
-    -- extra_float_digits for float bounds, so pin them: the same tree must yield
-    -- the same ordinals and the same stored text regardless of the caller.
+    -- date/timestamp bounds, IntervalStyle for interval bounds,
+    -- extra_float_digits for float bounds, standard_conforming_strings for the
+    -- escaping of string constants, bytea_output for bytea constants and
+    -- lc_monetary for money constants, so pin them: the same tree must yield the
+    -- same ordinals and the same stored text regardless of the caller.
     SET timezone = 'UTC'
     SET datestyle = 'ISO, MDY'
     SET intervalstyle = 'postgres'
     SET extra_float_digits = 0
+    SET standard_conforming_strings = on
+    SET bytea_output = 'hex'
+    SET lc_monetary = 'C'
+
 AS
 $$
 DECLARE

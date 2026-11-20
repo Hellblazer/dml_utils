@@ -10,6 +10,7 @@ import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Verifies {@code dml_utils_lib.leaf_partitions}: the deterministic leaf order,
@@ -305,6 +306,76 @@ class LeafPartitionsTest extends PostgresTestBase {
                     .stream().map(LeafPartitionsRecord::getLeafBound).toList();
             assertEquals(utc, newYork, "TimeZone must not change the deparsed bound");
         });
+    }
+
+    /**
+     * A text bound containing a backslash is deparsed under the pinned
+     * standard_conforming_strings, so a session with the setting off sees the
+     * same bound text and order.
+     */
+    @Test
+    void textBoundsIgnoreStandardConformingStrings() {
+        List<String> pinned = leaves("test_partitioned_text_escape",
+                ChunkingStrategy.primary_key).stream()
+                .map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, pinned.size());
+        assertTrue(pinned.getFirst().contains("\\"), pinned.toString());
+
+        // PostgreSQL 19 removed non-standard string literals, so the setting can
+        // no longer be turned off there; the pin is then a no-op rather than a
+        // behaviour change.
+        assumeTrue(supportsNonStandardStringLiterals(),
+                "standard_conforming_strings = off is no longer supported");
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL standard_conforming_strings = off");
+            List<String> unpinned = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_text_escape", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(pinned, unpinned,
+                    "standard_conforming_strings must not change the bound");
+        });
+    }
+
+    /**
+     * A bytea bound is deparsed under the pinned bytea_output, so a session set to
+     * escape output sees the same bound text as the default hex output.
+     */
+    @Test
+    void byteaBoundsIgnoreByteaOutput() {
+        List<String> pinned = leaves("test_partitioned_bytea",
+                ChunkingStrategy.primary_key).stream()
+                .map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, pinned.size());
+        assertTrue(pinned.getFirst().contains("\\x01"), pinned.toString());
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL bytea_output = 'escape'");
+            List<String> escaped = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_bytea", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(pinned, escaped, "bytea_output must not change the bound");
+        });
+    }
+
+    /**
+     * Whether this server still allows non-standard string literals
+     * ({@code standard_conforming_strings = off}); PostgreSQL 19 rejects them.
+     *
+     * @return true when the off setting can be applied
+     */
+    private boolean supportsNonStandardStringLiterals() {
+        return Boolean.TRUE.equals(dsl.transactionResult(config -> {
+            try {
+                org.jooq.impl.DSL.using(config)
+                        .execute("SET LOCAL standard_conforming_strings = off");
+                return true;
+            } catch (org.jooq.exception.DataAccessException e) {
+                return false;
+            }
+        }));
     }
 
     private List<LeafPartitionsRecord> leaves(String table, ChunkingStrategy chunkBy) {

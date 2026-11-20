@@ -165,6 +165,11 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - The run's `dml_utils_data.migration_run_leaf` manifest is the contract: a
   deterministic leaf order (partition bound, then schema, name, OID under
   `COLLATE "C"`), identity snapshot, state, boundary count and high-water key.
+  The deparsed bound is pinned to session-independent GUCs (`TimeZone`,
+  `DateStyle`, `IntervalStyle`, `extra_float_digits`,
+  `standard_conforming_strings`, `bytea_output`, `lc_monetary`) in both
+  `leaf_partitions` and `assert_live_leaf_matches_manifest`; pin any new
+  GUC that changes the text when a bound type is added.
   It is committed before any boundaries. An empty leaf is a row with
   `boundary_count = 0`. A parent with no leaves at all snapshots an empty
   manifest and records `migration_run.manifest_snapshotted_at` anyway, so it is

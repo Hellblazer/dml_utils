@@ -11,12 +11,18 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     VOLATILE
     SECURITY INVOKER
     -- The stored leaf_bound was deparsed by leaf_partitions under these pins;
-    -- read the live bound the same way or a session in another time zone would
-    -- report a spurious bound change.
+    -- read the live bound the same way or a session with different deparse
+    -- settings would report a spurious bound change (TimeZone, DateStyle,
+    -- IntervalStyle, extra_float_digits, standard_conforming_strings,
+    -- bytea_output and lc_monetary all change the text).
     SET timezone = 'UTC'
     SET datestyle = 'ISO, MDY'
     SET intervalstyle = 'postgres'
     SET extra_float_digits = 0
+    SET standard_conforming_strings = on
+    SET bytea_output = 'hex'
+    SET lc_monetary = 'C'
+
 AS
 $$
 DECLARE
