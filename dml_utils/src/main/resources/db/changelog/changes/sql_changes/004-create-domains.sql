@@ -103,6 +103,34 @@ COMMENT ON DOMAIN dml_utils_data.non_null_element_bigint_array IS
         'elements, for a set of pg_background worker cookies; a NULL or empty '
         'array is allowed as the no-handles sentinel.';
 
+-- The boundary-key render arrays: every element is an identifier or a key kind,
+-- so a NULL element would render an empty token or slip through a NULL-unsafe
+-- comparison. array_position is undefined for multidimensional arrays, so pin
+-- one dimension and a lower bound of 1 first (the renderers index from 1).
+CREATE DOMAIN dml_utils_data.non_null_element_text_array AS text[]
+    CONSTRAINT non_null_element_text_array_check CHECK (
+        value IS NULL
+            OR (pg_catalog.array_ndims(value) = 1
+            AND pg_catalog.array_lower(value, 1) = 1
+            AND pg_catalog.array_position(value, NULL) IS NULL)
+        );
+
+COMMENT ON DOMAIN dml_utils_data.non_null_element_text_array IS
+    'one-dimensional text array with a lower bound of 1 and no NULL elements, '
+        'for the boundary-key renderer''s column names and key kinds.';
+
+CREATE DOMAIN dml_utils_data.non_null_element_name_array AS name[]
+    CONSTRAINT non_null_element_name_array_check CHECK (
+        value IS NULL
+            OR (pg_catalog.array_ndims(value) = 1
+            AND pg_catalog.array_lower(value, 1) = 1
+            AND pg_catalog.array_position(value, NULL::name) IS NULL)
+        );
+
+COMMENT ON DOMAIN dml_utils_data.non_null_element_name_array IS
+    'one-dimensional name array with a lower bound of 1 and no NULL elements, '
+        'for the boundary-key column names.';
+
 -- Packs the primary-key value of a chunk boundary, for a primary key of one to
 -- three columns. One array per supported kind, each position-aligned to the
 -- primary-key columns: at index i, the array matching column i's kind holds its

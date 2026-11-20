@@ -158,7 +158,7 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
         assertSqlState("22023", () -> literals(new String[]{"t.id"},
                 new String[]{"integer"}, new String[]{null}, new String[]{"1"},
                 new String[]{"5"}));
-        assertSqlState("22023", () -> literals(new String[]{"t.id"},
+        assertSqlState("23514", () -> literals(new String[]{"t.id"},
                 new String[]{null}, new String[]{null}, new String[]{"1"},
                 new String[]{"5"}));
     }
@@ -265,7 +265,9 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
      */
     @Test
     void rejectsNonOneDimensionalArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        // The column-name/kinds domains reject the shape; the plain value array
+        // keeps its own 22023 shape check.
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.build_chunk_boundary_literals("
                         + "ARRAY[['id']]::text[], '{bigint}'::text[], '{NULL}'::text[],"
                         + " '{1}'::text[], '{5}'::text[])"));

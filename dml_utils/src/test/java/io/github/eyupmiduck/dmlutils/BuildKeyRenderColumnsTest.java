@@ -109,9 +109,9 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
                 new String[]{"id", "id2"}, new String[]{"bigint"}));
         assertSqlState("22023", () -> columns("t", "test_bigint",
                 new String[]{"id"}, new String[]{"integer"}));
-        assertSqlState("22023", () -> columns("t", "test_bigint",
+        assertSqlState("23514", () -> columns("t", "test_bigint",
                 new String[]{"id"}, new String[]{null}));
-        assertSqlState("22023", () -> columns("t", "test_bigint",
+        assertSqlState("23514", () -> columns("t", "test_bigint",
                 new String[]{null}, new String[]{"bigint"}));
         assertSqlState("22023", () -> columns("t", "test_bigint",
                 new String[]{"id\u0001"}, new String[]{"bigint"}));
@@ -130,11 +130,11 @@ class BuildKeyRenderColumnsTest extends PostgresTestBase {
      */
     @Test
     void rejectsMalformedArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.build_key_render_columns("
                         + "'t', '" + SCHEMA + "', 'test_bigint',"
                         + " ARRAY[['id']]::name[], '{bigint}'::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.build_key_render_columns("
                         + "'t', '" + SCHEMA + "', 'test_bigint',"
                         + " '[0:0]={id}'::name[], '{bigint}'::text[])"));

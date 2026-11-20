@@ -31,6 +31,8 @@ class GrantPrivilegesTest extends PostgresTestBase {
             new String[]{"dml_utils_data", "non_null_oid"},
             new String[]{"dml_utils_data", "non_null_element_integer_array"},
             new String[]{"dml_utils_data", "non_null_element_bigint_array"},
+            new String[]{"dml_utils_data", "non_null_element_text_array"},
+            new String[]{"dml_utils_data", "non_null_element_name_array"},
             new String[]{"dml_utils_data", "chunking_strategy"},
             // The implicit table row types must not be usable by PUBLIC either.
             new String[]{"dml_utils_data", "migration_run"},

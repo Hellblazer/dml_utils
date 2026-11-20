@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS dml_utils_lib.boundary_key_pack_expression(text[]);
+DROP FUNCTION IF EXISTS dml_utils_lib.boundary_key_pack_expression(dml_utils_data.non_null_element_text_array);

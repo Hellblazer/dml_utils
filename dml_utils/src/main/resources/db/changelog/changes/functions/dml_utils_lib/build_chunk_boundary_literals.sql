@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    i_column_names text[],
-    i_key_kinds text[],
+    i_column_names dml_utils_data.non_null_element_text_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_key_collations text[],
     i_start_values text[],
     i_end_values text[],
@@ -79,12 +79,7 @@ BEGIN
                     USING ERRCODE = '22023';
             END IF;
 
-            -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL, not
-            -- true), so guard it explicitly.
-            IF l_kind IS NULL THEN
-                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
-                    USING ERRCODE = '22023';
-            END IF;
+            -- The argument domain rejects a NULL element.
             IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';

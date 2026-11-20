@@ -17,11 +17,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
@@ -38,6 +34,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class TransientRetryTest extends PostgresTestBase {
 
     private static final String SEQUENCE = "public.retry_probe_seq";
+
+    /**
+     * The non-retry cases: a permanent error with a budget and a transient error
+     * without one.
+     *
+     * @return the case parameters
+     */
+    private static java.util.stream.Stream<Arguments> nonRetryCases() {
+        return java.util.stream.Stream.of(
+                Arguments.of("retry-permanent", "fail_counted", "22012", 3),
+                Arguments.of("retry-zero", "retry_once", "40P01", 0));
+    }
 
     /**
      * Waits for the background coordinator. On timeout, cancels its backend and
@@ -76,18 +84,6 @@ class TransientRetryTest extends PostgresTestBase {
         } catch (ExecutionException failure) {
             fail("the coordinator failed: " + failure.getCause(), failure);
         }
-    }
-
-    /**
-     * The non-retry cases: a permanent error with a budget and a transient error
-     * without one.
-     *
-     * @return the case parameters
-     */
-    private static java.util.stream.Stream<Arguments> nonRetryCases() {
-        return java.util.stream.Stream.of(
-                Arguments.of("retry-permanent", "fail_counted", "22012", 3),
-                Arguments.of("retry-zero", "retry_once", "40P01", 0));
     }
 
     /**

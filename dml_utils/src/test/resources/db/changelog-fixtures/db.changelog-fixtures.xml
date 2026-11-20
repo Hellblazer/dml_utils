@@ -11,7 +11,8 @@
              skip the changeset instead of attempting it. -->
         <preConditions onFail="MARK_RAN">
             <sqlCheck expectedResult="0">
-                SELECT count(*) FROM pg_catalog.pg_namespace
+                SELECT count(*)
+                FROM pg_catalog.pg_namespace
                 WHERE nspname = 'dml_utils_fixtures'
             </sqlCheck>
         </preConditions>

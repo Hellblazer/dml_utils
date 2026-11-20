@@ -644,7 +644,7 @@ CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_text_escape
 
 CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_text_escape_a
     PARTITION OF dml_utils_fixtures.test_partitioned_text_escape
-    FOR VALUES FROM (E'a\\b') TO (E'a\\c');
+        FOR VALUES FROM (E'a\\b') TO (E'a\\c');
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_text_escape IS
     'Fixture: a text-partitioned parent whose bound contains a backslash.';
@@ -665,7 +665,7 @@ CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_bytea
 
 CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_bytea_a
     PARTITION OF dml_utils_fixtures.test_partitioned_bytea
-    FOR VALUES FROM ('\x01'::bytea) TO ('\x02'::bytea);
+        FOR VALUES FROM ('\x01'::bytea) TO ('\x02'::bytea);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_bytea IS
     'Fixture: a bytea-partitioned parent, to pin the deparsed bound text.';

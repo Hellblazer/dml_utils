@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_boundary_population_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
-    i_key_columns name[],
-    i_key_kinds text[],
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_run_id dml_utils_data.non_null_bigint,
     i_chunk_size dml_utils_data.positive_bigint
 )

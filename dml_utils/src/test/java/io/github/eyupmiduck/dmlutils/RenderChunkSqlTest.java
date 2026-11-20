@@ -499,7 +499,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullPrimaryKeyColumnName() {
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertSqlState("23514", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{null}, new String[]{"bigint"},
                 new String[]{"1"}, new String[]{"2"}, false));
@@ -656,7 +656,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id"}, new String[]{"bigint"}, new String[]{"1"}, null, false));
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertSqlState("23514", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id", "id2"}, new String[]{"bigint", null},
                 new String[]{"1", "2"}, new String[]{"3", "4"}, false));

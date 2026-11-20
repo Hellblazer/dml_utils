@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_pair_values(
     i_start_key dml_utils_data.migration_key,
     i_end_key dml_utils_data.migration_key,
-    i_key_kinds text[],
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     OUT o_start_values text[],
     OUT o_end_values text[]
 )
@@ -86,12 +86,7 @@ BEGIN
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would make every comparison below NULL (not true) and
-            -- fall through to a NULL branch; reject it explicitly.
-            IF l_kind IS NULL THEN
-                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
-                    USING ERRCODE = '22023';
-            END IF;
+            -- The argument domain rejects a NULL element.
             IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';

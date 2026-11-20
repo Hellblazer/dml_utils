@@ -107,11 +107,11 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     @Test
     void rejectsMalformedColumnAndKindArrays() {
         assertBuildRejected("ARRAY[]::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("'[0:0]={id}'::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY[ARRAY['id']]::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY[NULL]::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "'[0:0]={id}'::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "ARRAY[ARRAY['id']]::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "ARRAY[NULL]::name[]", "ARRAY['bigint']::text[]");
         assertBuildRejected("ARRAY['']::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY['id']::name[]", "ARRAY[NULL]::text[]");
+        assertBuildRejectedAs("23514", "ARRAY['id']::name[]", "ARRAY[NULL]::text[]");
         assertBuildRejected("ARRAY['a','b','c','d']::name[]",
                 "ARRAY['bigint','bigint','bigint','bigint']::text[]");
     }
@@ -236,7 +236,11 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     private void assertBuildRejected(String columns, String kinds) {
-        assertSqlState("22023", () -> dsl.fetchOne(
+        assertBuildRejectedAs("22023", columns, kinds);
+    }
+
+    private void assertBuildRejectedAs(String state, String columns, String kinds) {
+        assertSqlState(state, () -> dsl.fetchOne(
                 "SELECT dml_utils_lib.build_boundary_population_sql(?, ?, "
                         + columns + ", " + kinds + ", 1, 2)",
                 schema(), name()));

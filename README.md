@@ -658,9 +658,9 @@ batches; call it in a loop until it returns 0 (0 can also mean the remaining
 candidates are locked by another session, so retry later):
 
 ```sql
-SELECT dml_utils.delete_archived_migration_runs();  -- up to 1000 runs
+SELECT dml_utils.delete_archived_migration_runs(); -- up to 1000 runs
 SELECT dml_utils.delete_archived_migration_runs(
-        i_label => 'events-region-backfill', i_limit => 100);
+               i_label => 'events-region-backfill', i_limit => 100);
 ```
 
 A cancelled run whose claimed boundary was never marked (the coordinator died

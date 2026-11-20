@@ -3,8 +3,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_key_columns name[],
-    i_key_kinds text[],
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     OUT o_template text,
     OUT o_column_names text[],
     OUT o_key_collations text[]

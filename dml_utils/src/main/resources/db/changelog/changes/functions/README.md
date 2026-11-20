@@ -857,8 +857,8 @@ RETURNS void
 
 `STABLE`, `SECURITY INVOKER`, with a pinned `search_path`. Raises
 `undefined_table` (`42P01`) when the relation does not exist, or
-`wrong_object_type` (`42809`) when it is not a declarative partitioned table
-(`relkind = 'p'`), so a non-partitioned driving table is rejected before any leaf
+`wrong_object_type` (`42809`) when it is not a declarative partitioned table (`relkind = 'p'`), so a non-partitioned
+driving table is rejected before any leaf
 is enumerated.
 
 ### `dml_utils_lib.assert_read_committed()`
@@ -1172,7 +1172,7 @@ all-NULL. The `migration_boundary_key_check` constraint calls it.
 
 ```sql
 i_key       dml_utils_data.migration_key
-i_key_kinds text[]
+i_key_kinds dml_utils_data.non_null_element_text_array
 RETURNS text[]
 ```
 
@@ -1180,15 +1180,16 @@ RETURNS text[]
 into one text value per key column, in key order, using `i_key_kinds` to
 pick the array for each position. The chunk predicate re-casts each value. It is
 `STABLE` rather than `IMMUTABLE` because `timestamptz::text` depends on the
-session time zone. Raises `22023` for a malformed `i_key_kinds` and for a present
-value array that is not one-dimensional, 1-based and the same arity.
+session time zone. Raises `22023` for an unsupported kind, a wrong number of
+entries, or a present value array that is not aligned; the argument domain
+rejects a NULL element or a non-1-D/non-1-based kinds array with `23514`.
 
 ### `dml_utils_lib.migration_key_pair_values(i_start_key, i_end_key, i_key_kinds)`
 
 ```sql
 i_start_key dml_utils_data.migration_key
 i_end_key   dml_utils_data.migration_key
-i_key_kinds text[]
+i_key_kinds dml_utils_data.non_null_element_text_array
 RETURNS record (o_start_values text[], o_end_values text[])
 ```
 
@@ -1197,9 +1198,9 @@ and end `migration_key`) in one pass, returning one text value per key
 column for each, in key order. It is the two-key form of
 `migration_key_values`, so the coordinator extracts both bounds with a single
 call per chunk instead of two. It is `STABLE` for the same
-`timestamptz::text` session-time-zone reason. Rejects malformed kinds or an
-unsupported kind with `22023`, and any present value array (in either key) that
-is not one-dimensional, 1-based and the same arity.
+`timestamptz::text` session-time-zone reason. Raises `22023` for an unsupported
+kind, a wrong number of entries, or a misaligned value array; the argument domain
+rejects a NULL element or a bad kinds shape with `23514`.
 
 ###
 
@@ -1332,8 +1333,8 @@ i_sql_text     dml_utils_data.non_null_text
 i_schema_name  dml_utils_data.non_null_text
 i_table_name   dml_utils_data.non_null_text
 i_table_alias  dml_utils_data.non_null_text
-i_key_columns  name[]
-i_key_kinds    text[]
+i_key_columns  dml_utils_data.non_null_element_name_array
+i_key_kinds    dml_utils_data.non_null_element_text_array
 i_start_values text[]
 i_end_values   text[]
 i_is_final     dml_utils_data.non_null_boolean
@@ -1375,8 +1376,8 @@ i_sql_text            dml_utils_data.non_null_text
 i_schema_name         dml_utils_data.non_null_text
 i_table_name          dml_utils_data.non_null_text
 i_table_alias         dml_utils_data.non_null_text
-i_key_columns         name[]
-i_key_kinds           text[]
+i_key_columns         dml_utils_data.non_null_element_name_array
+i_key_kinds           dml_utils_data.non_null_element_text_array
 RETURNS record
     (o_template text, o_column_names text[], o_key_collations text[])
 ```
@@ -1409,8 +1410,8 @@ i_template       text
 i_schema_name    dml_utils_data.non_null_text
 i_table_name     dml_utils_data.non_null_text
 i_table_alias    dml_utils_data.non_null_text
-i_column_names   text[]
-i_key_kinds      text[]
+i_column_names   dml_utils_data.non_null_element_text_array
+i_key_kinds      dml_utils_data.non_null_element_text_array
 i_key_collations text[]
 i_start_values   text[]
 i_end_values     text[]
@@ -1601,8 +1602,8 @@ leaf failed.
 ```sql
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 i_run_id      bigint
 i_chunk_size  bigint
 RETURNS text
@@ -1621,7 +1622,7 @@ text itself lives in `format_boundary_population_sql`.
 ### `dml_utils_lib.synthetic_chunk_boundary_values(i_key_kinds, i_chunk_size)`
 
 ```sql
-i_key_kinds  text[]
+i_key_kinds  dml_utils_data.non_null_element_text_array
 i_chunk_size dml_utils_data.positive_bigint
 RETURNS TABLE
     (o_is_final boolean, o_start_values text [], o_end_values text [])
@@ -1632,8 +1633,9 @@ per key kind and in key order: the non-final (`o_is_final` false) and final (`o_
 `0..chunk_size`, `text` uses `a..b`, `uuid` the first two all-zero forms and
 `timestamptz` two consecutive days. The values are synthetic, so the explain
 path can render a plausible chunk predicate without reading real boundaries.
-Rejects malformed kinds (`22023`); the positive domain rejects a NULL or
-non-positive chunk size at the call.
+Rejects an unsupported kind or a wrong number of entries (`22023`); the argument
+domain rejects a NULL element or a bad shape (`23514`), and the positive domain
+rejects a NULL or non-positive chunk size at the call.
 
 ### `dml_utils_lib.explain_query_plan(i_sql_text)`
 
@@ -1658,8 +1660,8 @@ i_sql_text    dml_utils_data.non_null_text
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
 i_table_alias dml_utils_data.non_null_text
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 i_chunk_size  dml_utils_data.positive_bigint
 i_chunk_by    dml_utils_data.chunking_strategy DEFAULT 'primary_key'
 RETURNS TABLE
@@ -1684,8 +1686,8 @@ i_sql_text     dml_utils_data.non_null_text
 i_schema_name  dml_utils_data.non_null_text
 i_table_name   dml_utils_data.non_null_text
 i_table_alias  dml_utils_data.non_null_text
-i_key_columns  name[]
-i_key_kinds    text[]
+i_key_columns  dml_utils_data.non_null_element_name_array
+i_key_kinds    dml_utils_data.non_null_element_text_array
 i_start_values text[]
 i_end_values   text[]
 i_is_final     dml_utils_data.non_null_boolean
@@ -1726,15 +1728,16 @@ inside EXPLAIN/EXECUTE. See the block-strategy limitations above.
 ### `dml_utils_lib.boundary_key_descriptor_sql(i_key_columns, i_key_kinds)`
 
 ```sql
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 RETURNS TABLE
 (o_select_list text, o_id_list text, o_order_by text,
     o_order_by_desc text, o_pack_expression text)
 ```
 
-`STABLE`, `SECURITY INVOKER`. Validates a one-to-three-column boundary key (one-dimensional, 1-based, matching lengths,
-known kinds) and returns the SQL
+`STABLE`, `SECURITY INVOKER`. The argument domains enforce one dimension, a lower
+bound of 1 and no NULL elements (`23514`); the body checks the matching lengths,
+one-to-three arity and known kinds (`22023`). Returns the SQL
 fragments that read, order and pack it: the `idN`-aliased select list, the `idN`
 list, the ascending and descending `ORDER BY`, and the `migration_key` row
 expression. The two `ORDER BY` fragments have different consumption contexts:
@@ -1752,8 +1755,8 @@ boundary builders so the key logic cannot drift.
 ```sql
 i_schema_name  dml_utils_data.non_null_text
 i_table_name   dml_utils_data.non_null_text
-i_key_columns  name[]
-i_key_kinds    text[]
+i_key_columns  dml_utils_data.non_null_element_name_array
+i_key_kinds    dml_utils_data.non_null_element_text_array
 i_run_id       bigint
 i_chunk_size   bigint
 i_leaf_ordinal integer
@@ -1833,8 +1836,8 @@ RETURNS dml_utils_data.migration_key
 `VOLATILE`, `SECURITY INVOKER`. Returns the high-water key of a leaf: the last row
 in the run's key order, or the one-past-end block number for `blocks`.
 `calculate_migration_leaf` stores it as
-`migration_run_leaf.terminal_boundary_id`; finalization reads that stored value
-(`terminal_leaf_for_run`/`append_terminal_boundary`), so a later delete cannot
+`migration_run_leaf.terminal_boundary_id`; finalization reads that stored value (`terminal_leaf_for_run`/
+`append_terminal_boundary`), so a later delete cannot
 regress the leaf's last chunk.
 
 ### `dml_utils_lib.calculate_migration_leaf(i_run_id)`
@@ -1968,8 +1971,8 @@ writes only the caller-supplied values, and `EXECUTE` is granted explicitly with
 i_table_alias dml_utils_data.non_null_text
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 RETURNS record
     (o_column_names text[], o_key_collations text[])
 ```
@@ -1981,14 +1984,16 @@ the column is not in the catalog). Qualifying it matters: the consumer
 interpolates the name into a `COLLATE` clause executed later, where an
 unqualified name would resolve against that session's `search_path`.
 `prepare_chunk_sql_render` uses it to build the run-invariant render context.
+Malformed keys raise `22023` (length, kind, blank or duplicate column); the
+argument domains reject a NULL element or a bad shape with `23514`.
 
 ###
 
 `dml_utils_lib.build_chunk_boundary_literals(i_column_names, i_key_kinds, i_key_collations, i_start_values, i_end_values)`
 
 ```sql
-i_column_names   text[]
-i_key_kinds      text[]
+i_column_names   dml_utils_data.non_null_element_text_array
+i_key_kinds      dml_utils_data.non_null_element_text_array
 i_key_collations text[]
 i_start_values   text[]
 i_end_values     text[]
@@ -2009,7 +2014,7 @@ misaligned array, or a collation that is not a plain/quoted identifier raises
 `dml_utils_lib.build_chunk_range_boxes(i_column_names, i_start_literals, i_end_literals, i_first_difference_position, i_is_final)`
 
 ```sql
-i_column_names             text[]
+i_column_names             dml_utils_data.non_null_element_text_array
 i_start_literals           text[]
 i_end_literals             text[]
 i_first_difference_position integer
@@ -2025,7 +2030,7 @@ column's upper bound inclusive. Shared by `render_prepared_chunk_sql`.
 ### `dml_utils_lib.boundary_key_pack_expression(i_key_kinds)`
 
 ```sql
-i_key_kinds text[]
+i_key_kinds dml_utils_data.non_null_element_text_array
 RETURNS text
 ```
 
@@ -2243,8 +2248,8 @@ i_sql_text    dml_utils_data.non_null_text
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
 i_table_alias dml_utils_data.non_null_text
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 i_chunk_size  dml_utils_data.positive_bigint
 RETURNS TABLE
     (o_plan_kind text, o_sql_text text, o_plan json)
@@ -2426,8 +2431,8 @@ i_run_id      dml_utils_data.non_null_bigint
 i_schema_name dml_utils_data.non_null_text
 i_table_name  dml_utils_data.non_null_text
 i_chunk_by    dml_utils_data.chunking_strategy
-i_key_columns name[]
-i_key_kinds   text[]
+i_key_columns dml_utils_data.non_null_element_name_array
+i_key_kinds   dml_utils_data.non_null_element_text_array
 i_chunk_size  dml_utils_data.positive_integer
 RETURNS void
 ```
@@ -2532,8 +2537,8 @@ manifest. Returns true when the run is ready.
 ```sql
 i_run_id               dml_utils_data.non_null_bigint
 i_partition_wise       dml_utils_data.non_null_boolean
-i_key_kinds            text[]
-i_in_flight_boundaries bigint[]
+i_key_kinds            dml_utils_data.non_null_element_text_array
+i_in_flight_boundaries dml_utils_data.non_null_element_bigint_array
 i_default_schema_name  dml_utils_data.non_null_text
 i_default_table_name   dml_utils_data.non_null_text
 RETURNS record

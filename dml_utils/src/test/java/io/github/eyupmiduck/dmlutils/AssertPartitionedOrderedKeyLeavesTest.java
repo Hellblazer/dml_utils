@@ -9,9 +9,7 @@ import java.sql.Connection;
 import java.sql.Statement;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.assert_partitioned_ordered_key_leaves}: it
@@ -180,15 +178,15 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
      */
     private String childIndexFor(String leaf) {
         var row = dsl.fetchOne("""
-                        SELECT ic.relname
-                        FROM pg_catalog.pg_inherits AS inh
-                                 JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
-                                 JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
-                                 JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
-                                 JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
-                                 JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
-                        WHERE n.nspname = ? AND p.relname = ? AND tc.relname = ?
-                        """, PARTITION_SCHEMA, PARENT_INDEX, leaf);
+                SELECT ic.relname
+                FROM pg_catalog.pg_inherits AS inh
+                         JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
+                         JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
+                         JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
+                         JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
+                         JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
+                WHERE n.nspname = ? AND p.relname = ? AND tc.relname = ?
+                """, PARTITION_SCHEMA, PARENT_INDEX, leaf);
         assertNotNull(row, () -> "no inherited child index for leaf " + leaf);
         return row.get(0, String.class);
     }

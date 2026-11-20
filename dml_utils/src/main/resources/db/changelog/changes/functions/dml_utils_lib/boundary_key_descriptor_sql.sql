@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
-    i_key_columns name[],
-    i_key_kinds text[]
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array
 )
     RETURNS TABLE
             (
@@ -46,13 +46,12 @@ BEGIN
     l_order_by_desc := '';
     FOR l_position IN 1..pg_catalog.array_length(i_key_kinds, 1)
         LOOP
-        -- A NULL or empty column name would render a degenerate %I token;
-        -- reject it before building the statement. The kind itself is
-        -- validated by boundary_key_pack_expression below.
-            IF i_key_columns[l_position] IS NULL
-                OR i_key_columns[l_position] = ''
+        -- The argument domain rejects NULL elements; an empty name would still
+        -- render a degenerate %I token. The kind itself is validated by
+        -- boundary_key_pack_expression below.
+            IF i_key_columns[l_position] = ''
             THEN
-                RAISE EXCEPTION 'boundary-key column name must not be NULL or empty at position %',
+                RAISE EXCEPTION 'boundary-key column name must not be empty at position %',
                     l_position
                     USING ERRCODE = '22023';
             END IF;

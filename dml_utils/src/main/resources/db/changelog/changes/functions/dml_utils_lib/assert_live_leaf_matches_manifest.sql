@@ -22,7 +22,6 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     SET standard_conforming_strings = on
     SET bytea_output = 'hex'
     SET lc_monetary = 'C'
-
 AS
 $$
 DECLARE

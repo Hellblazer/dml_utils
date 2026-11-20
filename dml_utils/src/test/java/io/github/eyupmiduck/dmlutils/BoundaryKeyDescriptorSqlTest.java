@@ -140,13 +140,13 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsNonOneDimensionalOrNonOneBasedArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "ARRAY[['k1']]::name[], ARRAY[['bigint']]::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "'[0:0]={k1}'::name[], '{bigint}'::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "'{k1}'::name[], '[0:0]={bigint}'::text[])"));
     }
@@ -161,9 +161,9 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
                 new String[]{"integer"}));
         assertSqlState("22023", () -> describe(new String[]{"k1"},
                 new String[]{"BIGINT"}));
-        assertSqlState("22023", () -> describe(new String[]{"k1"},
+        assertSqlState("23514", () -> describe(new String[]{"k1"},
                 new String[]{null}));
-        assertSqlState("22023", () -> describe(new String[]{null},
+        assertSqlState("23514", () -> describe(new String[]{null},
                 new String[]{"bigint"}));
         assertSqlState("22023", () -> describe(new String[]{""},
                 new String[]{"bigint"}));

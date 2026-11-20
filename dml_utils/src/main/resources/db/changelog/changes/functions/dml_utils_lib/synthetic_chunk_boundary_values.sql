@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.synthetic_chunk_boundary_values(
-    i_key_kinds text[],
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS TABLE
@@ -44,14 +44,7 @@ BEGIN
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would fall through every comparison and render as an
-            -- empty token in the ELSE message; reject it here so the error names
-            -- the position.
-            IF l_kind IS NULL THEN
-                RAISE EXCEPTION 'key kind at position % is NULL', l_position
-                    USING ERRCODE = '22023';
-            END IF;
-
+            -- The argument domain rejects a NULL element.
             IF l_kind = 'bigint' THEN
                 l_start := '0';
                 l_end := i_chunk_size::text;

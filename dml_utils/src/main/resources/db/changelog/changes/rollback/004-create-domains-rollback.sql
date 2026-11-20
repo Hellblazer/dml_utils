@@ -1,3 +1,5 @@
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_name_array;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_text_array;
 DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_bigint_array;
 DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_integer_array;
 DROP TYPE IF EXISTS dml_utils_data.migration_key;

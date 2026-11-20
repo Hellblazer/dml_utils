@@ -288,6 +288,16 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
                 () -> "the sleep should stop at the first slice, took " + elapsedMillis + "ms");
     }
 
+    /**
+     * A NULL element in the in-flight boundary array is rejected by the argument
+     * domain: {@code boundary_no <> ALL (ARRAY[... NULL])} is NULL and would
+     * silently drop that boundary from the selection.
+     */
+    @Test
+    void rejectsANullInFlightBoundaryElement() {
+        assertSqlState("23514", () -> next(1L, false, new Long[]{null}));
+    }
+
     private NextMigrationChunk next(long runId, boolean partitionWise, Long[] inFlight) {
         String tableSchema = partitionWise ? PARTITION_SCHEMA : schema(TEST_BIGINT);
         String tableName = partitionWise ? PARTITIONED_RANGE : name(TEST_BIGINT);

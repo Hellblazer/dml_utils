@@ -3,8 +3,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_chunk_by dml_utils_data.chunking_strategy,
-    i_key_columns name[],
-    i_key_kinds text[],
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_chunk_size dml_utils_data.positive_integer
 )
     RETURNS void

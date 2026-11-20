@@ -98,21 +98,21 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
         // Cardinality alone cannot detect these shapes: a multidimensional array
         // and a zero-based array both have one entry, but indexing them would read
         // a slice or the wrong element.
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
                         + "ARRAY[['bigint']]::text[], 10::bigint)"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
                         + "'[0:0]={bigint}'::text[], 10::bigint)"));
     }
 
     /**
-     * A NULL element is rejected with a message that names its position, rather
-     * than falling through the kind chain with an empty value.
+     * A NULL element is rejected by the argument domain rather than falling
+     * through the kind chain with an empty value.
      */
     @Test
     void rejectsANullKeyKindAtItsPosition() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
                         + "ARRAY['bigint', NULL]::text[], 10::bigint)"));
     }

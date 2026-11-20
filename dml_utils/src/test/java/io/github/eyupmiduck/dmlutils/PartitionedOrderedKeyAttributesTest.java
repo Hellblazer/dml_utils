@@ -130,16 +130,16 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
     void rejectsALeafWithoutAChildIndexInTheLiveTree() throws Exception {
         String parent = "test_partitioned_range_ordered_key_idx";
         var row = dsl.fetchOne("""
-                        SELECT ic.relname
-                        FROM pg_catalog.pg_inherits AS inh
-                                 JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
-                                 JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
-                                 JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
-                                 JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
-                                 JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
-                        WHERE n.nspname = ? AND p.relname = ?
-                          AND tc.relname = 'test_partitioned_range_low'
-                        """, PARTITION_SCHEMA, parent);
+                SELECT ic.relname
+                FROM pg_catalog.pg_inherits AS inh
+                         JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
+                         JOIN pg_catalog.pg_index AS ci ON ci.indexrelid = inh.inhrelid
+                         JOIN pg_catalog.pg_class AS tc ON tc.oid = ci.indrelid
+                         JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
+                         JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
+                WHERE n.nspname = ? AND p.relname = ?
+                  AND tc.relname = 'test_partitioned_range_low'
+                """, PARTITION_SCHEMA, parent);
         assertNotNull(row, "the low leaf must have an inherited child index");
         String child = row.get(0, String.class);
 

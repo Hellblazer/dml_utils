@@ -2,8 +2,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.build_key_render_columns(
     i_table_alias dml_utils_data.non_null_text,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
-    i_key_columns name[],
-    i_key_kinds text[],
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     OUT o_column_names text[],
     OUT o_key_collations text[]
 )
@@ -49,25 +49,19 @@ BEGIN
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
-            -- not true), so guard it explicitly.
-            IF l_kind IS NULL THEN
-                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
-                    USING ERRCODE = '22023';
-            END IF;
+            -- The argument domain rejects a NULL element.
             IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
-            -- A NULL, empty or whitespace-only column name would render a
-            -- degenerate %I token and only fail later when a worker parses the
-            -- chunk SQL; reject it here. Trim the same whitespace set the
-            -- dml_utils_data.non_null_text domain uses, not just spaces.
-            IF i_key_columns[l_position] IS NULL
-                OR pg_catalog.btrim(i_key_columns[l_position]::text, E' \t\n\r\f\013') = ''
+            -- The argument domain rejects NULL elements; an empty or
+            -- whitespace-only name would still render a degenerate %I token and
+            -- fail later when a worker parses the chunk SQL. Trim the same
+            -- whitespace set the dml_utils_data.non_null_text domain uses.
+            IF pg_catalog.btrim(i_key_columns[l_position]::text, E' \t\n\r\f\013') = ''
             THEN
-                RAISE EXCEPTION 'key column name must not be NULL or blank at position %',
+                RAISE EXCEPTION 'key column name must not be blank at position %',
                     l_position
                     USING ERRCODE = '22023';
             END IF;

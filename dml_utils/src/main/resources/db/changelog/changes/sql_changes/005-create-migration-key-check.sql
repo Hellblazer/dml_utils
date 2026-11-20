@@ -76,28 +76,28 @@ SELECT arity.n BETWEEN 1 AND 3
                    THEN pg_catalog.cardinality(
                                 pg_catalog.array_remove((i_key).bigint_values, NULL::bigint)) >= 1
                ELSE FALSE
-               END)
+                    END)
            AND ((i_key).text_values IS NULL
         OR CASE
                WHEN pg_catalog.array_ndims((i_key).text_values) = 1
                    THEN pg_catalog.cardinality(
                                 pg_catalog.array_remove((i_key).text_values, NULL::text)) >= 1
                ELSE FALSE
-               END)
+                    END)
            AND ((i_key).uuid_values IS NULL
         OR CASE
                WHEN pg_catalog.array_ndims((i_key).uuid_values) = 1
                    THEN pg_catalog.cardinality(
                                 pg_catalog.array_remove((i_key).uuid_values, NULL::uuid)) >= 1
                ELSE FALSE
-               END)
+                    END)
            AND ((i_key).timestamptz_values IS NULL
         OR CASE
                WHEN pg_catalog.array_ndims((i_key).timestamptz_values) = 1
                    THEN pg_catalog.cardinality(
                                 pg_catalog.array_remove((i_key).timestamptz_values, NULL::timestamptz)) >= 1
                ELSE FALSE
-               END)
+                    END)
 FROM arity;
 $$;
 

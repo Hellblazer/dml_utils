@@ -24,29 +24,29 @@ BEGIN
     END IF;
 
     WITH candidates AS (SELECT run.run_id
-                            FROM dml_utils_data.migration_run AS run
-                            WHERE run.archived_at IS NOT NULL
-                              AND (run.completed_at IS NOT NULL OR run.cancelled_at IS NOT NULL)
-                              AND (i_label IS NULL OR run.label = i_label)
-                              -- A completed run has no in-flight worker: the coordinator completes it only
-                              -- after every chunk finished. A cancelled run can still have a pending
-                              -- boundary, because cancel_migration_run marks every unclaimed one: a
-                              -- pending boundary there is one a worker had claimed, and the coordinator
-                              -- marks it after stopping the worker. Skip the run until then, instead of
-                              -- cascading into rows that worker may still lock.
-                              AND (run.completed_at IS NOT NULL
-                                OR NOT EXISTS (SELECT 1
-                                               FROM dml_utils_data.migration_boundary AS boundary
-                                               WHERE boundary.run_id = run.run_id
-                                                 AND boundary.completed_at IS NULL
-                                                 AND boundary.cancelled_at IS NULL))
-                            ORDER BY run.run_id
-                            LIMIT i_limit FOR UPDATE SKIP LOCKED),
-             deleted AS (
-                 DELETE FROM dml_utils_data.migration_run AS run
-                     USING candidates
-                     WHERE run.run_id = candidates.run_id
-                     RETURNING 1)
+                        FROM dml_utils_data.migration_run AS run
+                        WHERE run.archived_at IS NOT NULL
+                          AND (run.completed_at IS NOT NULL OR run.cancelled_at IS NOT NULL)
+                          AND (i_label IS NULL OR run.label = i_label)
+                          -- A completed run has no in-flight worker: the coordinator completes it only
+                          -- after every chunk finished. A cancelled run can still have a pending
+                          -- boundary, because cancel_migration_run marks every unclaimed one: a
+                          -- pending boundary there is one a worker had claimed, and the coordinator
+                          -- marks it after stopping the worker. Skip the run until then, instead of
+                          -- cascading into rows that worker may still lock.
+                          AND (run.completed_at IS NOT NULL
+                            OR NOT EXISTS (SELECT 1
+                                           FROM dml_utils_data.migration_boundary AS boundary
+                                           WHERE boundary.run_id = run.run_id
+                                             AND boundary.completed_at IS NULL
+                                             AND boundary.cancelled_at IS NULL))
+                        ORDER BY run.run_id
+                        LIMIT i_limit FOR UPDATE SKIP LOCKED),
+         deleted AS (
+             DELETE FROM dml_utils_data.migration_run AS run
+                 USING candidates
+                 WHERE run.run_id = candidates.run_id
+                 RETURNING 1)
     SELECT pg_catalog.count(*)::bigint
     INTO l_deleted
     FROM deleted;

@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    i_column_names text[],
+    i_column_names dml_utils_data.non_null_element_text_array,
     i_start_literals text[],
     i_end_literals text[],
     i_first_difference_position dml_utils_data.non_negative_integer,
@@ -30,10 +30,8 @@ BEGIN
         OR pg_catalog.array_lower(i_end_literals, 1) IS DISTINCT FROM 1
         OR pg_catalog.array_length(i_column_names, 1) IS NULL
         OR pg_catalog.array_length(i_column_names, 1) < 1
-        OR pg_catalog.array_length(i_start_literals, 1)
-            IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
-        OR pg_catalog.array_length(i_end_literals, 1)
-            IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_length(i_start_literals, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_length(i_end_literals, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
         OR pg_catalog.array_position(i_column_names, NULL::text) IS NOT NULL
         OR pg_catalog.array_position(i_start_literals, NULL::text) IS NOT NULL
         OR pg_catalog.array_position(i_end_literals, NULL::text) IS NOT NULL

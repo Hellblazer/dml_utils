@@ -29,6 +29,10 @@ REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_integer_array FROM public
 GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_integer_array TO dml_utils_caller;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_bigint_array FROM public;
 GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_bigint_array TO dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_text_array FROM public;
+GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_text_array TO dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_name_array FROM public;
+GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_name_array TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.migration_key FROM public;
 GRANT USAGE ON TYPE dml_utils_data.migration_key TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM public;
@@ -289,21 +293,21 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_boundary_key_index(
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.migration_key_values(
     dml_utils_data.migration_key,
-    text[]
+    dml_utils_data.non_null_element_text_array
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.migration_key_values(
     dml_utils_data.migration_key,
-    text[]
+    dml_utils_data.non_null_element_text_array
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.migration_key_pair_values(
     dml_utils_data.migration_key,
     dml_utils_data.migration_key,
-    text[]
+    dml_utils_data.non_null_element_text_array
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.migration_key_pair_values(
     dml_utils_data.migration_key,
     dml_utils_data.migration_key,
-    text[]
+    dml_utils_data.non_null_element_text_array
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.migration_key_is_canonical(dml_utils_data.migration_key) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.migration_key_is_canonical(dml_utils_data.migration_key) TO dml_utils_caller;
@@ -360,24 +364,24 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[]
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.prepare_chunk_sql_render(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[]
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    text[],
-    text[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     text[],
@@ -388,8 +392,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.render_prepared_chunk_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    text[],
-    text[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     text[],
@@ -400,8 +404,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.render_chunk_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_null_boolean
@@ -411,8 +415,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.render_chunk_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_null_boolean
@@ -514,16 +518,16 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.record_migration_error(
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_boundary_population_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.non_null_bigint,
     dml_utils_data.positive_bigint
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.build_boundary_population_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.non_null_bigint,
     dml_utils_data.positive_bigint
     ) TO dml_utils_caller;
@@ -539,13 +543,19 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.build_block_boundary_population_sql(
     dml_utils_data.non_null_bigint,
     dml_utils_data.positive_bigint
     ) TO dml_utils_caller;
-REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(name[], text[]) FROM public;
-GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(name[], text[]) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql(
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
+    ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.non_null_bigint,
     dml_utils_data.positive_bigint,
     dml_utils_data.positive_integer
@@ -553,8 +563,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
 GRANT EXECUTE ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.non_null_bigint,
     dml_utils_data.positive_bigint,
     dml_utils_data.positive_integer
@@ -638,11 +648,11 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_relation_filepath(
     text
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.synthetic_chunk_boundary_values(
-    text[],
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.synthetic_chunk_boundary_values(
-    text[],
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_query_plan(dml_utils_data.non_null_text) FROM public;
@@ -652,8 +662,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_chunk_plans(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint,
     dml_utils_data.chunking_strategy
     ) FROM public;
@@ -662,8 +672,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_chunk_plans(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint,
     dml_utils_data.chunking_strategy
     ) TO dml_utils_caller;
@@ -672,8 +682,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_chunk_plan(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_null_boolean
@@ -683,8 +693,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_chunk_plan(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_null_boolean
@@ -942,46 +952,50 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_key_render_columns(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[]
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.build_key_render_columns(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[]
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    text[],
-    text[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     text[]
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    text[],
-    text[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     text[]
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    text[],
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_negative_integer,
     dml_utils_data.non_null_boolean
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    text[],
+    dml_utils_data.non_null_element_text_array,
     text[],
     text[],
     dml_utils_data.non_negative_integer,
     dml_utils_data.non_null_boolean
     ) TO dml_utils_caller;
-REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[]) FROM public;
-GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[]) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(
+    dml_utils_data.non_null_element_text_array
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.boundary_key_pack_expression(
+    dml_utils_data.non_null_element_text_array
+    ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.format_boundary_population_sql(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
@@ -1121,8 +1135,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
@@ -1130,8 +1144,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.explain_key_chunk_plans(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_bigint
     ) TO dml_utils_caller;
 
@@ -1221,8 +1235,8 @@ REVOKE EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_integer
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
@@ -1230,8 +1244,8 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text,
     dml_utils_data.chunking_strategy,
-    name[],
-    text[],
+    dml_utils_data.non_null_element_name_array,
+    dml_utils_data.non_null_element_text_array,
     dml_utils_data.positive_integer
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.find_active_migration_run(dml_utils_data.non_null_text) FROM public;
@@ -1309,16 +1323,16 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.prepare_partition_wise_execution(
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
     dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_boolean,
-    text[],
-    bigint[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.next_migration_chunk(
     dml_utils_data.non_null_bigint,
     dml_utils_data.non_null_boolean,
-    text[],
-    bigint[],
+    dml_utils_data.non_null_element_text_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO dml_utils_caller;

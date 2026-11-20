@@ -1,10 +1,9 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
-import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
  * Verifies {@code dml_utils_lib.boundary_key_pack_expression}: each key kind is
@@ -90,22 +89,18 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
         assertSqlState("22023", () -> pack(null));
         assertSqlState("22023", () -> pack(new String[]{}));
         assertSqlState("22023", () -> pack(new String[]{"bigint", "text", "uuid", "text"}));
-        assertSqlState("22023", () -> pack(new String[]{null}));
+        assertSqlState("23514", () -> pack(new String[]{null}));
         assertSqlState("22023", () -> pack(new String[]{"integer"}));
         assertSqlState("22023", () -> pack(new String[]{"BIGINT"}));
     }
 
     /**
-     * A NULL kind names the NULL explicitly instead of rendering an empty kind in
-     * the error message.
+     * A NULL kind element is rejected by the argument domain before the body can
+     * fall through the kind chain with an empty value.
      */
     @Test
-    void namesANullKindInTheError() {
-        DataAccessException error = assertThrows(DataAccessException.class,
-                () -> pack(new String[]{null}));
-
-        assertTrue(error.getMessage().contains("must not be NULL"),
-                () -> "unexpected message: " + error.getMessage());
+    void rejectsANullKindElement() {
+        assertSqlState("23514", () -> pack(new String[]{null}));
     }
 
     /**
@@ -113,9 +108,9 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
      */
     @Test
     void rejectsMalformedArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT dml_utils_lib.boundary_key_pack_expression(ARRAY[['bigint']]::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT dml_utils_lib.boundary_key_pack_expression('[0:0]={bigint}'::text[])"));
     }
 }

@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.boundary_key_pack_expression(
-    i_key_kinds text[]
+    i_key_kinds dml_utils_data.non_null_element_text_array
 )
     RETURNS text
     LANGUAGE plpgsql

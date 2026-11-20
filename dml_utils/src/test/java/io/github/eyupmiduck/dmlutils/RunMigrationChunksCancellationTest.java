@@ -28,6 +28,9 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class RunMigrationChunksCancellationTest extends PostgresTestBase {
 
+    private static final String FAST_TEMPLATE =
+            "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
+
     /**
      * The chunk takes a transaction-level advisory lock before it sleeps. The test
      * polls {@code pg_locks} for that lock, so it knows a worker has actually
@@ -38,9 +41,6 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
         return "SELECT pg_advisory_xact_lock(" + lockKey + ", 4242), pg_sleep(1)"
                 + " FROM <driving_table> WHERE <chunking_clause>";
     }
-
-    private static final String FAST_TEMPLATE =
-            "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
 
     /**
      * Clears the fixture table and the migration metadata so each test starts

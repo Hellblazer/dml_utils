@@ -56,7 +56,7 @@ BEGIN
         IF l_ordered_key_columns IS NULL OR l_ordered_key_kinds IS NULL
             OR pg_catalog.cardinality(l_ordered_key_columns) NOT BETWEEN 1 AND 3
             OR pg_catalog.cardinality(l_ordered_key_kinds)
-                <> pg_catalog.cardinality(l_ordered_key_columns)
+               <> pg_catalog.cardinality(l_ordered_key_columns)
         THEN
             RAISE EXCEPTION 'ordered-key run % has no valid stored key descriptor', i_run_id
                 USING ERRCODE = '55000';

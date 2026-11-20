@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.next_migration_chunk(
     i_run_id dml_utils_data.non_null_bigint,
     i_partition_wise dml_utils_data.non_null_boolean,
-    i_key_kinds text[],
-    i_in_flight_boundaries bigint[],
+    i_key_kinds dml_utils_data.non_null_element_text_array,
+    i_in_flight_boundaries dml_utils_data.non_null_element_bigint_array,
     i_default_schema_name dml_utils_data.non_null_text,
     i_default_table_name dml_utils_data.non_null_text,
     OUT o_boundary_no bigint,

@@ -84,11 +84,11 @@ class MigrationBoundaryStartedAtGuardTest extends PostgresTestBase {
         insertBoundary(runId);
 
         assertEquals(1, dsl.execute("UPDATE dml_utils_data.migration_boundary"
-                + " SET started_at = pg_catalog.clock_timestamp()"
-                + " WHERE run_id = ? AND boundary_no = 0", runId),
+                        + " SET started_at = pg_catalog.clock_timestamp()"
+                        + " WHERE run_id = ? AND boundary_no = 0", runId),
                 "setting started_at on a pending boundary applies to its row");
         assertEquals(1, dsl.execute("UPDATE dml_utils_data.migration_boundary SET started_at = NULL"
-                + " WHERE run_id = ? AND boundary_no = 0", runId),
+                        + " WHERE run_id = ? AND boundary_no = 0", runId),
                 "clearing started_at before completion applies to its row");
     }
 
