@@ -129,7 +129,7 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
     @Test
     void rejectsALeafWithoutAChildIndexInTheLiveTree() throws Exception {
         String parent = "test_partitioned_range_ordered_key_idx";
-        String child = dsl.fetchOne("""
+        var row = dsl.fetchOne("""
                         SELECT ic.relname
                         FROM pg_catalog.pg_inherits AS inh
                                  JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
@@ -139,8 +139,9 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
                                  JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
                         WHERE n.nspname = ? AND p.relname = ?
                           AND tc.relname = 'test_partitioned_range_low'
-                        """, PARTITION_SCHEMA, parent)
-                .get(0, String.class);
+                        """, PARTITION_SCHEMA, parent);
+        assertNotNull(row, "the low leaf must have an inherited child index");
+        String child = row.get(0, String.class);
 
         // A system catalog can only be changed by the superuser, not the owner.
         executeAsSuperuser("DELETE FROM pg_catalog.pg_inherits"

@@ -272,6 +272,8 @@ class RunFunctionOverTableTest extends PostgresTestBase {
 
         assertEquals(1, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.like("function:%")),
                 "both sessions derive the same label and share one run");
+        assertEquals(3, payloadCount(TEST_COMPOSITE_MIXED, "done"),
+                "the resumed run still processed every row exactly once");
     }
 
     /**

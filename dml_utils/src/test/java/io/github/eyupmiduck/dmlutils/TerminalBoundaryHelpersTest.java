@@ -53,6 +53,7 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo))
                 .fetchOne();
+        assertNotNull(boundary, () -> "no boundary " + boundaryNo + " for run " + runId);
         assertEquals(terminal.getOLeafOrdinal(), boundary.getLeafOrdinal());
         assertEquals(202L, boundary.getBoundaryId().getBigintValues()[0]);
     }

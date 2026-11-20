@@ -43,6 +43,8 @@ class LeafBoundaryPopulationSqlTest extends PartitionTestBase {
         List<MigrationBoundaryRecord> boundaries = boundaries(runId);
         assertEquals(3, boundaries.size());
         assertEquals(0L, boundaries.getFirst().getBoundaryId().getBigintValues()[0]);
+        assertEquals(2L, boundaries.get(1).getBoundaryId().getBigintValues()[0],
+                "the middle start is the second chunk boundary");
         assertEquals(4L, boundaries.getLast().getBoundaryId().getBigintValues()[0]);
         assertTrue(boundaries.stream().allMatch(b -> b.getLeafOrdinal() == 1));
     }

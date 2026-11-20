@@ -24,6 +24,38 @@ class FunctionSelectColumnsTest {
                     + "(?:(?:[a-z_][a-z0-9_]*\\.)+)?\\*");
 
     /**
+     * A star that is not the first select item ({@code SELECT id, t.*}), which
+     * the leading-star pattern above cannot see. A comma plus qualifiers and a
+     * star, followed by another item or FROM, cannot be {@code count(*)} or a
+     * multiplication.
+     */
+    private static final Pattern STAR_SELECT_ITEM = Pattern.compile(
+            "(?i),\\s*(?:[a-z_][a-z0-9_]*\\.)*\\*(?:\\s*,|\\s+from\\b)");
+
+    /**
+     * Removes SQL comments before matching, so a comment that mentions
+     * {@code SELECT *} is not reported as a routine using one.
+     *
+     * @param sql the SQL text
+     * @return the text without line and block comments
+     */
+    private static String withoutComments(String sql) {
+        return sql.replaceAll("(?s)/\\*.*?\\*/", " ")
+                .replaceAll("--[^\\n]*", " ");
+    }
+
+    /**
+     * Whether the SQL contains a star select in executable text.
+     *
+     * @param sql the SQL text
+     * @return true when a star select is found outside comments
+     */
+    private static boolean hasStarSelect(String sql) {
+        String code = withoutComments(sql);
+        return SELECT_STAR.matcher(code).find() || STAR_SELECT_ITEM.matcher(code).find();
+    }
+
+    /**
      * The pattern detects a star select even behind a {@code DISTINCT ON (...)}
      * modifier.
      */
@@ -51,12 +83,37 @@ class FunctionSelectColumnsTest {
     void functionsListSelectedColumnsExplicitly() throws IOException {
         List<String> files = TestResources.readSqlFiles("db/changelog/changes/functions");
         List<String> offenders = files.stream()
-                .filter(sql -> SELECT_STAR.matcher(sql).find())
+                .filter(FunctionSelectColumnsTest::hasStarSelect)
                 .toList();
 
         assertTrue(offenders.isEmpty(),
                 () -> "SQL routines must list columns explicitly; found SELECT * / alias.* in:\n"
                         + String.join("\n---\n", offenders));
+    }
+
+    /**
+     * A star after another select item is detected, while an aggregate or an
+     * ordinary column list is not.
+     */
+    @Test
+    void detectsAStarThatIsNotTheFirstSelectItem() {
+        assertTrue(STAR_SELECT_ITEM.matcher("SELECT id, t.* FROM t").find());
+        assertTrue(STAR_SELECT_ITEM.matcher("SELECT id, * FROM t").find());
+        assertFalse(STAR_SELECT_ITEM.matcher("SELECT count(*) FROM t").find());
+        assertFalse(STAR_SELECT_ITEM.matcher("SELECT id, payload FROM t").find());
+    }
+
+    /**
+     * A star mentioned in a comment is not a star select in the routine.
+     */
+    @Test
+    void ignoresStarSelectsInComments() {
+        assertFalse(hasStarSelect("-- never write SELECT * FROM t\nSELECT id FROM t"),
+                "a line comment mentioning a star select is not an offender");
+        assertFalse(hasStarSelect("/* SELECT t.* FROM t */\nSELECT id FROM t"),
+                "a block comment mentioning a star select is not an offender");
+        assertTrue(hasStarSelect("SELECT * FROM t -- a comment"),
+                "a real star select is still found");
     }
 
     /**

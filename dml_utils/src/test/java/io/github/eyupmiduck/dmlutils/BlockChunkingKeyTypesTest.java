@@ -2,12 +2,14 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -46,6 +48,12 @@ class BlockChunkingKeyTypesTest extends PostgresTestBase {
                     table, label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000);
 
             assertTrue(runCompleted(label), table + " should complete with the block strategy");
+            MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.LABEL.eq(label))
+                    .fetchOne();
+            assertNotNull(run, table + " run row must exist");
+            assertTrue(run.getTotalChunks() > 0,
+                    table + " must produce at least one block chunk, not complete empty");
         }
     }
 }

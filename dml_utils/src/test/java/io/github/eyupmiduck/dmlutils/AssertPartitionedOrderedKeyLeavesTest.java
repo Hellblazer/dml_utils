@@ -10,6 +10,7 @@ import java.sql.Statement;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -178,7 +179,7 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
      * @return the child index name
      */
     private String childIndexFor(String leaf) {
-        return dsl.fetchOne("""
+        var row = dsl.fetchOne("""
                         SELECT ic.relname
                         FROM pg_catalog.pg_inherits AS inh
                                  JOIN pg_catalog.pg_class AS ic ON ic.oid = inh.inhrelid
@@ -187,8 +188,9 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
                                  JOIN pg_catalog.pg_class AS p ON p.oid = inh.inhparent
                                  JOIN pg_catalog.pg_namespace AS n ON n.oid = p.relnamespace
                         WHERE n.nspname = ? AND p.relname = ? AND tc.relname = ?
-                        """, PARTITION_SCHEMA, PARENT_INDEX, leaf)
-                .get(0, String.class);
+                        """, PARTITION_SCHEMA, PARENT_INDEX, leaf);
+        assertNotNull(row, () -> "no inherited child index for leaf " + leaf);
+        return row.get(0, String.class);
     }
 
     /**

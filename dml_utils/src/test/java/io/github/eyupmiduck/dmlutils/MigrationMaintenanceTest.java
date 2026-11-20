@@ -5,6 +5,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationBoun
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationErrorsRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationRunSummaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -164,10 +165,11 @@ class MigrationMaintenanceTest extends PostgresTestBase {
 
         // Simulate the boundary a worker had claimed when the run was cancelled:
         // cancel marks the unclaimed ones, leaving this one pending.
-        dsl.execute("""
-                INSERT INTO dml_utils_data.migration_boundary (run_id, boundary_no, boundary_id)
-                VALUES (?, 99, ROW(ARRAY[99::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key)
-                """, runId);
+        dsl.insertInto(MIGRATION_BOUNDARY)
+                .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 99L, new MigrationKeyRecord(new Long[]{99L}, null, null, null))
+                .execute();
 
         assertEquals(0, Routines.deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),
                 "a pending boundary defers the delete");

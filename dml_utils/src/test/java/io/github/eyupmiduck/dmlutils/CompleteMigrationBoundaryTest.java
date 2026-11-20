@@ -121,9 +121,10 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
                 .fetchOne();
+        assertNotNull(boundary, "the completed boundary must exist");
         assertNotNull(boundary.getCompletedAt(), "the boundary should be completed");
-        assertFalse(boundary.getStartedAt().isAfter(boundary.getCompletedAt()),
-                "started_at must not follow completed_at");
+        assertEquals(boundary.getCompletedAt(), boundary.getStartedAt(),
+                "a future started_at is clamped to the completion time");
         assertEquals(3L, boundary.getRowsAffected(), "the row count is recorded");
 
         assertEquals(1L, dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)

@@ -150,6 +150,8 @@ class MetadataPrivilegeTest extends PostgresTestBase {
         assertEquals(1, dsl.fetchCount(MIGRATION_ERROR,
                         MIGRATION_ERROR.RUN_ID.eq(runId(label))),
                 "the chunk failure should be recorded by the owner-owned helper");
+        assertEquals(0, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.eq("done")),
+                "the failed chunk's first update must roll back with its worker");
     }
 
     /**

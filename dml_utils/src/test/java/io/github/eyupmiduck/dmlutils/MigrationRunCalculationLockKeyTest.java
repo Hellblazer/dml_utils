@@ -29,6 +29,7 @@ class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
                   AND p.proname = 'migration_run_calculation_lock_key'
                 """);
 
+        assertNotNull(attributes, "the lock-key routine must exist");
         assertEquals("i", attributes.get("provolatile", String.class),
                 "the key derivation is immutable (bigint::text, not format())");
         assertTrue(attributes.get("proisstrict", Boolean.class),

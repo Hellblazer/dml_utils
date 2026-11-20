@@ -559,7 +559,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         // value twice, so an exact match proves each row was processed once
         // (which a plain assignment could not show). The literal is quoted by
         // DSL.inline, so a value containing a quote cannot break the body.
-        dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName
+        dsl.execute("CREATE OR REPLACE FUNCTION public." + quoteIdentifier(functionName)
                 + "(p_a bigint, p_b text) RETURNS void LANGUAGE sql AS $$"
                 + " UPDATE " + schema(TEST_COMPOSITE_MIXED) + "."
                 + name(TEST_COMPOSITE_MIXED)
@@ -726,10 +726,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean runCompleted(long runId) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull());
+        assertNotNull(completed, () -> "no migration run " + runId);
+        return completed;
     }
 
     /**
@@ -739,10 +741,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean runCompleted(String label) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull());
+        assertNotNull(completed, () -> "no migration run for label " + label);
+        return completed;
     }
 
     /**
@@ -752,10 +756,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code started_at} is set
      */
     protected boolean runStarted(long runId) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.STARTED_AT.isNotNull())
+        Boolean started = dsl.select(MIGRATION_RUN.STARTED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.STARTED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.STARTED_AT.isNotNull());
+        assertNotNull(started, () -> "no migration run " + runId);
+        return started;
     }
 
     /**
@@ -766,11 +772,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean boundaryCompleted(long runId, long boundaryNo) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_BOUNDARY)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo)))
-                .fetchOne(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull());
+        assertNotNull(completed,
+                () -> "no migration boundary " + boundaryNo + " for run " + runId);
+        return completed;
     }
 
     /**
@@ -782,10 +791,13 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code started_at} is set
      */
     protected boolean boundaryStarted(long runId, long boundaryNo) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_BOUNDARY.STARTED_AT.isNotNull())
+        Boolean started = dsl.select(MIGRATION_BOUNDARY.STARTED_AT.isNotNull())
                 .from(MIGRATION_BOUNDARY)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo)))
-                .fetchOne(MIGRATION_BOUNDARY.STARTED_AT.isNotNull()));
+                .fetchOne(MIGRATION_BOUNDARY.STARTED_AT.isNotNull());
+        assertNotNull(started,
+                () -> "no migration boundary " + boundaryNo + " for run " + runId);
+        return started;
     }
 }

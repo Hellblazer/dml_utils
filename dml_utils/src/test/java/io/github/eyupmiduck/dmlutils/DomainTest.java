@@ -50,7 +50,7 @@ class DomainTest extends PostgresTestBase {
      */
     @Test
     void nonNullTextRejectsNonSpaceWhitespace() {
-        assertDomainViolation(() -> evaluate("E'\\t\\n\\r'::dml_utils_data.non_null_text", String.class));
+        assertDomainViolation(() -> evaluate("E'\\t\\n\\r\\f'::dml_utils_data.non_null_text", String.class));
     }
 
     /**
