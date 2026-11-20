@@ -149,6 +149,7 @@ COMMENT ON FUNCTION dml_utils_data.reject_migration_run_update IS
         '(ordered_key_index, ordered_key_columns, ordered_key_kinds), the driving '
         'table schema/name/alias or the driving table relation filepath. It also '
         'rejects clearing or moving migration_run.started_at once set, rejects a '
+        'change to migration_run.manifest_snapshotted_at once set, rejects a '
         'change to migration_run.total_chunks once '
         'boundaries_calculated_at is set (the value is written with that '
         'milestone), rejects clearing or moving boundaries_calculated_at once it '
