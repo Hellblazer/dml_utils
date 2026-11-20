@@ -91,6 +91,16 @@ class MigrationMaintenanceTest extends PostgresTestBase {
     }
 
     /**
+     * A blank label is rejected: NULL is the every-label sentinel, and a blank
+     * string cannot name a run (labels are non-null and non-blank at creation).
+     */
+    @Test
+    void rejectsABlankDeleteLabel() {
+        assertSqlState("22023", () -> Routines.deleteArchivedMigrationRuns(
+                dsl.configuration(), "  \t ", 1000));
+    }
+
+    /**
      * A completed-then-archived run is deleted like a cancelled one; the terminal
      * filter is not restricted to cancellations.
      */
@@ -247,7 +257,8 @@ class MigrationMaintenanceTest extends PostgresTestBase {
     void migrationRunSummaryReportsCompletedAndArchivedState() {
         String label = "maint-summary-done";
         long runId = populateRun(label, 2, 1, 2, 3, 4);
-        // Complete two of the three boundaries and finish the run.
+        // Complete every boundary, advance the run counter and finish the run:
+        // completed_at requires the completed counter to cover total_chunks.
         OffsetDateTime runStarted = migrationRun(runId).getStartedAt();
         assertNotNull(runStarted, "the populated run records its start");
         OffsetDateTime started = OffsetDateTime.parse("2020-01-01T00:00:00Z");
@@ -256,9 +267,9 @@ class MigrationMaintenanceTest extends PostgresTestBase {
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.now())
                 .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .and(MIGRATION_BOUNDARY.BOUNDARY_NO.in(0L, 1L))
                 .execute();
         dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
@@ -270,8 +281,8 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         MigrationRunSummaryRecord summary = summaries.get(0);
 
         assertEquals(3L, summary.getBoundaryCount().longValue());
-        assertEquals(2L, summary.getCompletedBoundaryCount().longValue(),
-                "two of the three boundaries are completed");
+        assertEquals(3L, summary.getCompletedBoundaryCount().longValue(),
+                "every boundary is completed");
         assertNotNull(summary.getStartedAt(), "the run start comes through");
         assertEquals(runStarted, summary.getStartedAt(), "the recorded start comes through");
         assertNotNull(summary.getBoundariesCalculatedAt(),

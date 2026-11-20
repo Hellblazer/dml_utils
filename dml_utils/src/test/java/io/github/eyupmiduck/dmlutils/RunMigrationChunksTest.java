@@ -762,7 +762,8 @@ class RunMigrationChunksTest extends PostgresTestBase {
         String completed = label("set-sql-completed");
         long completedRun = populate(TEST_BIGINT, completed, TEMPLATE, 2);
         dsl.execute("UPDATE dml_utils_data.migration_run"
-                        + " SET completed_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
+                        + " SET total_chunks_completed = total_chunks,"
+                        + " completed_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
                 completedRun);
 
         String cancelled = label("set-sql-cancelled");

@@ -4,6 +4,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_schema_exists(
     RETURNS void
     LANGUAGE plpgsql
     STABLE
+    PARALLEL SAFE
     SECURITY INVOKER
 AS
 $$

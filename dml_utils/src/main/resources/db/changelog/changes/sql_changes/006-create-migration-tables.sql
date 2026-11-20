@@ -131,6 +131,12 @@ CREATE TABLE dml_utils_data.migration_run
             OR (started_at IS NOT NULL AND completed_at >= started_at))
             AND (boundaries_calculated_at IS NULL
             OR (started_at IS NOT NULL AND boundaries_calculated_at >= started_at))
+            -- A run cannot finish before its boundaries were calculated (a
+            -- direct fixture may leave the boundary stamp NULL, but when both
+            -- stamps are present the order is fixed).
+            AND (completed_at IS NULL
+            OR boundaries_calculated_at IS NULL
+            OR completed_at >= boundaries_calculated_at)
         ),
     -- A cancelled run is terminal and its cancellation cannot precede the start.
     -- completed_at and cancelled_at are mutually exclusive.
@@ -161,7 +167,13 @@ CREATE TABLE dml_utils_data.migration_run
     CONSTRAINT migration_run_total_chunks_check CHECK (total_chunks >= 0),
     CONSTRAINT migration_run_total_chunks_completed_check CHECK (total_chunks_completed >= 0),
     CONSTRAINT migration_run_total_rows_affected_check CHECK (total_rows_affected >= 0),
-    CONSTRAINT migration_run_progress_check CHECK (total_chunks_completed <= total_chunks)
+    CONSTRAINT migration_run_progress_check CHECK (total_chunks_completed <= total_chunks),
+    -- A completed run has completed every chunk. complete_migration_run only sets
+    -- completed_at when the counters cover total_chunks; this keeps a direct
+    -- UPDATE from marking a run complete early.
+    CONSTRAINT migration_run_completed_progress_check CHECK (
+        completed_at IS NULL OR total_chunks_completed = total_chunks
+        )
 );
 
 COMMENT ON TABLE dml_utils_data.migration_run IS
@@ -236,7 +248,9 @@ COMMENT ON COLUMN dml_utils_data.migration_run.primary_key_kinds IS
 COMMENT ON COLUMN dml_utils_data.migration_run.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_run.updated_at IS
-    'Last update time, maintained by the set_updated_at() trigger.';
+    'Last update time maintained by the set_updated_at() trigger; it is the '
+        'transaction start time (now()), shared by every row updated in the same '
+        'transaction.';
 COMMENT ON COLUMN dml_utils_data.migration_run.started_at IS
     'Actual server time when the run began, at the start of the boundary '
         'calculation; written by populate_migration_boundaries in the worker''s '
@@ -361,6 +375,13 @@ CREATE TABLE dml_utils_data.migration_run_leaf
     CONSTRAINT migration_run_leaf_terminal_check CHECK (
         (state = 'calculated' AND boundary_count > 0)
             = (terminal_boundary_id IS DISTINCT FROM NULL)
+        ),
+    -- The high-water key is a packed boundary key, so the same canonical rule as
+    -- migration_boundary.boundary_id applies (NULL is an empty/not-yet-calculated
+    -- leaf).
+    CONSTRAINT migration_run_leaf_terminal_canonical_check CHECK (
+        terminal_boundary_id IS NULL
+            OR dml_utils_lib.migration_key_is_canonical(terminal_boundary_id)
         )
 );
 
@@ -405,7 +426,9 @@ COMMENT ON COLUMN dml_utils_data.migration_run_leaf.error_message IS
 COMMENT ON COLUMN dml_utils_data.migration_run_leaf.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_run_leaf.updated_at IS
-    'Last update time, maintained by the set_updated_at() trigger.';
+    'Last update time maintained by the set_updated_at() trigger; it is the '
+        'transaction start time (now()), shared by every row updated in the same '
+        'transaction.';
 
 CREATE INDEX migration_run_leaf_pending_idx
     ON dml_utils_data.migration_run_leaf (run_id, leaf_ordinal)
@@ -482,7 +505,9 @@ COMMENT ON COLUMN dml_utils_data.migration_boundary.leaf_ordinal IS
 COMMENT ON COLUMN dml_utils_data.migration_boundary.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_boundary.updated_at IS
-    'Last update time, maintained by the set_updated_at() trigger.';
+    'Last update time maintained by the set_updated_at() trigger; it is the '
+        'transaction start time (now()), shared by every row updated in the same '
+        'transaction.';
 COMMENT ON COLUMN dml_utils_data.migration_boundary.started_at IS
     'Actual server time when the chunk for this boundary was claimed and began '
         'processing; NULL until then. Written in the claim''s transaction, so a '
@@ -542,7 +567,9 @@ COMMENT ON COLUMN dml_utils_data.migration_error.message IS
 COMMENT ON COLUMN dml_utils_data.migration_error.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_error.updated_at IS
-    'Last update time, maintained by the set_updated_at() trigger.';
+    'Last update time maintained by the set_updated_at() trigger; it is the '
+        'transaction start time (now()), shared by every row updated in the same '
+        'transaction.';
 
 -- Index the referencing side of the FK so a boundary (or run) delete does not
 -- scan migration_error for every cascaded row.

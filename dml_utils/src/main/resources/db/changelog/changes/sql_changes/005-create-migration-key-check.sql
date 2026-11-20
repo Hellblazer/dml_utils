@@ -4,6 +4,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_is_canonical(
     RETURNS boolean
     LANGUAGE sql
     IMMUTABLE
+    PARALLEL SAFE
     SECURITY INVOKER
     SET search_path = pg_catalog
 AS
@@ -66,19 +67,37 @@ SELECT arity.n BETWEEN 1 AND 3
                                    (i_key).timestamptz_values[3]) = 1)
            -- A present array must hold at least one real value: array_length counts an
            -- all-NULL array as populated and reports an empty array as NULL, so both
-           -- would otherwise slip through, yet neither carries a key value.
+           -- would otherwise slip through, yet neither carries a key value. CASE, not
+           -- AND: array_remove raises on a multidimensional array, and SQL does not
+           -- guarantee AND evaluation order.
            AND ((i_key).bigint_values IS NULL
-        OR pg_catalog.cardinality(
-                   pg_catalog.array_remove((i_key).bigint_values, NULL::bigint)) >= 1)
+        OR CASE
+               WHEN pg_catalog.array_ndims((i_key).bigint_values) = 1
+                   THEN pg_catalog.cardinality(
+                                pg_catalog.array_remove((i_key).bigint_values, NULL::bigint)) >= 1
+               ELSE FALSE
+               END)
            AND ((i_key).text_values IS NULL
-        OR pg_catalog.cardinality(
-                   pg_catalog.array_remove((i_key).text_values, NULL::text)) >= 1)
+        OR CASE
+               WHEN pg_catalog.array_ndims((i_key).text_values) = 1
+                   THEN pg_catalog.cardinality(
+                                pg_catalog.array_remove((i_key).text_values, NULL::text)) >= 1
+               ELSE FALSE
+               END)
            AND ((i_key).uuid_values IS NULL
-        OR pg_catalog.cardinality(
-                   pg_catalog.array_remove((i_key).uuid_values, NULL::uuid)) >= 1)
+        OR CASE
+               WHEN pg_catalog.array_ndims((i_key).uuid_values) = 1
+                   THEN pg_catalog.cardinality(
+                                pg_catalog.array_remove((i_key).uuid_values, NULL::uuid)) >= 1
+               ELSE FALSE
+               END)
            AND ((i_key).timestamptz_values IS NULL
-        OR pg_catalog.cardinality(
-                   pg_catalog.array_remove((i_key).timestamptz_values, NULL::timestamptz)) >= 1)
+        OR CASE
+               WHEN pg_catalog.array_ndims((i_key).timestamptz_values) = 1
+                   THEN pg_catalog.cardinality(
+                                pg_catalog.array_remove((i_key).timestamptz_values, NULL::timestamptz)) >= 1
+               ELSE FALSE
+               END)
 FROM arity;
 $$;
 

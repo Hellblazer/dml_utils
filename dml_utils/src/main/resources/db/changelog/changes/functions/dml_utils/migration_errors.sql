@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION dml_utils.migration_errors(
             )
     LANGUAGE sql
     STABLE
+    PARALLEL SAFE
     SECURITY INVOKER
 AS
 $$

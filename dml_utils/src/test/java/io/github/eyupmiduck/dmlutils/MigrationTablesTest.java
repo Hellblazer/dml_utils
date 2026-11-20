@@ -740,6 +740,18 @@ class MigrationTablesTest extends PostgresTestBase {
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute());
 
+        // The high-water key must be canonical (two populated kinds at one
+        // position is not a packed key).
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.STATE, "calculated")
+                .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
+                .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 2L)
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{5L}, new String[]{"x"}, null, null))
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
+
         dsl.update(MIGRATION_RUN_LEAF)
                 .set(MIGRATION_RUN_LEAF.STATE, "calculated")
                 .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
@@ -1522,6 +1534,37 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
                         OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
+     * A completion cannot precede the run's boundary calculation, and a completed
+     * run must have completed every chunk.
+     */
+    @Test
+    void rejectsAnEarlyOrUnfinishedCompletion() {
+        Long runId = insertRun();
+        // The counters are set before the boundary milestone: total_chunks is
+        // immutable once the boundaries are calculated.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.TOTAL_CHUNKS, 2L)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, 1L)
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
+                        OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // After the start but before the boundary calculation.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // Completion requires the completed counter to cover total_chunks.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-04T00:00:00Z"))
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
     }

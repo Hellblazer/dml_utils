@@ -224,6 +224,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         ResolveMigrationRun first = resolve(label, TEMPLATE, "t", 2, 1);
 
         dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(first.getORunId()))
                 .execute();

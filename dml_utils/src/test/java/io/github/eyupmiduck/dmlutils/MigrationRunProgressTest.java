@@ -143,17 +143,18 @@ class MigrationRunProgressTest extends PartitionTestBase {
      */
     @Test
     void avoidsDivisionByZeroWhenElapsedIsZero() {
-        String label = uniqueLabel("progress-zero-elapsed");
-        long runId = populateSingle(label, 2, 1L, 2L);
-        completeBoundary(runId, 0L, 5L);
-        // Finish at the same instant the run started. This writes the completion
-        // directly instead of going through complete_migration_run, because a
-        // completion timestamp is immutable once set and the point here is the
-        // view's zero-elapsed branch, not the completion protocol. The milestone
-        // ordering still allows it because the boundaries were calculated after the
-        // start.
+        // A hand-inserted run whose start, calculation and completion stamps are
+        // the same instant and whose counters agree: the view's zero-elapsed branch
+        // needs a valid state (a completed run cannot finish before its boundaries
+        // were calculated), so it cannot be reached from a populated run.
+        long runId = insertRun(uniqueLabel("progress-zero-elapsed"), TEST_BIGINT);
+        OffsetDateTime instant = OffsetDateTime.parse("2020-01-01T00:00:00Z");
         dsl.update(MIGRATION_RUN)
-                .set(MIGRATION_RUN.COMPLETED_AT, migrationRun(runId).getStartedAt())
+                .set(MIGRATION_RUN.STARTED_AT, instant)
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT, instant)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS, 1L)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, 1L)
+                .set(MIGRATION_RUN.COMPLETED_AT, instant)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
         assertNotNull(migrationRun(runId).getCompletedAt());
