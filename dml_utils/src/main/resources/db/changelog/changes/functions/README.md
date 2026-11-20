@@ -2490,7 +2490,10 @@ in a `pg_background` worker, so the run and its boundaries commit autonomously,
 and returns the run id. Re-raises the worker's SQLSTATE. If the wait is aborted (`statement_timeout`, query cancel), the
 worker is cancelled and the handle
 detached best-effort before the original error is re-raised, so a worker that
-has not committed cannot leave an orphan run holding the label.
+has not committed cannot leave an orphan run holding the label. A cancel during
+the result read is caught the same way (it is not covered by `WHEN OTHERS`) and
+detaches the finished worker's handle before the cancel is re-raised; a cancel
+delivered during a cleanup step cannot replace the original error.
 
 ### `dml_utils_lib.prepare_partition_wise_execution(i_run_id, i_label)`
 

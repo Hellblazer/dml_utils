@@ -77,14 +77,15 @@ BEGIN
                 PERFORM public.pg_background_cancel(
                         l_handle.pid, l_handle.cookie, 1000);
             EXCEPTION
-                WHEN OTHERS THEN
+                -- A re-delivered cancel must not replace the cleanup.
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -98,12 +99,17 @@ BEGIN
         INTO l_worker_run_id
         FROM public.pg_background_result(l_handle.pid, l_handle.cookie) AS (run_id bigint);
     EXCEPTION
-        WHEN OTHERS THEN
+        -- A cancel (statement_timeout or a cancel request) is not caught by
+        -- WHEN OTHERS, so name it explicitly: without this branch a cancel
+        -- during the result read would skip the detach and leak the handle.
+        WHEN QUERY_CANCELED OR OTHERS THEN
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                -- A re-delivered cancel must not replace the cleanup or the
+                -- original error re-raised below.
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -121,4 +127,6 @@ COMMENT ON FUNCTION dml_utils_lib.create_migration_run IS
         'WHEN OTHERS does not catch, or another error), the worker is cancelled '
         'and the handle detached best-effort before the original error is '
         're-raised, so the worker does not commit a run the caller never '
-        'received (a worker that already committed cannot be recalled).';
+        'received (a worker that already committed cannot be recalled). A cancel '
+        'during the result read is caught the same way and detaches the '
+        'finished worker''s handle before the cancel is re-raised.';
