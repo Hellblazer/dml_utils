@@ -53,6 +53,15 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- manifest_snapshotted_at records that the leaf manifest was taken (even when
+    -- it is empty); it is set once, by the snapshot, and never moves.
+    IF OLD.manifest_snapshotted_at IS NOT NULL
+        AND NEW.manifest_snapshotted_at IS DISTINCT FROM OLD.manifest_snapshotted_at
+    THEN
+        RAISE EXCEPTION 'migration_run.manifest_snapshotted_at is immutable once set'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- boundaries_calculated_at is the milestone the total_chunks freeze keys on;
     -- clearing or moving it would let a later statement rewrite total_chunks and
     -- break the completed <= total invariant.

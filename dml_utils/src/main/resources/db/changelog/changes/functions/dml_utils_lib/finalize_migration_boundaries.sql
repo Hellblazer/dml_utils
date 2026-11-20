@@ -74,7 +74,9 @@ COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries IS
         'boundaries_calculated_at and total_chunks, once. terminal_leaf_for_run '
         'picks the leaf; append_terminal_boundary writes the boundary, checks the '
         'manifest leaf and records the milestone under the run lock. An all-empty '
-        'run has no terminal, so this function records the milestone itself in '
-        'that case. Idempotent (does nothing for a finalized or cancelled run) and '
+        'run (including a parent with zero leaves, whose manifest was snapshotted '
+        'but is empty) has no terminal, so this function records the milestone '
+        'itself with total_chunks 0. Idempotent (does nothing for a finalized or '
+        'cancelled run) and '
         'raises 55000 while any leaf is not calculated. SECURITY DEFINER so the '
         'invoker-owned coordinator can write metadata and read the terminal leaf.';

@@ -1480,7 +1480,9 @@ table: the function validates the parent, every leaf and the caller's `SELECT` o
 each leaf, inserts the run with `partition_wise = true` and one pending manifest
 row per leaf (schema/name/OID/bound), and returns *without* boundaries or
 `boundaries_calculated_at`; the per-leaf calculation is a separate resumable
-step (see `calculate_migration_run_boundaries`). For `primary_key`
+step (see `calculate_migration_run_boundaries`). It records
+`manifest_snapshotted_at` even when the parent has zero leaves, so an empty
+manifest is distinguishable from a run that never took one. For `primary_key`
 it inserts one fixed-row chunk boundary per chunk plus a terminal high-water
 boundary at the captured maximum primary key; for `ordered_key` it does the same
 from the order of `i_boundary_key_index` and stores the index, columns and kinds
@@ -2311,7 +2313,11 @@ RETURNS record
 
 `STABLE`, `SECURITY INVOKER`. Returns the last non-empty manifest leaf of a
 partition-wise run with its stored high-water key arrays, or NULL fields when
-every leaf is empty.
+every leaf is empty (including a parent with zero leaves). Raises `P0002` for an
+unknown run and `55000` for a run that never snapshotted a manifest, using
+`migration_run.manifest_snapshotted_at` so an empty manifest is not confused with
+a missing one. Used by `finalize_migration_boundaries` to choose the single
+terminal boundary.
 
 ### `dml_utils_lib.append_terminal_boundary(i_run_id, i_leaf_ordinal)`
 
@@ -2381,8 +2387,11 @@ RETURNS void
 ```
 
 `SECURITY DEFINER`. Snapshots one pending manifest row per storage leaf with its
-identity, bound and blocks filepath, validates every ordered-key child index and
-requires the effective caller to SELECT every stored leaf (`42501`).
+identity, bound and blocks filepath, then sets `manifest_snapshotted_at` (even
+when the parent has zero leaves, so an empty manifest is distinguishable from a
+run that never took one), validates every ordered-key child index and requires
+the effective caller to SELECT every stored leaf (`42501`). A second snapshot of
+the same run is rejected (`55000`).
 
 ###
 

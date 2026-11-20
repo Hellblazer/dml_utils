@@ -7,6 +7,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.TerminalLeafFor
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +50,29 @@ class TerminalLeafForRunTest extends PartitionTestBase {
                 TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
                 uniqueLabel("terminal-leaf-single"), "SELECT 1", 1, 1,
                 ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+
+        assertSqlState("55000", () -> Routines.terminalLeafForRun(
+                dsl.configuration(), runId));
+    }
+
+    /**
+     * A partition-wise run that never snapshotted a manifest (for example a
+     * hand-inserted row) is still rejected with {@code 55000}: row count alone
+     * cannot distinguish it from a legitimate zero-leaf manifest, so the
+     * snapshot marker decides.
+     */
+    @Test
+    void rejectsAnUnsnapshottedPartitionWiseRun() {
+        Long runId = dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT,
+                        MIGRATION_RUN.CHUNK_SIZE, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.PARTITION_WISE)
+                .values(uniqueLabel("terminal-leaf-unsnapshotted"), "SELECT 1", 1, 1,
+                        PARTITION_SCHEMA, "test_partitioned_empty", true)
+                .returningResult(MIGRATION_RUN.RUN_ID)
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the run insert returns its id");
 
         assertSqlState("55000", () -> Routines.terminalLeafForRun(
                 dsl.configuration(), runId));

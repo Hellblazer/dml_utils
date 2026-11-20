@@ -415,13 +415,13 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
                         MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
                         MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.ORDERED_KEY_INDEX,
                         MIGRATION_RUN.ORDERED_KEY_COLUMNS, MIGRATION_RUN.ORDERED_KEY_KINDS,
-                        MIGRATION_RUN.STARTED_AT)
+                        MIGRATION_RUN.STARTED_AT, MIGRATION_RUN.MANIFEST_SNAPSHOTTED_AT)
                 .values(uniqueLabel("partition-wise"), TEMPLATE, chunkSize, chunkBy, true, 1,
                         SCHEMA, TABLE,
                         ordered ? ORDERED_KEY_INDEX : null,
                         ordered ? new String[]{"id"} : null,
                         ordered ? new String[]{"bigint"} : null,
-                        OffsetDateTime.now())
+                        OffsetDateTime.now(), OffsetDateTime.now())
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
 

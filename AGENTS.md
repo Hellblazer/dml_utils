@@ -166,7 +166,10 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   deterministic leaf order (partition bound, then schema, name, OID under
   `COLLATE "C"`), identity snapshot, state, boundary count and high-water key.
   It is committed before any boundaries. An empty leaf is a row with
-  `boundary_count = 0`.
+  `boundary_count = 0`. A parent with no leaves at all snapshots an empty
+  manifest and records `migration_run.manifest_snapshotted_at` anyway, so it is
+  distinguishable from a run that never took a manifest and finalizes with 0
+  chunks.
 - Calculation is one leaf per committed worker transaction, serialized by the
   run-keyed advisory lock; a failed leaf is marked `failed` with its SQLSTATE
   and the earlier leaves stay. Re-running the same label resumes at the first

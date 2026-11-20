@@ -16,8 +16,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.terminal_leaf_for_run(
 AS
 $$
 BEGIN
-    -- Distinguish an unknown run and a run without a manifest from the
-    -- legitimate "every leaf is empty" result (all-NULL OUT fields).
+    -- Distinguish an unknown run and a run that never snapshotted a manifest from
+    -- the legitimate "every leaf is empty" result (all-NULL OUT fields). A
+    -- zero-leaf parent has a snapshotted but empty manifest, so the marker, not
+    -- the row count, decides.
     IF NOT EXISTS (SELECT 1
                    FROM dml_utils_data.migration_run AS run
                    WHERE run.run_id = i_run_id)
@@ -26,8 +28,9 @@ BEGIN
             USING ERRCODE = 'P0002';
     END IF;
     IF NOT EXISTS (SELECT 1
-                   FROM dml_utils_data.migration_run_leaf AS leaf
-                   WHERE leaf.run_id = i_run_id)
+                   FROM dml_utils_data.migration_run AS run
+                   WHERE run.run_id = i_run_id
+                     AND run.manifest_snapshotted_at IS NOT NULL)
     THEN
         RAISE EXCEPTION 'run % has no leaf manifest', i_run_id
             USING ERRCODE = '55000';
@@ -54,7 +57,9 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.terminal_leaf_for_run IS
     'Returns the last non-empty manifest leaf of a partition-wise run with its '
-        'stored high-water key arrays, or NULL fields when every leaf is empty. '
-        'Raises P0002 for an unknown run and 55000 for a run with no leaf '
-        'manifest, so an empty run is not confused with a missing one. Used by '
-        'finalize_migration_boundaries to choose the single terminal boundary.';
+        'stored high-water key arrays, or NULL fields when every leaf is empty '
+        '(including a parent with zero leaves). Raises P0002 for an unknown run and '
+        '55000 for a run that never snapshotted a manifest, using '
+        'migration_run.manifest_snapshotted_at so an empty run is not confused with '
+        'a missing one. Used by finalize_migration_boundaries to choose the single '
+        'terminal boundary.';

@@ -34,6 +34,11 @@ CREATE TABLE dml_utils_data.migration_run
     created_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     updated_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     started_at                      timestamptz,
+    -- Set when a partition-wise run's leaf manifest is snapshotted, even when the
+    -- parent has no leaves (the manifest then has zero rows). This distinguishes
+    -- "snapshotted with zero leaves" from "never snapshotted", which row count
+    -- alone cannot. NULL for single-relation runs.
+    manifest_snapshotted_at         timestamptz,
     boundaries_calculated_at        timestamptz,
     total_chunks                    bigint                              NOT NULL DEFAULT 0,
     total_chunks_completed          bigint                              NOT NULL DEFAULT 0,
@@ -113,6 +118,14 @@ CREATE TABLE dml_utils_data.migration_run
     -- later stamp may only be set once started_at is set, and never earlier. The
     -- explicit started_at IS NOT NULL is required because a NULL comparison would
     -- otherwise make the check pass as unknown.
+    -- The manifest snapshot happens once, for a partition-wise run, after the run
+    -- started. It is the marker that lets an empty manifest be finalized.
+    CONSTRAINT migration_run_manifest_snapshotted_at_check CHECK (
+        manifest_snapshotted_at IS NULL
+            OR (partition_wise
+            AND started_at IS NOT NULL
+            AND manifest_snapshotted_at >= started_at)
+        ),
     CONSTRAINT migration_run_time_order_check CHECK (
         (completed_at IS NULL
             OR (started_at IS NOT NULL AND completed_at >= started_at))
@@ -229,6 +242,10 @@ COMMENT ON COLUMN dml_utils_data.migration_run.started_at IS
         'calculation; written by populate_migration_boundaries in the worker''s '
         'transaction, so it commits with the run and boundaries and persists '
         'across a failed processing attempt and a resume.';
+COMMENT ON COLUMN dml_utils_data.migration_run.manifest_snapshotted_at IS
+    'When the partition-wise leaf manifest was snapshotted; set even when the '
+        'parent has zero leaves, so an empty manifest is distinguishable from an '
+        'unsnapshotted run. NULL for single-relation runs. Immutable.';
 COMMENT ON COLUMN dml_utils_data.migration_run.boundaries_calculated_at IS
     'Actual server time when the boundary (chunk range) calculation completed, '
         'after the boundaries were inserted; written in the same worker '

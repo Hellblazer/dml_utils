@@ -623,7 +623,8 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_a IS
 CREATE TABLE dml_utils_fixtures.test_partitioned_empty
 (
     id      integer NOT NULL,
-    payload text
+    payload text,
+    PRIMARY KEY (id)
 ) PARTITION BY RANGE (id);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_empty IS

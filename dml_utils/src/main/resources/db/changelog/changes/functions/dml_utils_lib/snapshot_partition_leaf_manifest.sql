@@ -21,6 +21,7 @@ BEGIN
     -- SECURITY DEFINER function must not let a caller attach another relation's
     -- leaves (or choose a different strategy) for an arbitrary run id.
     SELECT run.partition_wise,
+           run.manifest_snapshotted_at,
            run.boundaries_calculated_at,
            run.cancelled_at,
            run.driving_table_schema_name,
@@ -46,9 +47,13 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    IF EXISTS (SELECT 1
-               FROM dml_utils_data.migration_run_leaf AS leaf
-               WHERE leaf.run_id = i_run_id)
+    -- The marker, not the row count, is the authority: a zero-leaf parent has a
+    -- snapshotted but empty manifest, and must not be snapshotted a second time
+    -- (which could attach a leaf added since).
+    IF l_run.manifest_snapshotted_at IS NOT NULL
+        OR EXISTS (SELECT 1
+                   FROM dml_utils_data.migration_run_leaf AS leaf
+                   WHERE leaf.run_id = i_run_id)
     THEN
         RAISE EXCEPTION 'run % already has a leaf manifest', i_run_id
             USING ERRCODE = '55000';
@@ -108,6 +113,13 @@ BEGIN
                  i_table_name => l_run.driving_table_name,
                  i_chunk_by => l_run.chunk_by) AS live;
 
+    -- Mark the manifest snapshotted even when it is empty, so a legitimate
+    -- zero-leaf parent is distinguishable from a run that never took a manifest.
+    UPDATE dml_utils_data.migration_run
+    SET manifest_snapshotted_at = pg_catalog.clock_timestamp()
+    WHERE run_id = i_run_id
+      AND manifest_snapshotted_at IS NULL;
+
     -- The manifest is now the exact leaf set; validate each stored leaf's
     -- ordered-key child index (a leaf attached between the descriptor read and
     -- the insert is not in this set, so it cannot slip through).
@@ -138,7 +150,8 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest IS
     'Snapshots the deterministic leaf manifest for a new partition-wise run: one '
-        'pending row per storage leaf with its identity, bound and blocks filepath. '
+        'pending row per storage leaf with its identity, bound and blocks filepath, '
+        'and sets manifest_snapshotted_at even when the parent has zero leaves. '
         'The run row is the authority for the driving table, strategy and ordered '
         'key index (a mismatch, a non-partition-wise run, a finalized/cancelled '
         'run or an existing manifest is rejected; 22023/55000/P0002). It then '

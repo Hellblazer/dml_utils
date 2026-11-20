@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedHash.TEST_PARTITIONED_HASH;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedList.TEST_PARTITIONED_LIST;
@@ -42,6 +43,41 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         dsl.truncate(TEST_PARTITIONED_HASH).execute();
         dsl.truncate(TEST_PARTITIONED_LIST).execute();
         dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+    }
+
+    /**
+     * A declarative parent with no leaves at all finalizes to zero chunks: the
+     * manifest is snapshotted (empty), so the run completes instead of failing
+     * with "no leaf manifest".
+     */
+    @Test
+    void zeroLeafParentFinalizesToZeroChunks() {
+        String label = uniqueLabel("integration-zero-leaf");
+
+        run("test_partitioned_empty", label, 2, 1, ChunkingStrategy.primary_key, null);
+
+        MigrationRunRecord run = run(label);
+        assertNotNull(run.getManifestSnapshottedAt(), "the empty manifest is snapshotted");
+        assertNotNull(run.getBoundariesCalculatedAt(), "the run is finalized");
+        assertNotNull(run.getCompletedAt(), "the zero-chunk run is complete");
+        assertEquals(0L, run.getTotalChunks());
+        assertEquals(0, leaves(run.getRunId()).size());
+        assertEquals(0L, dsl.fetchCount(MIGRATION_BOUNDARY,
+                MIGRATION_BOUNDARY.RUN_ID.eq(run.getRunId())));
+    }
+
+    /**
+     * A zero-leaf manifest cannot be snapshotted a second time, so a leaf added
+     * after the snapshot is never silently attached to the run.
+     */
+    @Test
+    void zeroLeafManifestCannotBeSnapshottedTwice() {
+        long runId = populatePartitionWise("integration-zero-leaf-resnapshot",
+                "test_partitioned_empty", TEMPLATE, ChunkingStrategy.primary_key, 2, null);
+
+        assertSqlState("55000", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_empty",
+                ChunkingStrategy.primary_key, null));
     }
 
     /**
