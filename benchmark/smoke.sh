@@ -92,6 +92,13 @@ mkdir -p "$results_dir"
 printf 'SELECT 1;\n' > "$results_dir/psql-probe.sql"
 "$here/psql.sh" -f "$results_dir/psql-probe.sql" >/dev/null
 
+# A trailing -f with no file must fail rather than consume a rewritten copy of
+# an earlier argument (the rewrite appends copies to the same argument list).
+if "$here/psql.sh" -c 'SELECT 1' -f >/dev/null 2>&1; then
+    echo "psql.sh accepted a trailing -f without a file" >&2
+    exit 1
+fi
+
 for strategy in primary_key blocks ordered_key; do
     BENCH_PARTITION_WISE=0 BENCH_CHUNK_BY="$strategy" BENCH_CSV="smoke-$strategy.csv" \
         "$here/run.sh" --reset

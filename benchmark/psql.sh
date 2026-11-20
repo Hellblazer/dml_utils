@@ -50,7 +50,10 @@ while [ "$arg_index" -lt "$arg_count" ]; do
     shift
     case "$arg" in
         -f|--file)
-            [ "$#" -gt 0 ] || {
+            # Look ahead only into the ORIGINAL arguments: rewritten copies are
+            # appended to the end, so $# counts those too and would let a copy
+            # (for example an earlier -c) be mistaken for this option's file.
+            [ "$((arg_index + 1))" -lt "$arg_count" ] || {
                 echo "$arg needs a file" >&2
                 exit 2
             }
