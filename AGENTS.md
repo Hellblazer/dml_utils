@@ -232,6 +232,12 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `IS NULL` guard. Keep an explicit guard only for a bound the domain cannot
   express (for example an upper limit), and let the domain own the NULL/blank or
   sign check.
+- **An array argument whose elements must not be NULL is typed with a domain over
+  the array**, not with a per-element guard in each routine (for example
+  `dml_utils_data.non_null_element_integer_array`, which also pins the
+  one-dimensional, lower-bound-1 shape). The domain then fails a NULL or
+  misplaced element at the call with `23514`. Cross-array rules (equal length,
+  parallel pairs) stay as explicit guards, because a domain cannot express them.
 - **Keep the plain base type only for an argument where NULL is a documented
   sentinel**, and say so in the routine's COMMENT and the functions README. The
   current sentinels are: an optional filter (NULL means no filter), an optional
@@ -332,6 +338,13 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
       facade calls a static factory through an instance field, which `-Werror`
       rejects. The UDT type and record are still generated (for example
       `...jooq.dml_utils_data.udt.records.MigrationKeyRecord`).
+    - `dml_utils/pom.xml` excludes `non_null_element_*_array` from codegen:
+      jOOQ 3.21 cannot model a domain over an array (it emits `SQLDataType.OTHER`
+      and generates `Domain<Object>`, which does not compile against the domain's
+      `Domain<T[]>`). A routine taking one falls back to `Object` parameters, and
+      `deprecationOnUnknownTypes=false` keeps those from being marked
+      `@Deprecated` under `-Werror`. ddl_utils uses the same workaround for its
+      array domains.
     - Do not wrap a composite type that a table in the same schema uses in a
       domain. The generated `Domains` -> UDT -> schema class -> tables ->
       `Domains` initialisation cycle throws during class loading.

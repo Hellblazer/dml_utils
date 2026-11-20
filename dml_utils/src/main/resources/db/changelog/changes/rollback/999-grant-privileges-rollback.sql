@@ -17,6 +17,8 @@ REVOKE USAGE ON DOMAIN dml_utils_data.non_negative_bigint FROM dml_utils_caller;
 REVOKE USAGE ON DOMAIN dml_utils_data.positive_bigint FROM dml_utils_caller;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_timestamptz FROM dml_utils_caller;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_oid FROM dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_integer_array FROM dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_bigint_array FROM dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.migration_key FROM dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM dml_utils_caller;
 -- The four migration table row types are the exception: PostgreSQL does not apply
@@ -1294,14 +1296,14 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
 
 -- Worker stop/drain helper.
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
-    integer[],
-    bigint[],
+    dml_utils_data.non_null_element_integer_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_boolean,
     integer
     ) FROM dml_utils_caller;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
-    integer[],
-    bigint[],
+    dml_utils_data.non_null_element_integer_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_boolean,
     integer
     ) TO public;

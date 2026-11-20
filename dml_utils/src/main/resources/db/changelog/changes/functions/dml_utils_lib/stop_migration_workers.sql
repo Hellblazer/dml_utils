@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.stop_migration_workers(
-    i_pids integer[],
-    i_cookies bigint[],
+    i_pids dml_utils_data.non_null_element_integer_array,
+    i_cookies dml_utils_data.non_null_element_bigint_array,
     i_cancel dml_utils_data.non_null_boolean,
     i_wait_ms integer
 )
@@ -14,27 +14,21 @@ DECLARE
     l_cancel_failed boolean[] := ARRAY []::boolean[];
     l_finished      boolean;
 BEGIN
+    -- The argument domains enforce each array's own shape: one dimension, a
+    -- lower bound of 1 (the loops index from 1) and no NULL elements (the
+    -- handle helpers are STRICT, so a NULL element would be a silent no-op).
+    -- A NULL or empty pid array is the documented no-handles sentinel.
     IF i_pids IS NULL OR pg_catalog.cardinality(i_pids) = 0 THEN
         RETURN;
     END IF;
 
-    -- The pid/cookie arrays are parallel handles; a missing or short cookie
-    -- array would make every cancel/wait/detach a silent no-op.
+    -- The arrays are parallel handles; a missing or short cookie array would
+    -- pair a pid with the wrong cookie (or none) and make the helper a silent
+    -- no-op. The domains cannot express this cross-array rule.
     IF i_cookies IS NULL
         OR pg_catalog.cardinality(i_cookies) <> pg_catalog.cardinality(i_pids)
     THEN
-        RAISE EXCEPTION 'i_pids and i_cookies must be non-null arrays of equal length'
-            USING ERRCODE = '22023';
-    END IF;
-
-    -- The loops below index both arrays from 1, so a zero-based or
-    -- multidimensional array would silently address the wrong element (or none).
-    IF pg_catalog.array_ndims(i_pids) IS DISTINCT FROM 1
-        OR pg_catalog.array_lower(i_pids, 1) IS DISTINCT FROM 1
-        OR pg_catalog.array_ndims(i_cookies) IS DISTINCT FROM 1
-        OR pg_catalog.array_lower(i_cookies, 1) IS DISTINCT FROM 1
-    THEN
-        RAISE EXCEPTION 'i_pids and i_cookies must be one-dimensional arrays with a lower bound of 1'
+        RAISE EXCEPTION 'i_cookies must be non-null and the same length as i_pids'
             USING ERRCODE = '22023';
     END IF;
 
@@ -106,9 +100,12 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.stop_migration_workers IS
     'Cancels (when requested) and waits for/detaches a set of pg_background '
-        'worker handles, given as parallel non-null, one-dimensional pid/cookie '
-        'arrays of equal length with a lower bound of 1 (the loops index from 1). '
-        'A NULL wait timeout waits indefinitely unless cancellation failed, '
-        'in which case a bounded wait is used. A positive timeout is required when '
-        'not NULL. Per-worker errors are reported as warnings so the coordinator '
-        'can finish its own error path without leaking a handle.';
+        'worker handles, given as parallel pid/cookie arrays of equal length. '
+        'Each array must be one-dimensional with a lower bound of 1 (the loops '
+        'index from 1) and must not contain NULL elements (the handle helpers are '
+        'STRICT, so a NULL element would be a silent no-op); the argument domains '
+        'enforce that, so an invalid array is 23514. A NULL or empty pid array is '
+        'a no-op. A NULL wait timeout waits indefinitely unless cancellation '
+        'failed, in which case a bounded wait is used. A positive timeout is '
+        'required when not NULL. Per-worker errors are reported as warnings so the '
+        'coordinator can finish its own error path without leaking a handle.';

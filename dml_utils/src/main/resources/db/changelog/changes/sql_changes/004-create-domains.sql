@@ -71,6 +71,38 @@ COMMENT ON DOMAIN dml_utils_data.non_null_boolean IS
     'boolean that is NOT NULL, so an explicitly passed NULL is rejected instead '
         'of falling through three-valued logic.';
 
+-- The pg_background handle helpers (cancel/wait/detach) are STRICT, so a NULL
+-- pid or cookie is a silent no-op. array_position is undefined for
+-- multidimensional arrays (it raises rather than returning a result), so require
+-- one dimension first; AND short-circuits, so array_position is never evaluated
+-- for a multidimension. A NULL array (the no-handles sentinel) and an empty
+-- array are allowed: their shape checks evaluate to NULL, which a CHECK passes.
+CREATE DOMAIN dml_utils_data.non_null_element_integer_array AS integer[]
+    CONSTRAINT non_null_element_integer_array_check CHECK (
+        value IS NULL
+            OR (pg_catalog.array_ndims(value) = 1
+                AND pg_catalog.array_lower(value, 1) = 1
+                AND pg_catalog.array_position(value, NULL) IS NULL)
+        );
+
+COMMENT ON DOMAIN dml_utils_data.non_null_element_integer_array IS
+    'one-dimensional integer array with a lower bound of 1 and no NULL '
+        'elements, for a set of pg_background worker pids; a NULL or empty array '
+        'is allowed as the no-handles sentinel.';
+
+CREATE DOMAIN dml_utils_data.non_null_element_bigint_array AS bigint[]
+    CONSTRAINT non_null_element_bigint_array_check CHECK (
+        value IS NULL
+            OR (pg_catalog.array_ndims(value) = 1
+                AND pg_catalog.array_lower(value, 1) = 1
+                AND pg_catalog.array_position(value, NULL) IS NULL)
+        );
+
+COMMENT ON DOMAIN dml_utils_data.non_null_element_bigint_array IS
+    'one-dimensional bigint array with a lower bound of 1 and no NULL '
+        'elements, for a set of pg_background worker cookies; a NULL or empty '
+        'array is allowed as the no-handles sentinel.';
+
 -- Packs the primary-key value of a chunk boundary, for a primary key of one to
 -- three columns. One array per supported kind, each position-aligned to the
 -- primary-key columns: at index i, the array matching column i's kind holds its

@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 /**
  * Verifies {@code dml_utils_lib.stop_migration_workers}: it is a no-op for an
- * empty pid array, and rejects invalid handle arrays or wait timeouts before
- * touching the pg_background handles.
+ * empty pid array, and rejects invalid handle arrays (including NULL elements)
+ * or wait timeouts before touching the pg_background handles.
  */
 class StopMigrationWorkersTest extends PostgresTestBase {
 
@@ -34,21 +34,44 @@ class StopMigrationWorkersTest extends PostgresTestBase {
     }
 
     /**
-     * The loops index both arrays from 1, so a zero-based or multidimensional
-     * array is rejected with {@code 22023} instead of addressing the wrong
-     * element.
+     * The loops index both arrays from 1, so the argument domains reject a
+     * zero-based or multidimensional array with a domain violation
+     * ({@code 23514}) instead of addressing the wrong element.
      */
     @Test
     void rejectsZeroBasedOrMultidimensionalArrays() {
-        assertSqlState("22023", () -> dsl.execute(
+        assertSqlState("23514", () -> dsl.execute(
                 "SELECT dml_utils_lib.stop_migration_workers("
                         + "'[0:0]={1}'::integer[], '[0:0]={1}'::bigint[], false, 100)"));
-        assertSqlState("22023", () -> dsl.execute(
+        assertSqlState("23514", () -> dsl.execute(
                 "SELECT dml_utils_lib.stop_migration_workers("
                         + "'{1}'::integer[], '[0:0]={1}'::bigint[], false, 100)"));
-        assertSqlState("22023", () -> dsl.execute(
+        assertSqlState("23514", () -> dsl.execute(
                 "SELECT dml_utils_lib.stop_migration_workers("
                         + "'{{1}}'::integer[], '{{1}}'::bigint[], false, 100)"));
+    }
+
+    /**
+     * A NULL element in either handle array is a domain violation
+     * ({@code 23514}): the pg_background handle helpers are {@code STRICT}, so a
+     * NULL pid or cookie would make the call a silent no-op.
+     */
+    @Test
+    void rejectsNullHandleElements() {
+        assertSqlState("23514", () -> Routines.stopMigrationWorkers(
+                dsl.configuration(), new Integer[]{null}, new Long[]{1L}, false, 100));
+        assertSqlState("23514", () -> Routines.stopMigrationWorkers(
+                dsl.configuration(), new Integer[]{1}, new Long[]{null}, false, 100));
+        assertSqlState("23514", () -> Routines.stopMigrationWorkers(
+                dsl.configuration(), new Integer[]{1, null}, new Long[]{1L, 2L}, false, 100));
+        assertSqlState("23514", () -> Routines.stopMigrationWorkers(
+                dsl.configuration(), new Integer[]{1, 2}, new Long[]{1L, null}, false, 100));
+        assertSqlState("23514", () -> dsl.execute(
+                "SELECT dml_utils_lib.stop_migration_workers("
+                        + "'{NULL}'::integer[], '{1}'::bigint[], false, 100)"));
+        assertSqlState("23514", () -> dsl.execute(
+                "SELECT dml_utils_lib.stop_migration_workers("
+                        + "'{1}'::integer[], '{NULL}'::bigint[], false, 100)"));
     }
 
     /**

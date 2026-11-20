@@ -234,6 +234,15 @@
                                 <generator>
                                     <database>
                                         <includes>.*</includes>
+                                        <!-- jOOQ 3.21 cannot model a domain over
+                                             an array: it generates a Domain<T[]>
+                                             backed by SQLDataType.OTHER, which
+                                             does not compile. Exclude the handle
+                                             array domains; the routine that takes
+                                             them falls back to Object parameters
+                                             (as ddl_utils does for its array
+                                             domains). -->
+                                        <excludes>.*non_null_element_.*_array</excludes>
                                         <!-- jOOQ cannot combine several
                                              schemata in one <inputSchema>;
                                              each schema maps to its own
@@ -266,6 +275,12 @@
                                              record are still generated; only the
                                              convenience facade is skipped. -->
                                         <globalUDTReferences>false</globalUDTReferences>
+                                        <!-- A routine taking an excluded array
+                                             domain has Object parameters of
+                                             unknown type; marking them
+                                             @Deprecated would fail the -Werror
+                                             build when tests call them. -->
+                                        <deprecationOnUnknownTypes>false</deprecationOnUnknownTypes>
                                     </generate>
                                 </generator>
                             </jooq>

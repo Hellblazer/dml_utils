@@ -2522,19 +2522,23 @@ negative delay is rejected by the non-negative domain.
 ### `dml_utils_lib.stop_migration_workers(i_pids, i_cookies, i_cancel, i_wait_ms)`
 
 ```sql
-i_pids    integer[]
-i_cookies bigint[]
+i_pids    dml_utils_data.non_null_element_integer_array
+i_cookies dml_utils_data.non_null_element_bigint_array
 i_cancel  dml_utils_data.non_null_boolean
 i_wait_ms integer
 RETURNS void
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Cancels (when requested) and waits for/detaches a
-set of `pg_background` worker handles given as parallel non-null,
-one-dimensional pid/cookie arrays of equal length with a lower bound of 1 (the
-loops index from 1, so a zero-based or multidimensional array is `22023`). A NULL
-wait timeout waits indefinitely; per-worker errors are swallowed so the
-coordinator can finish its own error path.
+set of `pg_background` worker handles given as parallel pid/cookie arrays of
+equal length. The argument domains enforce each array's shape: one dimension, a
+lower bound of 1 (the loops index from 1) and no NULL elements (the
+`pg_background` handle helpers are `STRICT`, so a NULL element would be a silent
+no-op); an invalid array is a domain violation (`23514`). The cross-array rule
+that a non-empty `i_pids` needs a same-length non-null `i_cookies` is `22023`.
+A NULL or empty pid array is a no-op, a NULL wait timeout waits indefinitely, and
+per-worker errors are swallowed so the coordinator can finish its own error
+path.
 
 ## `dml_utils_data`
 

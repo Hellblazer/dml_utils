@@ -25,6 +25,10 @@ REVOKE USAGE ON DOMAIN dml_utils_data.non_null_timestamptz FROM public;
 GRANT USAGE ON DOMAIN dml_utils_data.non_null_timestamptz TO dml_utils_caller;
 REVOKE USAGE ON DOMAIN dml_utils_data.non_null_oid FROM public;
 GRANT USAGE ON DOMAIN dml_utils_data.non_null_oid TO dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_integer_array FROM public;
+GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_integer_array TO dml_utils_caller;
+REVOKE USAGE ON DOMAIN dml_utils_data.non_null_element_bigint_array FROM public;
+GRANT USAGE ON DOMAIN dml_utils_data.non_null_element_bigint_array TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.migration_key FROM public;
 GRANT USAGE ON TYPE dml_utils_data.migration_key TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM public;
@@ -1336,14 +1340,14 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.sleep_between_migration_chunks(
 
 -- Worker stop/drain helper.
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
-    integer[],
-    bigint[],
+    dml_utils_data.non_null_element_integer_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_boolean,
     integer
     ) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.stop_migration_workers(
-    integer[],
-    bigint[],
+    dml_utils_data.non_null_element_integer_array,
+    dml_utils_data.non_null_element_bigint_array,
     dml_utils_data.non_null_boolean,
     integer
     ) TO dml_utils_caller;
