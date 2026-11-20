@@ -22,11 +22,13 @@ import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.Migration
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositePk.TEST_COMPOSITE_PK;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the run-resolution helpers: active-run lookup, autonomous creation,
- * and resume validation of an ordered-key descriptor and blocks filepath.
+ * and resume validation of a primary-key snapshot, an ordered-key descriptor and
+ * a blocks filepath.
  */
 class RunResolutionHelpersTest extends PostgresTestBase {
 
@@ -260,6 +262,78 @@ class RunResolutionHelpersTest extends PostgresTestBase {
 
         assertEquals(7, resumed.getOEffectiveMaxRetries(), "the stored retries win");
         assertEquals(250, resumed.getOEffectiveRetryBackoffMs(), "the stored backoff wins");
+    }
+
+    /**
+     * Creating a primary-key run snapshots the live key descriptor, so a resume
+     * can compare it with the live key.
+     */
+    @Test
+    void creationSnapshotsThePrimaryKey() {
+        dsl.truncate(TEST_COMPOSITE_PK).execute();
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                "dml_utils_fixtures", "test_composite_pk", uniqueLabel("pk-snapshot"),
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+
+        MigrationRunRecord stored = migrationRun(runId);
+        assertArrayEquals(new String[]{"a", "b"}, stored.getPrimaryKeyColumns());
+        assertArrayEquals(new String[]{"bigint", "bigint"}, stored.getPrimaryKeyKinds());
+    }
+
+    /**
+     * Recreating the primary key with a different column order would reinterpret
+     * the stored boundary values, so a resume fails closed with {@code 55000}.
+     *
+     * @throws Exception if the fixture key cannot be changed or restored
+     */
+    @Test
+    void resumeRejectsAChangedPrimaryKeyOrder() throws Exception {
+        dsl.truncate(TEST_COMPOSITE_PK).execute();
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                "dml_utils_fixtures", "test_composite_pk", uniqueLabel("resume-pk-order"),
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+        MigrationRunRecord stored = migrationRun(runId);
+
+        executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                + " DROP CONSTRAINT test_composite_pk_pkey");
+        try {
+            executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                    + " ADD PRIMARY KEY (b, a)");
+            assertSqlState("55000", () -> Routines.resumeMigrationRun(dsl.configuration(),
+                    stored, "dml_utils_fixtures", "test_composite_pk", TEMPLATE, 1, 1,
+                    "t", ChunkingStrategy.primary_key, 0, null, false, 3, 1000));
+        } finally {
+            executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                    + " DROP CONSTRAINT IF EXISTS test_composite_pk_pkey");
+            executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                    + " ADD PRIMARY KEY (a, b)");
+        }
+    }
+
+    /**
+     * Dropping the primary key entirely also fails a resume closed with
+     * {@code 55000}, rather than surfacing the resolver's {@code 22023}.
+     *
+     * @throws Exception if the fixture key cannot be dropped or restored
+     */
+    @Test
+    void resumeRejectsADroppedPrimaryKey() throws Exception {
+        dsl.truncate(TEST_COMPOSITE_PK).execute();
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                "dml_utils_fixtures", "test_composite_pk", uniqueLabel("resume-pk-drop"),
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+        MigrationRunRecord stored = migrationRun(runId);
+
+        executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                + " DROP CONSTRAINT test_composite_pk_pkey");
+        try {
+            assertSqlState("55000", () -> Routines.resumeMigrationRun(dsl.configuration(),
+                    stored, "dml_utils_fixtures", "test_composite_pk", TEMPLATE, 1, 1,
+                    "t", ChunkingStrategy.primary_key, 0, null, false, 3, 1000));
+        } finally {
+            executeAsOwner("ALTER TABLE dml_utils_fixtures.test_composite_pk"
+                    + " ADD PRIMARY KEY (a, b)");
+        }
     }
 
     /**

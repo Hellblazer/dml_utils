@@ -114,6 +114,42 @@ BEGIN
                     o_effective_schema_name, i_run.ordered_key_index, i_run.run_id, SQLERRM
                     USING ERRCODE = '55000';
         END;
+    ELSIF i_run.chunk_by = 'primary_key' THEN
+        -- The boundaries were built from the primary key the run snapshotted at
+        -- creation. Re-read the live key and fail closed if it was dropped or
+        -- recreated with different columns, order or kinds: the stored start/end
+        -- text values would otherwise be silently reinterpreted against a
+        -- different key, skipping or mis-ranging chunks. A NULL snapshot means a
+        -- hand-inserted run, which has no boundaries to protect.
+        IF i_run.primary_key_columns IS NOT NULL THEN
+            BEGIN
+                SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                       pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+                INTO l_live_columns, l_live_kinds
+                FROM dml_utils_lib.primary_key_attributes(
+                             i_schema_name => o_effective_schema_name,
+                             i_table_name => o_effective_table_name) AS a;
+
+                IF l_live_columns IS DISTINCT FROM i_run.primary_key_columns
+                    OR l_live_kinds IS DISTINCT FROM i_run.primary_key_kinds
+                THEN
+                    RAISE EXCEPTION 'the primary key of %.% no longer matches the key the run was created with',
+                        o_effective_schema_name, o_effective_table_name
+                        USING ERRCODE = '55000';
+                END IF;
+            EXCEPTION
+                WHEN undefined_table
+                    OR invalid_schema_name
+                    OR invalid_parameter_value THEN
+                    -- No primary key (or more than three columns) is the other
+                    -- way the stored key becomes unusable; report it as this
+                    -- resume's stable code with the resolver's message.
+                    RAISE EXCEPTION 'the primary key of %.% is no longer usable for run %: %',
+                        o_effective_schema_name, o_effective_table_name, i_run.run_id, SQLERRM
+                        USING ERRCODE = '55000';
+            END;
+        END IF;
+
     ELSIF i_boundary_key_index IS NOT NULL THEN
         RAISE NOTICE 'run for label % already exists; ignoring i_boundary_key_index for chunk_by %',
             i_run.label, i_run.chunk_by;
@@ -167,6 +203,7 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.resume_migration_run IS
     'Resolves the effective inputs of a resumed run from its stored row, emits '
         'notices for differing call inputs, re-validates a stored ordered-key '
-        'descriptor (failing closed with 55000) and asserts the stored blocks '
-        'relation filepath. Returns the effective SQL/schema/table/alias/threads/'
-        'sleep/retry-policy/strategy/partition-wise values.';
+        'descriptor or primary-key snapshot (failing closed with 55000 when the '
+        'live key changed) and asserts the stored blocks relation filepath. Returns '
+        'the effective SQL/schema/table/alias/threads/sleep/retry-policy/strategy/'
+        'partition-wise values.';

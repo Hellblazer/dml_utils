@@ -87,6 +87,7 @@ BEGIN
                                               driving_table_relation_filepath,
                                               ordered_key_index, ordered_key_columns,
                                               ordered_key_kinds,
+                                              primary_key_columns, primary_key_kinds,
                                               started_at)
     VALUES (i_label, i_sql_text, i_chunk_size, i_chunk_by, i_partition_wise::boolean, i_threads,
             i_sleep_ms, i_max_retries, i_retry_backoff_ms,
@@ -96,6 +97,8 @@ BEGIN
             l_key.o_ordered_key_index,
             l_key.o_ordered_key_columns,
             l_key.o_ordered_key_kinds,
+            CASE WHEN i_chunk_by = 'primary_key' THEN l_key.o_key_columns END,
+            CASE WHEN i_chunk_by = 'primary_key' THEN l_key.o_key_kinds END,
             pg_catalog.clock_timestamp())
     RETURNING run_id
         INTO l_run_id;

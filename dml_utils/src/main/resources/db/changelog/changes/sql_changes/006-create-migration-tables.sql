@@ -23,6 +23,14 @@ CREATE TABLE dml_utils_data.migration_run
     ordered_key_index               name,
     ordered_key_columns             name[],
     ordered_key_kinds               text[],
+    -- The effective primary-key descriptor for chunk_by = 'primary_key': the key
+    -- the boundaries were built from, so a resume can fail closed when the live
+    -- primary key was dropped or recreated with a different column order, kinds
+    -- or names. Unset for the other strategies (ordered_key stores its own
+    -- descriptor; blocks chunks by ctid). A NULL pair means the row was not
+    -- created by the runner, so there is nothing to compare.
+    primary_key_columns             name[],
+    primary_key_kinds               text[],
     created_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     updated_at                      timestamptz                         NOT NULL DEFAULT pg_catalog.now(),
     started_at                      timestamptz,
@@ -50,6 +58,32 @@ CREATE TABLE dml_utils_data.migration_run
     CONSTRAINT migration_run_ordered_key_check CHECK (
         pg_catalog.num_nonnulls(ordered_key_index, ordered_key_columns, ordered_key_kinds)
             = CASE WHEN chunk_by = 'ordered_key' THEN 3 ELSE 0 END
+        ),
+    -- The primary-key snapshot is all-or-nothing, and only a primary-key run
+    -- may carry it. A NULL pair is allowed so a hand-inserted run (no boundaries,
+    -- no resume) is still valid; the runner always sets it at creation.
+    CONSTRAINT migration_run_primary_key_check CHECK (
+        pg_catalog.num_nonnulls(primary_key_columns, primary_key_kinds) <> 1
+        ),
+    CONSTRAINT migration_run_primary_key_chunk_by_check CHECK (
+        primary_key_columns IS NULL OR chunk_by = 'primary_key'
+        ),
+    CONSTRAINT migration_run_primary_key_shape_check CHECK (
+        primary_key_columns IS NULL
+            OR (pg_catalog.cardinality(primary_key_columns) BETWEEN 1 AND 3
+            AND pg_catalog.cardinality(primary_key_kinds)
+                    = pg_catalog.cardinality(primary_key_columns)
+            AND CASE
+                    WHEN pg_catalog.array_ndims(primary_key_columns) = 1
+                        THEN pg_catalog.array_position(primary_key_columns, NULL::name) IS NULL
+                    ELSE FALSE
+                    END
+            AND CASE
+                    WHEN pg_catalog.array_ndims(primary_key_kinds) = 1
+                        THEN pg_catalog.array_position(primary_key_kinds, NULL::text) IS NULL
+                    ELSE FALSE
+                    END
+            AND primary_key_kinds <@ ARRAY ['bigint', 'text', 'uuid', 'timestamptz']::text[])
         ),
     CONSTRAINT migration_run_ordered_key_shape_check CHECK (
         ordered_key_columns IS NULL
@@ -178,6 +212,14 @@ COMMENT ON COLUMN dml_utils_data.migration_run.ordered_key_kinds IS
     'For chunk_by = ordered_key, the boundary kind of each key column in '
         'ordered_key_columns order (bigint, text, uuid or timestamptz); NULL for '
         'the other strategies. Immutable.';
+COMMENT ON COLUMN dml_utils_data.migration_run.primary_key_columns IS
+    'Primary-key columns the run''s boundaries were built from, for '
+        'chunk_by = primary_key; resume fails closed when the live primary key '
+        'differs. NULL for the other strategies and for a row the runner did not '
+        'create.';
+COMMENT ON COLUMN dml_utils_data.migration_run.primary_key_kinds IS
+    'Boundary kinds matching primary_key_columns position by position (bigint, '
+        'text, uuid or timestamptz); NULL exactly when primary_key_columns is NULL.';
 COMMENT ON COLUMN dml_utils_data.migration_run.created_at IS
     'Row creation time.';
 COMMENT ON COLUMN dml_utils_data.migration_run.updated_at IS

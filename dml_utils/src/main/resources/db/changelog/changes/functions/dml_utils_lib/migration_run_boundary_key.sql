@@ -55,11 +55,12 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Primary key: re-read from the live parent on every call, because the run
-    -- does not snapshot it. This is only safe while the driving table's primary
-    -- key does not change for the run's lifetime: a concurrent DROP/ADD PRIMARY
-    -- KEY with a different column order would silently reinterpret starts built
-    -- with the old key. Ordered-key runs snapshot their descriptor instead (above).
+    -- Primary key: re-read from the live parent on every call. The run also
+    -- snapshots the descriptor at creation (primary_key_columns/kinds) so that
+    -- resume_migration_run can fail closed (55000) when the live key changed;
+    -- reading the live key here keeps the rendered chunk SQL tied to the catalog
+    -- the scan actually runs against. Ordered-key runs render from their stored
+    -- descriptor instead (above).
     RETURN QUERY
         SELECT dml_utils_lib.primary_key_columns(
                        i_schema_name => l_schema_name,
@@ -73,6 +74,6 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.migration_run_boundary_key IS
     'Returns the boundary-key columns and kinds a run chunks by: NULL for blocks, '
         'the stored ordered-key descriptor for ordered_key, and the driving '
-        'parent''s primary key for primary_key. Every leaf of a run must use the same '
-        'key order; a primary-key run re-reads the live parent key, so that key '
-        'must not change for the run''s lifetime.';
+        'parent''s live primary key for primary_key. Every leaf of a run must use '
+        'the same key order; a primary-key run snapshots its key at creation and '
+        'resume fails closed if the live key changed.';
