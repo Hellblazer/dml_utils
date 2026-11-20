@@ -1789,10 +1789,14 @@ RETURNS TABLE
 `STABLE`, `SECURITY INVOKER`. Returns the boundary key a run chunks by: NULL for
 `blocks`, the stored ordered-key descriptor for `ordered_key`, and the driving
 parent's live primary key for `primary_key`. Every leaf of a run must use the same
-key order. A primary-key run snapshots its key descriptor (`primary_key_columns`,
-`primary_key_kinds`) at creation, and `resume_migration_run` fails closed if the
-live key differs; this routine still re-reads the live catalog so rendered chunk
-SQL matches the table the scan runs against.
+key order. For `primary_key` the columns and kinds come from one
+`primary_key_attributes` traversal, followed by the arity check; an unsupported
+column type is `22023`, and a strategy other than these three is rejected with
+`22023` rather than treated as primary_key. A primary-key run snapshots its key
+descriptor (`primary_key_columns`, `primary_key_kinds`) at creation, and
+`resume_migration_run` fails closed if the live key differs; this routine still
+re-reads the live catalog so rendered chunk SQL matches the table the scan runs
+against.
 
 ### `dml_utils_lib.assert_migration_leaf_unchanged(i_run_id, i_leaf_ordinal)`
 

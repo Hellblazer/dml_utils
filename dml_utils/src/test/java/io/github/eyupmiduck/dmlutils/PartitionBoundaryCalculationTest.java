@@ -378,6 +378,27 @@ class PartitionBoundaryCalculationTest extends PartitionTestBase {
     }
 
     /**
+     * A primary-key run over a table whose key type is unsupported is rejected
+     * with {@code 22023} by the single attributes traversal.
+     */
+    @Test
+    void migrationRunBoundaryKeyRejectsAnUnsupportedKeyType() {
+        Long runId = dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT,
+                        MIGRATION_RUN.CHUNK_SIZE, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME)
+                .values(uniqueLabel("boundary-key-unsupported"), TEMPLATE, 1, 1,
+                        SCHEMA, "test_numeric")
+                .returningResult(MIGRATION_RUN.RUN_ID)
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the run insert returns its id");
+
+        assertSqlState("22023", () -> Routines.migrationRunBoundaryKey(
+                dsl.configuration(), runId));
+    }
+
+    /**
      * When the population and the terminal snapshot disagree (here the boundary
      * INSERTs are suppressed, so the leaf looks empty while its snapshot has a
      * high-water key), the calculation fails with a descriptive 55000 instead of
