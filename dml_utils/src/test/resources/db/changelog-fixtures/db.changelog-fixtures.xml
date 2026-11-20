@@ -5,6 +5,16 @@
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
     <changeSet id="fixture-001-create-schema" author="lee.horner">
+        <!-- The schema may already exist after a lost Liquibase history. A plain
+             CREATE SCHEMA IF NOT EXISTS still checks the database CREATE
+             privilege, which the applying role may not have on a test clone, so
+             skip the changeset instead of attempting it. -->
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">
+                SELECT count(*) FROM pg_catalog.pg_namespace
+                WHERE nspname = 'dml_utils_fixtures'
+            </sqlCheck>
+        </preConditions>
         <sqlFile path="changes/001-create-fixture-schema.sql" relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="changes/rollback/001-create-fixture-schema-rollback.sql"

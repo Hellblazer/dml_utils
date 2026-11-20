@@ -1,4 +1,4 @@
-CREATE TABLE dml_utils_fixtures.test_bigint
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_bigint
 (
     id      bigint PRIMARY KEY,
     payload text
@@ -13,7 +13,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_bigint.payload IS
 
 -- A second bigint-keyed table, for tests that must tell two driving tables
 -- apart (for example resuming a run against a different table).
-CREATE TABLE dml_utils_fixtures.test_other
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_other
 (
     id      bigint PRIMARY KEY,
     payload text
@@ -26,7 +26,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_other.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_other.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_integer
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_integer
 (
     id      integer PRIMARY KEY,
     payload text
@@ -39,7 +39,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_integer.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_integer.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_smallint
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_smallint
 (
     id      smallint PRIMARY KEY,
     payload text
@@ -52,7 +52,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_smallint.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_smallint.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_text
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_text
 (
     id      text PRIMARY KEY,
     payload text
@@ -65,7 +65,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_text.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_text.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_uuid
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_uuid
 (
     id      uuid PRIMARY KEY,
     payload text
@@ -80,7 +80,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_uuid.payload IS
 
 -- The primary-key column is not named id, to prove the routines read the name
 -- from the catalog.
-CREATE TABLE dml_utils_fixtures.test_key
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_key
 (
     key     bigint PRIMARY KEY,
     payload text
@@ -93,7 +93,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_key.key IS
 COMMENT ON COLUMN dml_utils_fixtures.test_key.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_no_pk
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_no_pk
 (
     id      bigint,
     payload text
@@ -106,7 +106,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_no_pk.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_no_pk.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_composite_pk
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_pk
 (
     a       bigint,
     b       bigint,
@@ -125,7 +125,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_pk.payload IS
 
 -- A two-column, mixed-kind primary key (bigint + text), to exercise a
 -- heterogeneous key at the shortest composite arity.
-CREATE TABLE dml_utils_fixtures.test_composite_mixed
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_mixed
 (
     a       bigint,
     b       text,
@@ -146,7 +146,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_mixed.payload IS
 -- order differs from byte order (for example '_' sorts before letters and 'a'
 -- before 'B'); proves the chunk predicate uses the column's collation rather
 -- than assuming byte order.
-CREATE TABLE dml_utils_fixtures.test_composite_collated
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_collated
 (
     a       bigint,
     b       text COLLATE "en-x-icu",
@@ -163,7 +163,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_collated.b IS
 COMMENT ON COLUMN dml_utils_fixtures.test_composite_collated.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_numeric
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_numeric
 (
     id      numeric PRIMARY KEY,
     payload text
@@ -181,7 +181,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_numeric.payload IS
 -- column order (a, b, c) differs from the key order (b, a, c), so a routine
 -- that reads column order instead of the index order would return the wrong
 -- sequence; the key order is b (integer), a (text), c (uuid).
-CREATE TABLE dml_utils_fixtures.test_composite_three
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_three
 (
     a       text    NOT NULL,
     b       integer NOT NULL,
@@ -205,7 +205,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_three.payload IS
 -- ORDER BY in populate_migration_boundaries would resolve the output alias id1
 -- (the first key column) instead of the input column if the terminal scan were
 -- built from raw column names rather than the idN aliases.
-CREATE TABLE dml_utils_fixtures.test_composite_id1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_id1
 (
     x       bigint,
     id1     bigint,
@@ -223,7 +223,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_id1.payload IS
     'Fixture payload column.';
 
 -- Four primary-key columns, one more than the supported maximum.
-CREATE TABLE dml_utils_fixtures.test_composite_four
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_composite_four
 (
     a       bigint,
     b       bigint,
@@ -248,7 +248,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_composite_four.payload IS
 
 -- A partitioned table, to prove block chunking rejects a relation that has no
 -- single physical heap (ctid is per-partition, and the parent has no storage).
-CREATE TABLE dml_utils_fixtures.test_partitioned
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned
 (
     id      bigint NOT NULL,
     payload text
@@ -261,7 +261,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_p1 PARTITION OF dml_utils_fixtures.test_partitioned
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_p1 PARTITION OF dml_utils_fixtures.test_partitioned
     FOR VALUES FROM (0) TO (1000);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_p1 IS
@@ -269,7 +269,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_p1 IS
 
 -- A partitioned parent with an index, to prove ordered-key resolution rejects a
 -- relation that has no single physical heap or ordered storage of its own.
-CREATE UNIQUE INDEX test_partitioned_id_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_partitioned_id_idx
     ON dml_utils_fixtures.test_partitioned (id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_partitioned_id_idx IS
@@ -278,7 +278,7 @@ COMMENT ON INDEX dml_utils_fixtures.test_partitioned_id_idx IS
 -- A table with the index shapes the ordered-key resolver accepts and rejects.
 -- The valid keys are (created_at, id) and (external_id); the other indexes each
 -- violate one contract rule so a test can pin the corresponding rejection.
-CREATE TABLE dml_utils_fixtures.test_ordered_key
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_ordered_key
 (
     id             bigint                  NOT NULL,
     created_at     timestamptz             NOT NULL,
@@ -310,13 +310,13 @@ COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.nullable_key IS
 COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key.payload IS
     'Fixture payload column.';
 
-CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_created_at_id_idx
     ON dml_utils_fixtures.test_ordered_key (created_at, id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx IS
     'Fixture: the valid two-column ordered key (timestamptz, bigint).';
 
-CREATE UNIQUE INDEX test_ordered_key_external_id_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_external_id_idx
     ON dml_utils_fixtures.test_ordered_key (external_id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_external_id_idx IS
@@ -324,73 +324,73 @@ COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_external_id_idx IS
 
 -- INCLUDE columns are not part of the key order, so this resolves to the same
 -- two columns as test_ordered_key_created_at_id_idx.
-CREATE UNIQUE INDEX test_ordered_key_include_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_include_idx
     ON dml_utils_fixtures.test_ordered_key (created_at, id) INCLUDE (label);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_include_idx IS
     'Fixture: a valid key with a non-key INCLUDE column that resolution must ignore.';
 
-CREATE INDEX test_ordered_key_nonunique_idx
+CREATE INDEX IF NOT EXISTS test_ordered_key_nonunique_idx
     ON dml_utils_fixtures.test_ordered_key (label);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nonunique_idx IS
     'Fixture: a non-unique index, which ordered-key resolution must reject.';
 
-CREATE INDEX test_ordered_key_hash_idx
+CREATE INDEX IF NOT EXISTS test_ordered_key_hash_idx
     ON dml_utils_fixtures.test_ordered_key USING hash (label);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_hash_idx IS
     'Fixture: a hash index, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_expression_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_expression_idx
     ON dml_utils_fixtures.test_ordered_key (pg_catalog.lower(label));
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_expression_idx IS
     'Fixture: an expression index, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_partial_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_partial_idx
     ON dml_utils_fixtures.test_ordered_key (label) WHERE label <> '';
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_partial_idx IS
     'Fixture: a partial index, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_desc_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_desc_idx
     ON dml_utils_fixtures.test_ordered_key (created_at DESC, id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_desc_idx IS
     'Fixture: a DESC index, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_nulls_first_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_nulls_first_idx
     ON dml_utils_fixtures.test_ordered_key (created_at NULLS FIRST, id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nulls_first_idx IS
     'Fixture: a NULLS FIRST index, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_nullable_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_nullable_idx
     ON dml_utils_fixtures.test_ordered_key (nullable_key);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_nullable_idx IS
     'Fixture: a unique index on a nullable column, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_four_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_four_idx
     ON dml_utils_fixtures.test_ordered_key (created_at, id, external_id, label);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_four_idx IS
     'Fixture: a four-column index, more than the supported maximum.';
 
-CREATE UNIQUE INDEX test_ordered_key_collation_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_collation_idx
     ON dml_utils_fixtures.test_ordered_key (collated_label COLLATE "C");
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_collation_idx IS
     'Fixture: an index whose collation differs from its column, which resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_opclass_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_opclass_idx
     ON dml_utils_fixtures.test_ordered_key (label text_pattern_ops);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_opclass_idx IS
     'Fixture: a non-default btree opclass, which ordered-key resolution must reject.';
 
-CREATE UNIQUE INDEX test_ordered_key_numeric_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_numeric_idx
     ON dml_utils_fixtures.test_ordered_key (numeric_key);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_numeric_idx IS
@@ -398,7 +398,7 @@ COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_numeric_idx IS
 
 -- The case ordered_key exists for: a random UUID primary key with a useful
 -- time/ID order supplied by a separate unique index.
-CREATE TABLE dml_utils_fixtures.test_ordered_key_uuid
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_ordered_key_uuid
 (
     id         uuid PRIMARY KEY,
     created_at timestamptz NOT NULL,
@@ -414,14 +414,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_uuid.created_at IS
 COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_uuid.payload IS
     'Fixture payload column.';
 
-CREATE UNIQUE INDEX test_ordered_key_uuid_created_at_id_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_uuid_created_at_id_idx
     ON dml_utils_fixtures.test_ordered_key_uuid (created_at, id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_uuid_created_at_id_idx IS
     'Fixture: the valid (timestamptz, uuid) ordered key.';
 
 -- A natural text key whose primary-key index is itself the ordered key.
-CREATE TABLE dml_utils_fixtures.test_ordered_key_text
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_ordered_key_text
 (
     natural_key text PRIMARY KEY,
     payload     text
@@ -435,7 +435,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_text.payload IS
     'Fixture payload column.';
 
 -- A single-column timestamptz ordered key with a separate surrogate primary key.
-CREATE TABLE dml_utils_fixtures.test_ordered_key_timestamptz
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_ordered_key_timestamptz
 (
     id         bigint PRIMARY KEY,
     created_at timestamptz NOT NULL,
@@ -451,14 +451,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_timestamptz.created_at IS
 COMMENT ON COLUMN dml_utils_fixtures.test_ordered_key_timestamptz.payload IS
     'Fixture payload column.';
 
-CREATE UNIQUE INDEX test_ordered_key_timestamptz_created_at_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_timestamptz_created_at_idx
     ON dml_utils_fixtures.test_ordered_key_timestamptz (created_at);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_timestamptz_created_at_idx IS
     'Fixture: the valid single-column timestamptz ordered key.';
 
 -- A single-column timestamptz primary key.
-CREATE TABLE dml_utils_fixtures.test_timestamptz_pk
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_timestamptz_pk
 (
     created_at timestamptz PRIMARY KEY,
     payload    text
@@ -472,7 +472,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_pk.payload IS
     'Fixture payload column.';
 
 -- A composite (timestamptz, bigint) primary key.
-CREATE TABLE dml_utils_fixtures.test_timestamptz_composite_pk
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_timestamptz_composite_pk
 (
     created_at timestamptz NOT NULL,
     id         bigint      NOT NULL,
@@ -493,7 +493,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_timestamptz_composite_pk.payload IS
 -- are deliberately not in bound order, so an enumeration that sorts by name
 -- rather than by partition bound is observable.
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_range
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_range
 (
     id      bigint NOT NULL,
     payload text,
@@ -507,21 +507,21 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_range.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_range.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_range_mid
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_range_mid
     PARTITION OF dml_utils_fixtures.test_partitioned_range
         FOR VALUES FROM (100) TO (200);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_mid IS
     'Fixture: the middle range leaf, created before the low leaf.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_range_high
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_range_high
     PARTITION OF dml_utils_fixtures.test_partitioned_range
         FOR VALUES FROM (200) TO (300);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_high IS
     'Fixture: the high range leaf.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_range_low
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_range_low
     PARTITION OF dml_utils_fixtures.test_partitioned_range
         FOR VALUES FROM (0) TO (100);
 
@@ -530,7 +530,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_range_low IS
 
 -- A parent unique index for partition-wise ordered-key runs. PostgreSQL creates
 -- the matching child index on every leaf (and on partitions attached later).
-CREATE UNIQUE INDEX test_partitioned_range_ordered_key_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_partitioned_range_ordered_key_idx
     ON dml_utils_fixtures.test_partitioned_range (id);
 
 COMMENT ON INDEX dml_utils_fixtures.test_partitioned_range_ordered_key_idx IS
@@ -538,7 +538,7 @@ COMMENT ON INDEX dml_utils_fixtures.test_partitioned_range_ordered_key_idx IS
 
 -- A two-level tree: the low range leaf is itself hash-partitioned, so the
 -- enumeration must expand the sub-parent to its leaves.
-CREATE TABLE dml_utils_fixtures.test_partitioned_multi
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_multi
 (
     id      bigint  NOT NULL,
     bucket  integer NOT NULL,
@@ -555,28 +555,28 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.bucket IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_multi.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_multi_low
     PARTITION OF dml_utils_fixtures.test_partitioned_multi
         FOR VALUES FROM (0) TO (100) PARTITION BY HASH (bucket);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low IS
     'Fixture: the low range sub-parent, hash-partitioned into two leaves.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_multi_low_h1
     PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
         FOR VALUES WITH (MODULUS 2, REMAINDER 1);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h1 IS
     'Fixture: hash leaf remainder 1, created before remainder 0.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_multi_low_h0
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_multi_low_h0
     PARTITION OF dml_utils_fixtures.test_partitioned_multi_low
         FOR VALUES WITH (MODULUS 2, REMAINDER 0);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_low_h0 IS
     'Fixture: hash leaf remainder 0.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_multi_high
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_multi_high
     PARTITION OF dml_utils_fixtures.test_partitioned_multi
         FOR VALUES FROM (100) TO (200);
 
@@ -586,13 +586,13 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_multi_high IS
 -- A parent index for the multi-level partition-wise ordered-key test; the child
 -- indexes follow the sub-partition tree, so resolving each storage leaf's index
 -- exercises the recursive index walk.
-CREATE UNIQUE INDEX test_partitioned_multi_ordered_key_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_partitioned_multi_ordered_key_idx
     ON dml_utils_fixtures.test_partitioned_multi (id, bucket);
 
 COMMENT ON INDEX dml_utils_fixtures.test_partitioned_multi_ordered_key_idx IS
     'Fixture: a two-level partitioned unique index for partition-wise ordered keys.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_list
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_list
 (
     id      integer NOT NULL,
     payload text,
@@ -606,21 +606,21 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_list.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_list.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_list_b
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_list_b
     PARTITION OF dml_utils_fixtures.test_partitioned_list
         FOR VALUES IN (3);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_b IS
     'Fixture: the list leaf for 3, created before the leaf for 1 and 2.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_list_a
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_list_a
     PARTITION OF dml_utils_fixtures.test_partitioned_list
         FOR VALUES IN (1, 2);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_list_a IS
     'Fixture: the list leaf for 1 and 2.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_empty
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_empty
 (
     id      integer NOT NULL,
     payload text,
@@ -636,13 +636,13 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_empty.payload IS
 
 -- A text partition key whose bound contains a backslash, so the deparsed bound
 -- text exposes standard_conforming_strings ('a\b' when on, 'a\\b' when off).
-CREATE TABLE dml_utils_fixtures.test_partitioned_text_escape
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_text_escape
 (
     s       text NOT NULL,
     payload text
 ) PARTITION BY RANGE (s);
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_text_escape_a
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_text_escape_a
     PARTITION OF dml_utils_fixtures.test_partitioned_text_escape
     FOR VALUES FROM (E'a\\b') TO (E'a\\c');
 
@@ -657,13 +657,13 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_text_escape_a IS
 
 -- A bytea partition key, so the deparsed bound text exposes bytea_output
 -- ('\x01' with hex, '\001' with escape).
-CREATE TABLE dml_utils_fixtures.test_partitioned_bytea
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_bytea
 (
     b       bytea NOT NULL,
     payload text
 ) PARTITION BY RANGE (b);
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_bytea_a
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_bytea_a
     PARTITION OF dml_utils_fixtures.test_partitioned_bytea
     FOR VALUES FROM ('\x01'::bytea) TO ('\x02'::bytea);
 
@@ -676,7 +676,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_bytea.payload IS
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_bytea_a IS
     'Fixture: the only leaf, bound by bytea values.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_detach
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_detach
 (
     id      integer NOT NULL,
     payload text
@@ -689,14 +689,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_detach.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_detach.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_detach_a
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_detach_a
     PARTITION OF dml_utils_fixtures.test_partitioned_detach
         FOR VALUES FROM (0) TO (10);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_a IS
     'Fixture: the leaf the detach test removes from the tree and reattaches.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_detach_b
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_detach_b
     PARTITION OF dml_utils_fixtures.test_partitioned_detach
         FOR VALUES FROM (10) TO (20);
 
@@ -706,7 +706,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_detach_b IS
 -- A partitioned parent used by the foreign-leaf rejection test. The foreign leaf
 -- itself is created by the test as the owner: the fixture codegen container does
 -- not install the postgres_fdw extension, so it cannot be part of this changelog.
-CREATE TABLE dml_utils_fixtures.test_partitioned_foreign
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_foreign
 (
     id      integer NOT NULL,
     payload text
@@ -722,7 +722,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_foreign.payload IS
 -- A partitioned parent whose leaf name needs identifier quoting, to prove the
 -- per-leaf render quotes the schema, table and alias rather than interpolating
 -- them raw.
-CREATE TABLE dml_utils_fixtures.test_partitioned_quoted
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_quoted
 (
     id      bigint NOT NULL,
     payload text
@@ -735,7 +735,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_quoted.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_quoted.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures."test partitioned ""odd"""
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures."test partitioned ""odd"""
     PARTITION OF dml_utils_fixtures.test_partitioned_quoted
         FOR VALUES FROM (0) TO (100);
 
@@ -744,7 +744,7 @@ COMMENT ON TABLE dml_utils_fixtures."test partitioned ""odd""" IS
 
 -- A top-level hash-partitioned parent with two leaves, for the partition-wise
 -- integration matrix.
-CREATE TABLE dml_utils_fixtures.test_partitioned_hash
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_hash
 (
     id      bigint NOT NULL,
     payload text,
@@ -758,14 +758,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_hash.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_hash.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p0
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_hash_p0
     PARTITION OF dml_utils_fixtures.test_partitioned_hash
         FOR VALUES WITH (MODULUS 2, REMAINDER 0);
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p0 IS
     'Fixture: hash leaf remainder 0.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_hash_p1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_hash_p1
     PARTITION OF dml_utils_fixtures.test_partitioned_hash
         FOR VALUES WITH (MODULUS 2, REMAINDER 1);
 
@@ -774,7 +774,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_hash_p1 IS
 
 -- A traditional INHERITS parent and its child: the parent has relkind 'r' but
 -- is not one physical heap, so block chunking must reject it.
-CREATE TABLE dml_utils_fixtures.test_inheritance_parent
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_inheritance_parent
 (
     id      bigint NOT NULL,
     payload text
@@ -787,7 +787,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.id IS
 COMMENT ON COLUMN dml_utils_fixtures.test_inheritance_parent.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_inheritance_child
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_inheritance_child
 (
 )
     INHERITS (dml_utils_fixtures.test_inheritance_parent);
@@ -799,7 +799,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_inheritance_child IS
 -- a date bound's text depends on DateStyle unless leaf_partitions pins it. The
 -- February leaf is created first and its name sorts before the January name, so
 -- only the bound can produce the January-first order.
-CREATE TABLE dml_utils_fixtures.test_partitioned_date
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_date
 (
     created_at date NOT NULL,
     payload    text
@@ -812,14 +812,14 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_date.created_at IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_date.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_date_february
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_date_february
     PARTITION OF dml_utils_fixtures.test_partitioned_date
         FOR VALUES FROM ('2020-02-01') TO ('2020-02-02');
 
 COMMENT ON TABLE dml_utils_fixtures.test_partitioned_date_february IS
     'Fixture: the February date leaf (created first, name sorts first).';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_date_january
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_date_january
     PARTITION OF dml_utils_fixtures.test_partitioned_date
         FOR VALUES FROM ('2020-01-02') TO ('2020-01-03');
 
@@ -828,7 +828,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_partitioned_date_january IS
 
 -- A timestamptz-partitioned parent: pg_get_expr renders a timestamptz bound in
 -- the session time zone unless leaf_partitions pins it.
-CREATE TABLE dml_utils_fixtures.test_partitioned_time
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_time
 (
     created_at timestamptz NOT NULL,
     payload    text
@@ -841,7 +841,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_time.created_at IS
 COMMENT ON COLUMN dml_utils_fixtures.test_partitioned_time.payload IS
     'Fixture payload column.';
 
-CREATE TABLE dml_utils_fixtures.test_partitioned_time_2026
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_partitioned_time_2026
     PARTITION OF dml_utils_fixtures.test_partitioned_time
         FOR VALUES FROM ('2026-01-01 00:00:00+00') TO ('2026-02-01 00:00:00+00');
 

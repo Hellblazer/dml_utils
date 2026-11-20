@@ -1,3 +1,5 @@
+-- Grants (and ALTER DEFAULT PRIVILEGES) are idempotent, so this file can be
+-- re-applied after a lost Liquibase history like the schema and table files.
 GRANT USAGE ON SCHEMA dml_utils_fixtures TO dml_utils_test;
 
 GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON ALL TABLES IN SCHEMA dml_utils_fixtures TO dml_utils_test;
