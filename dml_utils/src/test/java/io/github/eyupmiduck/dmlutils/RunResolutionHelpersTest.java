@@ -142,8 +142,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                         "the aborted wait re-raises its own error");
                 assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
                         "the cancelled worker must not commit a run the caller never received");
-                assertEquals(0, workerCount(label),
-                        "the aborted wait must cancel the worker, not leave it running");
+                awaitNoWorker(label);
             } finally {
                 admin.rollback();
                 try {
@@ -173,6 +172,24 @@ class RunResolutionHelpersTest extends PostgresTestBase {
         while (workerCount(label) == 0) {
             if (System.nanoTime() > deadline) {
                 fail("the worker for " + label + " never started");
+            }
+            Thread.sleep(10);
+        }
+    }
+
+    /**
+     * Waits (bounded) until no worker for the label remains: the cancel is
+     * best-effort, so an immediate zero sample could catch the worker just before
+     * it exits.
+     *
+     * @param label the run label embedded in the launched SQL
+     * @throws InterruptedException if the poll is interrupted
+     */
+    private void awaitNoWorker(String label) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (workerCount(label) > 0) {
+            if (System.nanoTime() > deadline) {
+                fail("the worker for " + label + " was still running");
             }
             Thread.sleep(10);
         }

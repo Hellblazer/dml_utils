@@ -19,7 +19,9 @@ import java.sql.SQLException;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
@@ -36,6 +38,45 @@ import static org.junit.jupiter.api.Assertions.*;
 class TransientRetryTest extends PostgresTestBase {
 
     private static final String SEQUENCE = "public.retry_probe_seq";
+
+    /**
+     * Waits for the background coordinator. On timeout, cancels its backend and
+     * the task so a stuck coordinator cannot keep using the fixture (the probe
+     * sequence and functions) while the next test recreates them.
+     *
+     * @param run the background coordinator
+     * @throws InterruptedException if the wait is interrupted
+     */
+    private void awaitCoordinator(CompletableFuture<Void> run) throws InterruptedException {
+        try {
+            run.get(10, TimeUnit.SECONDS);
+        } catch (TimeoutException timeout) {
+            run.cancel(true);
+            // Tests run one at a time, so a live run_migration_chunks backend is
+            // this test's coordinator; cancel it best-effort and wait for the
+            // connection to close.
+            for (Record row : dsl.fetch(
+                    "SELECT pid FROM pg_catalog.pg_stat_activity"
+                            + " WHERE query LIKE '%run_migration_chunks%'"
+                            + " AND pid <> pg_catalog.pg_backend_pid()")) {
+                Integer pid = row.get(0, Integer.class);
+                try {
+                    dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", pid);
+                } catch (RuntimeException ignored) {
+                    // The backend may already be gone.
+                }
+            }
+            try {
+                run.get(5, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+                // Best effort: the backend was asked to cancel; the failure below
+                // still reports the timeout.
+            }
+            fail("the coordinator did not return: " + timeout.getMessage(), timeout);
+        } catch (ExecutionException failure) {
+            fail("the coordinator failed: " + failure.getCause(), failure);
+        }
+    }
 
     /**
      * The non-retry cases: a permanent error with a budget and a transient error
@@ -207,7 +248,7 @@ class TransientRetryTest extends PostgresTestBase {
 
         long runId = awaitFirstAttempt(label);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
-        run.get(10, TimeUnit.SECONDS);
+        awaitCoordinator(run);
 
         assertNotNull(migrationRun(runId).getPausedAt(), "the run is paused");
         assertNull(migrationRun(runId).getCompletedAt(), "the paused run is not complete");
@@ -251,7 +292,7 @@ class TransientRetryTest extends PostgresTestBase {
 
         long runId = awaitFirstAttempt(label);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
-        run.get(10, TimeUnit.SECONDS);
+        awaitCoordinator(run);
 
         MigrationRunRecord record = migrationRun(runId);
         assertNotNull(record.getPausedAt(), "the run is paused");
@@ -294,7 +335,7 @@ class TransientRetryTest extends PostgresTestBase {
 
         long runId = awaitFirstAttempt(label);
         assertEquals(runId, Routines.cancelMigrationRun(dsl.configuration(), label));
-        run.get(10, TimeUnit.SECONDS);
+        awaitCoordinator(run);
 
         assertNotNull(migrationRun(runId).getCancelledAt(), "the run is cancelled");
         assertNull(migrationRun(runId).getCompletedAt(), "the cancelled run is not complete");

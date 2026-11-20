@@ -34,9 +34,10 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
      * claimed a boundary before cancelling; a fixed sleep could cancel the run
      * before any worker launched on a slow CI agent.
      */
-    private static final String SLOW_TEMPLATE =
-            "SELECT pg_advisory_xact_lock(1, 4242), pg_sleep(1)"
-                    + " FROM <driving_table> WHERE <chunking_clause>";
+    private static String slowTemplate(int lockKey) {
+        return "SELECT pg_advisory_xact_lock(" + lockKey + ", 4242), pg_sleep(1)"
+                + " FROM <driving_table> WHERE <chunking_clause>";
+    }
 
     private static final String FAST_TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
@@ -60,10 +61,11 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
         seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         String label = uniqueLabel("cancel-in-flight");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection owner = openOwnerConnection()) {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(ownerDsl.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(ownerDsl.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 5, 2, "t",
                         ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (SQLException error) {
@@ -71,7 +73,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
             }
         });
 
-        long runId = awaitChunkInFlight(label);
+        long runId = awaitChunkInFlight(label, lockKey);
         Long cancelled = Routines.cancelMigrationRun(dsl.configuration(), label);
         assertEquals(runId, cancelled, "the active run is cancelled");
 
@@ -102,11 +104,12 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
         seedBigint(1, 2, 3, 4, 5, 6);
         String label = uniqueLabel("cancel-caller");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection connection = openTestConnection()) {
                 setRole(connection, "dml_utils_caller");
                 DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(caller.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(caller.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
                         ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (Exception error) {
@@ -114,7 +117,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
             }
         });
 
-        long runId = awaitChunkInFlight(label);
+        long runId = awaitChunkInFlight(label, lockKey);
         try (Connection connection = openTestConnection()) {
             setRole(connection, "dml_utils_caller");
             DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
@@ -192,7 +195,10 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
      * @return the run id
      * @throws InterruptedException if the wait is interrupted
      */
-    private long awaitChunkInFlight(String label) throws InterruptedException {
+    private long awaitChunkInFlight(String label, int lockKey) throws InterruptedException {
+        // The slow template takes an advisory key unique to this invocation, so
+        // matching that key identifies this run's worker without relying on
+        // pg_stat_activity (another role's statement text is not visible).
         for (int attempt = 0; attempt < 200; attempt++) {
             Record row = dsl.fetchOne(
                     "SELECT r.run_id FROM dml_utils_data.migration_run AS r"
@@ -203,8 +209,10 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
             if (row != null
                     && Boolean.TRUE.equals(dsl.fetchOne(
                     "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks"
-                            + " WHERE locktype = 'advisory' AND classid = 1 AND objid = 4242"
-                            + " AND pid <> pg_backend_pid())").get(0, Boolean.class))) {
+                            + " WHERE locktype = 'advisory'"
+                            + " AND classid = ? AND objid = 4242"
+                            + " AND pid <> pg_backend_pid())",
+                    lockKey).get(0, Boolean.class))) {
                 return row.get(0, Long.class);
             }
             Thread.sleep(50);

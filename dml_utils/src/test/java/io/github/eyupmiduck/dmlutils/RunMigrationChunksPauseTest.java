@@ -35,9 +35,10 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
      * claimed a boundary before pausing; a fixed sleep could pause the run before
      * any worker launched on a slow CI agent.
      */
-    private static final String SLOW_TEMPLATE =
-            "SELECT pg_advisory_xact_lock(1, 4242), pg_sleep(1)"
-                    + " FROM <driving_table> WHERE <chunking_clause>";
+    private static String slowTemplate(int lockKey) {
+        return "SELECT pg_advisory_xact_lock(" + lockKey + ", 4242), pg_sleep(1)"
+                + " FROM <driving_table> WHERE <chunking_clause>";
+    }
 
     private static final String FAST_TEMPLATE =
             "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
@@ -62,10 +63,11 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         String label = uniqueLabel("pause-in-flight");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection owner = openOwnerConnection()) {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(ownerDsl.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(ownerDsl.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
                         ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (SQLException error) {
@@ -73,7 +75,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
             }
         });
 
-        long runId = awaitChunkInFlight(label);
+        long runId = awaitChunkInFlight(label, lockKey);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         run.get(30, TimeUnit.SECONDS);
@@ -131,7 +133,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
             }
         });
 
-        long runId = awaitCompletedChunk(label);
+        long runId = awaitThrottleSleep(label);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         // The throttle is 60s, so a coordinator that does not abort it on pause
@@ -178,10 +180,11 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         seedBigint(1, 2);
         String label = uniqueLabel("pause-last-chunk");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection owner = openOwnerConnection()) {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(ownerDsl.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(ownerDsl.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
                         ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (SQLException error) {
@@ -189,7 +192,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
             }
         });
 
-        long runId = awaitChunkInFlightAfter(label, 1);
+        long runId = awaitChunkInFlightAfter(label, 1, lockKey);
         assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
 
         run.get(30, TimeUnit.SECONDS);
@@ -214,25 +217,38 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
 
 
     /**
-     * Waits until the run has completed at least one chunk and is therefore in
-     * the throttle sleep before launching the next one.
+     * Waits until the first chunk has completed and the coordinator is inside the
+     * throttle's {@code pg_sleep}, so the pause genuinely interrupts the sleep
+     * rather than being seen at the next launch gate. A completed chunk alone does
+     * not prove that: the coordinator may not have reached the sleep yet.
      *
      * @param label the run label
      * @return the run id
      * @throws InterruptedException if the wait is interrupted
      */
-    private long awaitCompletedChunk(String label) throws InterruptedException {
-        for (int attempt = 0; attempt < 200; attempt++) {
-            Record row = dsl.fetchOne(
-                    "SELECT run_id FROM dml_utils_data.migration_run"
-                            + " WHERE label = ? AND total_chunks_completed > 0",
-                    label);
-            if (row != null) {
-                return row.get(0, Long.class);
+    private long awaitThrottleSleep(String label) throws Exception {
+        // Probe as the owner: the coordinator runs on an owner connection, and
+        // another role cannot read its query text from pg_stat_activity.
+        try (Connection probeConnection = openOwnerConnection()) {
+            DSLContext probe = DSL.using(probeConnection, SQLDialect.POSTGRES);
+            for (int attempt = 0; attempt < 400; attempt++) {
+                Record row = probe.fetchOne(
+                        "SELECT run_id FROM dml_utils_data.migration_run"
+                                + " WHERE label = ? AND total_chunks_completed > 0"
+                                + " AND completed_at IS NULL",
+                        label);
+                if (row != null
+                        && Boolean.TRUE.equals(probe.fetchOne(
+                        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS a"
+                                + " WHERE a.datname = pg_catalog.current_database()"
+                                + " AND a.query LIKE '%run_migration_chunks%'"
+                                + " AND a.wait_event = 'PgSleep')").get(0, Boolean.class))) {
+                    return row.get(0, Long.class);
+                }
+                Thread.sleep(25);
             }
-            Thread.sleep(50);
         }
-        return fail("the run for " + label + " did not complete its first chunk");
+        return fail("the coordinator never entered the throttle sleep for " + label);
     }
 
 
@@ -244,8 +260,8 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
      * @return the run id
      * @throws InterruptedException if the wait is interrupted
      */
-    private long awaitChunkInFlight(String label) throws InterruptedException {
-        return awaitChunkInFlightAfter(label, 0);
+    private long awaitChunkInFlight(String label, int lockKey) throws InterruptedException {
+        return awaitChunkInFlightAfter(label, 0, lockKey);
     }
 
     /**
@@ -258,7 +274,7 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
      * @return the run id
      * @throws InterruptedException if the wait is interrupted
      */
-    private long awaitChunkInFlightAfter(String label, int completedAtLeast)
+    private long awaitChunkInFlightAfter(String label, int completedAtLeast, int lockKey)
             throws InterruptedException {
         // Probe on an owner connection: pg_background workers launched by the
         // owner are only fully visible in pg_stat_activity to their own role, and
@@ -280,10 +296,11 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
                                     "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks AS l"
                                             + " JOIN pg_catalog.pg_stat_activity AS a ON a.pid = l.pid"
                                             + " WHERE l.locktype = 'advisory'"
-                                            + " AND l.classid = 1 AND l.objid = 4242"
+                                            + " AND l.classid = ? AND l.objid = 4242"
                                             + " AND a.backend_type = 'pg_background'"
                                             + " AND a.datname = pg_catalog.current_database()"
                                             + " AND a.query LIKE ?)",
+                                    lockKey,
                                     "%process_migration_chunk(" + runId + ",%")
                             .get(0, Boolean.class))) {
                         return runId;
