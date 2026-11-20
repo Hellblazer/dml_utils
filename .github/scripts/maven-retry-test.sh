@@ -155,6 +155,16 @@ assert_argv "$dir" 1 "verify: success forwards the goals" -- \
     "ARG=clean" \
     "ARG=verify"
 
+# 1b. A successful attempt that happens to print the transient marker is not
+# retried: the marker only matters after a failure.
+dir="$(make_repo success-with-marker)"
+attempt_status "$dir" 1 0
+attempt_output "$dir" 1 "$fatal_line"
+run "$dir" maven-verify-retry.sh
+assert_status 0 "verify: success with a marker exits 0"
+assert_calls "$dir" 1 "verify: success with a marker is not retried"
+assert_not_contains "Transient" "verify: success with a marker does not print the retry notice"
+
 # 2. A non-transient failure is reported once with Maven's own status.
 dir="$(make_repo failure)"
 attempt_status "$dir" 1 7
@@ -209,7 +219,9 @@ assert_argv "$dir" 1 "verify: arguments with spaces stay one argument" -- \
     "ARG=-Dempty="
 
 # 7. The entry point works from another directory and builds the repository.
-dir="$(make_repo elsewhere)"
+# The repository and the caller's directory have distinct names: reusing one name
+# would land the caller inside the repo and make the PWD assertion trivial.
+dir="$(make_repo elsewhere-repo)"
 mkdir -p "$work/elsewhere"
 out=""
 status=0
@@ -225,6 +237,25 @@ assert_argv "$dir" 1 "verify: runs from another directory builds the repo root" 
     "ARG=$dir/.github/scripts/settings.xml" \
     "ARG=clean" \
     "ARG=verify"
+
+# 7b. A failing report_failure hook must not replace Maven's status: the entry
+# points run with errexit, so the harness has to swallow the hook's failure.
+dir="$(make_repo hook-failure)"
+attempt_status "$dir" 1 7
+attempt_output "$dir" 1 "BUILD FAILURE"
+cat > "$dir/.github/scripts/hook-failure.sh" <<'EOS'
+#!/usr/bin/env bash
+set -euo pipefail
+. "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/maven-retry-lib.sh"
+run_build() { "$repo_root/mvnw" --batch-mode clean verify "$@"; }
+report_failure() { echo "diagnostics failed" >&2; return 9; }
+maven_retry_run build "$@"
+EOS
+chmod +x "$dir/.github/scripts/hook-failure.sh"
+run "$dir" hook-failure.sh
+assert_status 7 "verify: a failing report_failure hook keeps Maven's status"
+assert_calls "$dir" 1 "verify: a failing hook does not retry"
+assert_contains "diagnostics failed" "verify: the failing hook's diagnostics are printed"
 
 # 8. The release entry point deploys at the end of the reactor.
 dir="$(make_repo release-goals)"

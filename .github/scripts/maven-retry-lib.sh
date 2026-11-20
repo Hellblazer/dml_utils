@@ -84,7 +84,9 @@ maven_retry_run() {
     fi
 
     if declare -F report_failure >/dev/null; then
-        report_failure
+        # Diagnostics are best-effort: the entry points run with errexit, so an
+        # unprotected hook failure would replace Maven's status with the hook's.
+        report_failure || true
     fi
     exit "$maven_status"
 }
