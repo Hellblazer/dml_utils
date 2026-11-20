@@ -20,7 +20,8 @@ BEGIN
              JOIN pg_catalog.pg_class AS c ON c.oid = tree.relid
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
     WHERE tree.isleaf
-      AND NOT pg_catalog.has_table_privilege(c.oid, 'SELECT')
+      AND (NOT pg_catalog.has_schema_privilege(n.oid, 'USAGE')
+        OR NOT pg_catalog.has_table_privilege(c.oid, 'SELECT'))
     ORDER BY n.nspname::text COLLATE pg_catalog."C",
              c.relname::text COLLATE pg_catalog."C",
              c.oid
@@ -34,6 +35,6 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_leaf_privileges IS
-    'Raises insufficient_privilege (42501) when the caller cannot SELECT any '
-        'storage leaf of the partitioned parent, so a partition-wise run fails '
-        'before creating a manifest row.';
+    'Raises insufficient_privilege (42501) when the caller lacks USAGE on a '
+        'storage leaf''s schema or cannot SELECT the leaf, so a partition-wise run '
+        'fails before creating a manifest row.';

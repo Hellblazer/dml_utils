@@ -74,6 +74,26 @@ class PartitionLeafAssertionsTest extends PartitionTestBase {
     }
 
     /**
+     * A caller that lacks USAGE on the leaf's schema cannot read the leaf
+     * directly, so the pre-flight check rejects it with {@code 42501}.
+     *
+     * @throws Exception if the grant cannot be restored
+     */
+    @Test
+    void rejectsALeafWhoseSchemaUsageIsMissing() throws Exception {
+        long parent = relationOid(SCHEMA + ".test_partitioned_range");
+        executeAsOwner("REVOKE USAGE ON SCHEMA " + SCHEMA
+                + " FROM " + TEST_USER + ", dml_utils_caller");
+        try {
+            assertSqlState("42501", () -> Routines.assertPartitionedLeafPrivileges(
+                    dsl.configuration(), parent));
+        } finally {
+            executeAsOwner("GRANT USAGE ON SCHEMA " + SCHEMA
+                    + " TO " + TEST_USER + ", dml_utils_caller");
+        }
+    }
+
+    /**
      * A leaf the caller cannot read raises {@code 42501}.
      */
     @Test

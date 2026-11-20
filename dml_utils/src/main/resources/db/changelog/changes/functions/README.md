@@ -2106,10 +2106,10 @@ i_parent dml_utils_data.non_null_oid
 RETURNS void
 ```
 
-`VOLATILE`, `SECURITY INVOKER`. Raises `42501` when the caller cannot SELECT any
-storage leaf of the partitioned parent, so a partition-wise run fails before
-creating a manifest row. It is `VOLATILE` because `pg_partition_tree`, which
-enumerates the leaves, is itself `VOLATILE`.
+`VOLATILE`, `SECURITY INVOKER`. Raises `42501` when the caller lacks USAGE on a
+storage leaf's schema or cannot SELECT the leaf, so a partition-wise run fails
+before creating a manifest row. It is `VOLATILE` because `pg_partition_tree`,
+which enumerates the leaves, is itself `VOLATILE`.
 
 ### `dml_utils_lib.manifest_leaf_identity(i_run_id, i_leaf_ordinal)`
 
@@ -2320,8 +2320,10 @@ i_table_name  dml_utils_data.non_null_text
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Raises `42501` when the effective caller cannot
-SELECT the relation, before a definer-backed scan reads it.
+`STABLE`, `SECURITY INVOKER`. Raises `42501` when the effective caller lacks
+USAGE on the schema or SELECT on the relation, and `55000` when the relation has
+row-level security that the definer-backed scan would bypass for that caller.
+Used before a definer-backed scan reads the relation.
 
 ###
 
