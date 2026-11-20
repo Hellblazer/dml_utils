@@ -853,10 +853,11 @@ i_table_name  dml_utils_data.non_null_text
 RETURNS void
 ```
 
-`STABLE`, `SECURITY INVOKER`. Raises `undefined_table` (`42P01`) when the
-relation does not exist, or `wrong_object_type` (`42809`) when it is not a
-declarative partitioned table (`relkind = 'p'`), so a non-partitioned driving
-table is rejected before any leaf is enumerated.
+`STABLE`, `SECURITY INVOKER`, with a pinned `search_path`. Raises
+`undefined_table` (`42P01`) when the relation does not exist, or
+`wrong_object_type` (`42809`) when it is not a declarative partitioned table
+(`relkind = 'p'`), so a non-partitioned driving table is rejected before any leaf
+is enumerated.
 
 ### `dml_utils_lib.assert_read_committed()`
 
@@ -1063,7 +1064,8 @@ RETURNS TABLE
     column_type regtype, key_kind text)
 ```
 
-`STABLE`, `SECURITY INVOKER`. The shared ordered-key shape validator: it takes an
+`STABLE`, `SECURITY INVOKER`, with a pinned `search_path`. The shared ordered-key
+shape validator: it takes an
 index OID and returns its key columns after applying the same checks as
 `ordered_key_attributes` (btree, unique, valid, non-partial, 1–3 simple
 ascending `NOT NULL` columns with default opclass and the column collation). The

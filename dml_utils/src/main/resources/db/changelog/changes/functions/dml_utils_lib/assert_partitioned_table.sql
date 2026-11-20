@@ -6,6 +6,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_partitioned_table(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    -- Every object is schema-qualified; pin the path so a future unqualified
+    -- reference cannot pick up a caller-schema object.
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE

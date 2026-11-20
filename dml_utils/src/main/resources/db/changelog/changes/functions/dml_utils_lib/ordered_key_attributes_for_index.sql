@@ -15,6 +15,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    -- Every object is schema-qualified (including the validator and column reader
+    -- this delegates to); pin the path so the catalog names cannot resolve
+    -- against a caller-schema object.
+    SET search_path = pg_catalog
 AS
 $$
 BEGIN
