@@ -12,9 +12,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_leaf_indexes(
     SECURITY INVOKER
 AS
 $$
-    -- The index inheritance tree mirrors the table tree, so a multi-level partition's
--- storage-leaf index is not a direct child of the root index. Walk it once and
--- return one row per storage leaf's matching index.
+    -- The index inheritance tree mirrors the table tree, so a multi-level
+    -- partition's storage-leaf index is not a direct child of the root index. Walk
+    -- it once and return one row per storage leaf's matching index.
 WITH RECURSIVE index_tree AS (SELECT inh.inhrelid
                               FROM pg_catalog.pg_inherits AS inh
                               WHERE inh.inhparent = i_parent_index_oid

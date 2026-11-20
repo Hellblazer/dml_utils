@@ -153,4 +153,7 @@ COMMENT ON FUNCTION dml_utils.run_function_over_table IS
         'driving table in place. i_sleep_ms seeds a new run''s per-chunk delay; a '
         'resumed run uses its stored value. i_max_retries and i_retry_backoff_ms '
         'seed a new run''s transient-retry policy; a resumed run uses the stored '
-        'values.';
+        'values. A derived label includes the table, function and filter, so they '
+        'select the run; with an explicit i_label, a resumed run reuses its stored '
+        'SQL text and a different function or filter is ignored (use '
+        'set_migration_run_function to change it).';

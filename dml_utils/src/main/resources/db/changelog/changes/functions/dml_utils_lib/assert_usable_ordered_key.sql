@@ -31,5 +31,6 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.assert_usable_ordered_key IS
     'Raises when the named index cannot serve as an ordered key, delegating to '
-        'ordered_key_attributes; returns void when it can, and 55000 if the callee '
-        'returns no attributes. Used by the run path and by resume validation.';
+        'ordered_key_attributes. Returns normally when it can; raises '
+        'object_not_in_prerequisite_state (55000) if the callee returns no '
+        'attributes. Used by the run path and by resume validation.';

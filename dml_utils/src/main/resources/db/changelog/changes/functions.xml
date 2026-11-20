@@ -7,7 +7,9 @@
     <!-- One changeset per stored function. Each function lives in its own file
          under functions/<schema>/ and is added with createProcedure (Liquibase
          has no createFunction change type). runOnChange re-applies only the
-         changeset whose body changed, and each one carries its own rollback.
+         changeset whose body changed, and each one carries its own rollback. A
+         rollback drops the routine (there is no data to restore); because a
+         signature change is made in place, its DROP names the current signature.
 
          Nothing is deployed yet, so a signature change is made in place: the
          routine file is edited and CREATE OR REPLACE defines the one current
@@ -825,8 +827,9 @@
         </rollback>
     </changeSet>
 
-    <!-- Overloads of one routine share a changeset: the no-argument delete and
-         the by-label delete. -->
+    <!-- One changeset for delete_archived_migration_runs. Its i_label argument
+         defaults to NULL (delete every label), so there is one function, not an
+         overload pair. -->
     <changeSet id="function-dml_utils.delete_archived_migration_runs" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/delete_archived_migration_runs.sql"

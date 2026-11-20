@@ -59,12 +59,13 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
     }
 
     /**
-     * A missing run or leaf ordinal raises {@code 55000}.
+     * An unknown run raises {@code P0002}; a known run without the leaf ordinal
+     * raises {@code 55000}.
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
         long runId = populatePartitionWise("manifest-identity-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
-        assertSqlState("55000", () -> identity(-1L, 1));
+        assertSqlState("P0002", () -> identity(-1L, 1));
         assertSqlState("55000", () -> identity(runId, 999));
     }
 

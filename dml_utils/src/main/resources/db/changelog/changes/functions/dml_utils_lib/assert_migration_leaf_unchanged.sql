@@ -40,4 +40,6 @@ COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged IS
         'leaf (so it is VOLATILE) to keep the verified identity stable for the '
         'caller''s transaction. Uses '
         'manifest_leaf_identity and assert_live_leaf_matches_manifest so the '
-        'stored and live views are each built in one place.';
+        'stored and live views are each built in one place. An unknown run is '
+        'undefined_object (P0002, from manifest_leaf_identity); a known run '
+        'without that leaf ordinal is 55000.';

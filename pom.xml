@@ -13,6 +13,29 @@
         <module>dml_utils</module>
     </modules>
 
+    <name>dml-utils-parent</name>
+    <description>PostgreSQL chunked-DML tooling: schema, routines and tests for dml_utils.</description>
+    <url>https://github.com/eyupmiduck/dml_utils</url>
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/licenses/MIT</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+    <developers>
+        <developer>
+            <id>eyupmiduck</id>
+            <name>Lee Horner</name>
+            <url>https://github.com/eyupmiduck</url>
+        </developer>
+    </developers>
+    <scm>
+        <connection>scm:git:https://github.com/eyupmiduck/dml_utils.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/eyupmiduck/dml_utils.git</developerConnection>
+        <url>https://github.com/eyupmiduck/dml_utils</url>
+    </scm>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>25</maven.compiler.release>

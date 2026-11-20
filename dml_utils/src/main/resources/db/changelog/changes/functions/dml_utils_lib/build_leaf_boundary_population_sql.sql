@@ -19,12 +19,10 @@ BEGIN
     -- The run id, chunk size and leaf ordinal are inlined (all integers, so no
     -- injection surface); their parameter domains reject a NULL or non-positive
     -- value before the body runs.
-    -- the manifest key.
 
     SELECT o_select_list,
            o_id_list,
            o_order_by,
-           o_order_by_desc,
            o_pack_expression
     INTO l_descriptor
     FROM dml_utils_lib.boundary_key_descriptor_sql(

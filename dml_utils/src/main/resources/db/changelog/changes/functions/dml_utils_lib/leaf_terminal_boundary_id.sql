@@ -91,5 +91,7 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.leaf_terminal_boundary_id IS
     'Returns the high-water migration_key for a leaf: the last row in the run''s '
-        'key order, or one-past-end block number for blocks. finalize_'
-        'migration_boundaries uses it for the run''s single terminal boundary.';
+        'key order, or one-past-end block number for blocks. calculate_migration_'
+        'leaf stores it as migration_run_leaf.terminal_boundary_id; finalization '
+        'reads that stored value (terminal_leaf_for_run/append_terminal_boundary), '
+        'so a later delete cannot regress the leaf''s last chunk.';

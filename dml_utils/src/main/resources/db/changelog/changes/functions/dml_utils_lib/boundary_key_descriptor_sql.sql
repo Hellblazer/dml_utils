@@ -119,5 +119,9 @@ COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql IS
         'resolved), o_order_by_desc (idN aliases, for a top-level ORDER BY over '
         'o_select_list, where an output alias would shadow a same-named input '
         'column) and o_pack_expression (the migration_key row expression from '
-        'boundary_key_pack_expression). Shared by the single-relation and per-leaf '
-        'boundary builders so both render the same key logic.';
+        'boundary_key_pack_expression). o_pack_expression is a SELECT-list '
+        'expression, not a standalone predicate: evaluate it in a SELECT over '
+        'o_select_list (for example `SELECT <pack> AS key FROM (SELECT <select '
+        'list> ...) AS row`) and read its four arrays from that key. Shared by the '
+        'single-relation and per-leaf boundary builders so both render the same key '
+        'logic.';

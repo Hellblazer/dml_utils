@@ -45,14 +45,14 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
     }
 
     /**
-     * A missing run or a leaf ordinal that is not in the manifest raises
-     * {@code 55000}.
+     * An unknown run raises {@code P0002}; a leaf ordinal that is not in the
+     * manifest raises {@code 55000}.
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
         long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
-        assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
+        assertSqlState("P0002", () -> Routines.assertMigrationLeafUnchanged(
                 dsl.configuration(), -1L, 1));
         assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
                 dsl.configuration(), runId, 999));

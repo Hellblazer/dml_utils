@@ -474,6 +474,8 @@ run uses the recorded SQL text and strategy, use `set_migration_run_function` to
 point an unfinished run at a different function or filter. `i_poll_timeout_ms` and
 `i_sleep_ms` are passed through to `run_migration_chunks` (see there for their
 meaning); `i_sleep_ms` seeds a new run and a resumed run uses the stored value.
+A differing `i_chunk_by`, `i_boundary_key_index` or `i_partition_wise` is ignored
+on resume with a notice (the stored values win).
 `i_boundary_key_index` and `i_partition_wise` are forwarded to the base engine,
 so an ordered-key or partition-wise function run works like a template run; the
 function still receives the primary-key columns in key order. `i_max_retries` and
@@ -1019,7 +1021,9 @@ RETURNS text[]
 
 `STABLE`, `SECURITY INVOKER`. Returns the collapsed boundary key kind of each
 ordered-key column in index order, delegating validation to
-`ordered_key_attributes`.
+`ordered_key_attributes`. An unsupported type is `22023`; the delegated index
+validation can also raise `42704` (missing index), `0A000` (non-btree/non-unique/
+partial index) or `55000` (unusable `ON ONLY` index).
 
 ### `dml_utils_lib.assert_usable_ordered_key(i_schema_name, i_table_name, i_index_name)`
 
@@ -1031,8 +1035,8 @@ RETURNS void
 ```
 
 `STABLE`, `SECURITY INVOKER`. Raises the `ordered_key_attributes` error when the
-index cannot serve as an ordered key, and returns normally when it can; `55000`
-if the callee returns no attributes at all. Used by
+index cannot serve as an ordered key, and returns normally when it can. It
+raises `55000` only if the callee returns no attributes at all. Used by
 the run path and by resume validation. A caller that also needs the descriptor
 should read `ordered_key_attributes` once instead of calling this wrapper and
 then `ordered_key_columns`/`ordered_key_kinds`, which would repeat the catalog
@@ -1810,6 +1814,7 @@ RETURNS void
 
 `VOLATILE`, `SECURITY INVOKER`. Fails closed with `invalid_transaction_initiation`
 (`55000`) when the manifest leaf no longer matches the live relation: missing,
+
 replaced (different OID), detached or rebound (different partition bound), not an
 ordinary table, or (for `blocks`) a rewritten heap (different
 `pg_relation_filepath`). Holds `ACCESS SHARE` on the leaf (hence `VOLATILE`) so
@@ -1826,8 +1831,11 @@ RETURNS dml_utils_data.migration_key
 ```
 
 `VOLATILE`, `SECURITY INVOKER`. Returns the high-water key of a leaf: the last row
-in the run's key order, or the one-past-end block number for `blocks`. Used by
-`finalize_migration_boundaries` for the run's single terminal boundary.
+in the run's key order, or the one-past-end block number for `blocks`.
+`calculate_migration_leaf` stores it as
+`migration_run_leaf.terminal_boundary_id`; finalization reads that stored value
+(`terminal_leaf_for_run`/`append_terminal_boundary`), so a later delete cannot
+regress the leaf's last chunk.
 
 ### `dml_utils_lib.calculate_migration_leaf(i_run_id)`
 
@@ -2157,7 +2165,7 @@ RETURNS record
 
 `STABLE`, `SECURITY INVOKER`. Returns the stored identity of one partition-wise
 manifest leaf: chunk strategy, schema, name, OID, partition bound and blocks
-filepath. A missing run/leaf is `55000`.
+filepath. An unknown run is `P0002`; a known run without that leaf is `55000`.
 
 ###
 
