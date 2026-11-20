@@ -2298,7 +2298,10 @@ RETURNS integer
 `pg_background` transaction and returns the calculated ordinal (NULL when no leaf
 is left). It inspects the worker outcome, and a failing leaf is recorded on the
 manifest in its own worker transaction before the worker error is re-raised; a
-recording failure is reported as a `WARNING`.
+recording failure is reported as a `WARNING`. `QUERY_CANCELED` is caught
+explicitly (`WHEN OTHERS` does not catch it) in the wait, result-info and result
+handlers and their cleanups, so a cancel still detaches the handle and cannot
+mask the worker's error.
 
 ### `dml_utils_lib.finalize_calculated_run(i_run_id)`
 

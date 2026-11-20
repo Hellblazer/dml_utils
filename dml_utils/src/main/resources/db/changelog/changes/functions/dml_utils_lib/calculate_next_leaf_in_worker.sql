@@ -26,7 +26,10 @@ BEGIN
     BEGIN
         PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
     EXCEPTION
-        WHEN OTHERS THEN
+        -- QUERY_CANCELED (57014: statement_timeout or a cancel request) is not
+        -- caught by WHEN OTHERS, so name it explicitly: a cancel during the wait
+        -- must still cancel/detach the worker.
+        WHEN QUERY_CANCELED OR OTHERS THEN
             -- The wait failed while the worker may still be running, so its leaf
             -- transaction has not necessarily rolled back. Do not attribute the
             -- failure to a leaf; cancel/detach best-effort so the handle is not
@@ -35,14 +38,15 @@ BEGIN
                 PERFORM public.pg_background_cancel(
                         l_handle.pid, l_handle.cookie, 1000);
             EXCEPTION
-                WHEN OTHERS THEN
+                -- A re-delivered cancel must not replace the cleanup.
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -56,12 +60,12 @@ BEGIN
         l_info := public.pg_background_result_info(
                 l_handle.pid, l_handle.cookie);
     EXCEPTION
-        WHEN OTHERS THEN
+        WHEN QUERY_CANCELED OR OTHERS THEN
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -72,7 +76,9 @@ BEGIN
             l_error := public.pg_background_error_info(
                     l_handle.pid, l_handle.cookie);
         EXCEPTION
-            WHEN OTHERS THEN
+            -- A cancel here must not replace the worker's own error, which is
+            -- re-raised below; the fallbacks in the recording call still work.
+            WHEN QUERY_CANCELED OR OTHERS THEN
                 l_error := NULL;
         END;
 
@@ -110,7 +116,9 @@ BEGIN
                         l_record_outcome.error_message, l_record_outcome.sqlstate;
                 END IF;
             EXCEPTION
-                WHEN OTHERS THEN
+                -- Recording is best-effort; a cancel must not replace the
+                -- original worker error re-raised below.
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     RAISE WARNING
                         'could not launch the failure-recording worker for leaf % of run %: % (%)',
                         l_leaf_ordinal, i_run_id, SQLERRM, SQLSTATE;
@@ -126,12 +134,14 @@ BEGIN
         FROM public.pg_background_result(
                      l_handle.pid, l_handle.cookie) AS (ordinal integer);
     EXCEPTION
-        WHEN OTHERS THEN
+        -- A cancel during the result read is not caught by WHEN OTHERS; detach
+        -- the finished worker's handle before re-raising the cancel.
+        WHEN QUERY_CANCELED OR OTHERS THEN
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -147,4 +157,7 @@ COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker IS
         'left). A worker-reported failure is recorded on the manifest in its own '
         'worker transaction before the worker error is re-raised; a wait or '
         'result-materialisation failure cancels/detaches the handle without '
-        'blaming an unattempted leaf.';
+        'blaming an unattempted leaf. QUERY_CANCELED is caught explicitly (WHEN '
+        'OTHERS does not catch it) in the wait, result-info and result handlers '
+        'and their cleanups, so a cancel still detaches the handle and cannot mask '
+        'the worker''s error.';
