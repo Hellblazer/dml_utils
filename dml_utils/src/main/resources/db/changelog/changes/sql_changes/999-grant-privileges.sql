@@ -130,6 +130,11 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_plain_heap(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO dml_utils_caller;
+-- The READ COMMITTED guard is called by the public runner entry points, so the
+-- caller must be able to execute it.
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_read_committed() FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_read_committed() TO dml_utils_caller;
+
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_table(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text

@@ -15,6 +15,9 @@ DECLARE
     l_lock_key       bigint;
     l_ordinal        integer;
 BEGIN
+    -- The loop below re-reads the run row between leaves to notice pause and
+    -- cancel, which needs a fresh snapshot per statement.
+    PERFORM dml_utils_lib.assert_read_committed();
 
     SELECT run.partition_wise,
            run.cancelled_at,
@@ -141,4 +144,6 @@ COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries IS
         'before the error is re-raised. A paused run stops before launching the '
         'next leaf; already calculated leaves stay committed and finalization waits '
         'for a resume unless every leaf is already calculated. A cancelled run stops '
-        'without finalizing.';
+        'without finalizing. Requires READ COMMITTED (assert_read_committed raises '
+        '0A000 otherwise), because the loop re-reads the run row between leaves to '
+        'notice pause and cancel.';

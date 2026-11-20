@@ -81,8 +81,8 @@ CREATE DOMAIN dml_utils_data.non_null_element_integer_array AS integer[]
     CONSTRAINT non_null_element_integer_array_check CHECK (
         value IS NULL
             OR (pg_catalog.array_ndims(value) = 1
-                AND pg_catalog.array_lower(value, 1) = 1
-                AND pg_catalog.array_position(value, NULL) IS NULL)
+            AND pg_catalog.array_lower(value, 1) = 1
+            AND pg_catalog.array_position(value, NULL) IS NULL)
         );
 
 COMMENT ON DOMAIN dml_utils_data.non_null_element_integer_array IS
@@ -94,8 +94,8 @@ CREATE DOMAIN dml_utils_data.non_null_element_bigint_array AS bigint[]
     CONSTRAINT non_null_element_bigint_array_check CHECK (
         value IS NULL
             OR (pg_catalog.array_ndims(value) = 1
-                AND pg_catalog.array_lower(value, 1) = 1
-                AND pg_catalog.array_position(value, NULL) IS NULL)
+            AND pg_catalog.array_lower(value, 1) = 1
+            AND pg_catalog.array_position(value, NULL) IS NULL)
         );
 
 COMMENT ON DOMAIN dml_utils_data.non_null_element_bigint_array IS

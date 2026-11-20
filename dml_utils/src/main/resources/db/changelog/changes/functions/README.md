@@ -275,8 +275,10 @@ worker's failure
 with its original SQLSTATE. `RAISE NOTICE` and returns when the run is already
 complete. A run cancelled with `cancel_migration_run` stops launching, cancels
 the in-flight workers, marks the run and its remaining boundaries cancelled and
-returns; a cancelled run is terminal. Run under `READ COMMITTED`; do not hold locks on the driving table
-across the call. `i_poll_timeout_ms` is how long the coordinator waits for a
+returns; a cancelled run is terminal. Requires `READ COMMITTED` (`assert_read_committed`
+raises `0A000` otherwise), because the coordinator observes workers' autonomous
+commits and polls the run row; do not hold locks on the driving table across the
+call. `i_poll_timeout_ms` is how long the coordinator waits for a
 worker before re-checking (`pg_background_wait_any`): the default `1` keeps
 per-chunk detection latency low, and a larger value polls less often, cutting
 coordinator CPU for chunks that run in non-trivial time. It must be positive:
@@ -450,7 +452,8 @@ arguments are the driving table's primary-key columns, in key order, and which
 returns `void`. The wrapper builds the per-row template
 (`SELECT <fn>(t.<pk1>, ...) FROM <driving_table> WHERE <chunking_clause>`) and
 delegates to `run_migration_chunks`, so it resumes by label exactly like a base
-run. The function's argument types must equal the primary-key column types in key
+run and requires `READ COMMITTED` for the same reason. The function's argument types must equal the primary-key column
+types in key
 order and it must return `void`; a missing function, a non-`void` return, or
 mismatched argument types raise `invalid_parameter_value` (`22023`) before any
 run is created. When `i_label` is NULL a deterministic label is derived from the
@@ -855,6 +858,21 @@ relation does not exist, or `wrong_object_type` (`42809`) when it is not a
 declarative partitioned table (`relkind = 'p'`), so a non-partitioned driving
 table is rejected before any leaf is enumerated.
 
+### `dml_utils_lib.assert_read_committed()`
+
+```sql
+RETURNS void
+```
+
+`STABLE`, `SECURITY INVOKER`. Raises `feature_not_supported` (`0A000`) when the
+current transaction is not READ COMMITTED. The runner observes state that
+`pg_background` workers commit autonomously (run creation, partition-wise leaf
+calculation) and polls the run row for pause, cancel and completion, so under
+REPEATABLE READ or SERIALIZABLE the reused snapshot would never see those
+changes. Called first by `run_migration_chunks`, `run_function_over_table`,
+`resolve_migration_run`, `sleep_between_migration_chunks` and
+`calculate_migration_run_boundaries`.
+
 ### `dml_utils_lib.leaf_partitions(i_schema_name, i_table_name, i_chunk_by)`
 
 ```sql
@@ -1248,7 +1266,8 @@ worker's pre-insert active-run assert) is retried as a lookup, and if no winner
 is visible the original error is re-raised rather than masked. If the adopted run
 is already complete it reports the completed no-op. Creation commits in an
 autonomous worker, so the routine requires `READ COMMITTED` (the default) to
-observe the created or adopted row. On the already-completed path only
+observe the created or adopted row; `assert_read_committed` raises `0A000` for any
+other isolation level instead of letting the lookup fail later. On the already-completed path only
 `o_run_id` and `o_already_completed` are set; the other outputs are NULL because
 the caller stops on that flag. For a new
 partition-wise run the worker only creates the run and its pending leaf manifest;
@@ -1543,7 +1562,9 @@ loop and before finalization, and each claimed leaf is re-checked. A failing lea
 is marked failed on the manifest with its SQLSTATE and message in a separate
 worker transaction before the original error is re-raised, so a later call
 resumes at that leaf. A cancelled run stops without finalizing and keeps its
-pending leaves. A single-relation run is rejected (`22023`).
+pending leaves. A single-relation run is rejected (`22023`). Requires `READ
+COMMITTED` (`assert_read_committed` raises `0A000` otherwise), because the loop
+re-reads the run row between leaves to notice pause and cancel.
 
 ### `dml_utils_lib.record_migration_leaf_error(i_run_id, i_leaf_ordinal, i_sqlstate, i_error_message)`
 
@@ -2517,7 +2538,9 @@ RETURNS timestamptz
 and returns the run's `cancelled_at` if cancellation was noticed, so the
 coordinator can stop launching promptly. A run row deleted during the sleep ends
 it, so the loop does not keep re-reading the values of a vanished run. A NULL or
-negative delay is rejected by the non-negative domain.
+negative delay is rejected by the non-negative domain. Requires `READ COMMITTED`
+(`assert_read_committed` raises `0A000` otherwise), because every slice's re-read
+must see a fresh snapshot.
 
 ### `dml_utils_lib.stop_migration_workers(i_pids, i_cookies, i_cancel, i_wait_ms)`
 

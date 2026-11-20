@@ -283,6 +283,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   the same regardless of the caller's `search_path`.
 - Routines run inside the caller's transaction: use `SET LOCAL` for
   transaction-scoped settings and never assume state survives a rollback.
+- **The runner requires READ COMMITTED.** `run_migration_chunks`,
+  `run_function_over_table`, `resolve_migration_run`,
+  `sleep_between_migration_chunks` and `calculate_migration_run_boundaries` call
+  `dml_utils_lib.assert_read_committed()` first. They observe state that
+  `pg_background` workers commit autonomously (run creation, leaf calculation)
+  and poll the run row for pause/cancel, so a REPEATABLE READ or SERIALIZABLE
+  snapshot would stay stale; a non-READ COMMITTED caller fails with `0A000`
+  instead.
 
 ## Liquibase
 

@@ -44,6 +44,10 @@ DECLARE
     l_label_parts             json[];
     l_label                   text;
 BEGIN
+    -- Fail before any validation work when the caller's snapshot cannot observe
+    -- the workers' autonomous commits.
+    PERFORM dml_utils_lib.assert_read_committed();
+
     -- Build and validate the template first: it resolves the driving table's
     -- primary key and checks the supplied function exists, returns void, and
     -- takes the primary-key column types in key order. A bad table or function
@@ -143,7 +147,8 @@ COMMENT ON FUNCTION dml_utils.run_function_over_table IS
         'predicate, so only the rows it matches are passed to the function. '
         'i_chunk_by selects the chunking strategy; ordered_key uses '
         'i_boundary_key_index, and i_partition_wise applies the strategy inside each '
-        'leaf of a declarative partitioned parent. blocks requires a quiescent, '
+        'leaf of a declarative partitioned parent. Requires READ COMMITTED, like '
+        'run_migration_chunks. blocks requires a quiescent, '
         'read-only driving table and is unsafe when the function updates the '
         'driving table in place. i_sleep_ms seeds a new run''s per-chunk delay; a '
         'resumed run uses its stored value. i_max_retries and i_retry_backoff_ms '

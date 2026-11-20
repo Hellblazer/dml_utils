@@ -47,6 +47,10 @@ DECLARE
     l_run_found  boolean;
     l_created_id bigint;
 BEGIN
+    -- Creation commits in an autonomous worker, and the final key lookup re-reads
+    -- the run row, so a stale snapshot would not see it.
+    PERFORM dml_utils_lib.assert_read_committed();
+
     -- A NULL strategy would fall through the resume/create branches and behave
     -- like primary_key; the column is NOT NULL, so it can only come from a direct
     -- caller.
@@ -216,8 +220,9 @@ COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run IS
         'a 23505 from the create is adopted when the winner is visible, and '
         'otherwise the original error is re-raised. Creation commits in an '
         'autonomous worker, so the routine requires READ COMMITTED (the default) '
-        'to observe the created or adopted row; under REPEATABLE READ or '
-        'SERIALIZABLE the lookup cannot see it. When the run is already complete, '
+        'to observe the created or adopted row; assert_read_committed raises '
+        '0A000 for any other isolation level instead of letting the lookup fail '
+        'later. When the run is already complete, '
         'only o_run_id and o_already_completed are set and the other outputs stay '
         'NULL: the caller stops on that flag. A resumed run fails '
         'closed if the driving table''s physical filepath changed, and a resumed '

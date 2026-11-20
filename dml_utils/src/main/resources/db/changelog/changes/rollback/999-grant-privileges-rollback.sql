@@ -89,6 +89,9 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_plain_heap(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text
     ) TO public;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_read_committed() FROM dml_utils_caller;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.assert_read_committed() TO public;
+
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.assert_partitioned_table(
     dml_utils_data.non_null_text,
     dml_utils_data.non_null_text

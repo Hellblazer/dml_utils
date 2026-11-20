@@ -16,6 +16,10 @@ DECLARE
     l_cancelled_at       timestamptz;
     l_paused_at          timestamptz;
 BEGIN
+    -- Each slice re-reads the run row, so the loop needs a fresh snapshot per
+    -- statement to notice pause, cancel or a deleted run.
+    PERFORM dml_utils_lib.assert_read_committed();
+
     -- Slice the sleep so cancellation and pause are noticed promptly. sleep_ms
     -- itself is not re-read here: it is restart-only adjustment, stored with the
     -- run. The return value is cancelled_at; a pause also stops the sleep, but the
@@ -47,5 +51,6 @@ COMMENT ON FUNCTION dml_utils_lib.sleep_between_migration_chunks IS
         'cancelled_at if cancellation was noticed. A pause also interrupts the '
         'sleep; the caller re-reads the run state to see paused_at. A run row that '
         'disappears during the sleep ends it, so the caller stops instead of '
-        'looping over a vanished run. A NULL or negative delay is rejected by the '
-        'non-negative domain.';
+        'looping over a vanished run. Requires READ COMMITTED (assert_read_committed '
+        'raises 0A000 otherwise), because every slice''s re-read must see a fresh '
+        'snapshot. A NULL or negative delay is rejected by the non-negative domain.';

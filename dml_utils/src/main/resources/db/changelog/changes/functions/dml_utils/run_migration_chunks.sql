@@ -85,6 +85,10 @@ DECLARE
     l_outcome                    record;
     l_mark_outcome               record;
 BEGIN
+    -- The coordinator observes workers' autonomous commits and polls the run row
+    -- for pause/cancel, which needs a fresh snapshot per statement.
+    PERFORM dml_utils_lib.assert_read_committed();
+
     -- Validate the template up front so a bad call fails before any run or
     -- worker exists.
     PERFORM dml_utils_lib.assert_chunking_template(i_sql_text => i_sql_text);
@@ -605,7 +609,9 @@ COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
         'by another coordinator (P0C01) is treated as benign. A run cancelled with '
         'dml_utils.cancel_migration_run stops launching, cancels the in-flight '
         'workers, marks the run and its remaining boundaries cancelled and '
-        'returns; a cancelled run is terminal. A run paused with '
+        'returns; a cancelled run is terminal. Requires READ COMMITTED '
+        '(assert_read_committed raises 0A000 otherwise), because the coordinator '
+        'observes workers'' autonomous commits and polls the run row. A run paused with '
         'dml_utils.pause_migration_run stops launching, waits for the in-flight '
         'workers to commit their current chunk, leaves the remaining boundaries '
         'pending and returns; re-calling it while paused is a no-op until '
