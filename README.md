@@ -669,8 +669,8 @@ between cancelling and marking it) is skipped; recover it with
 
 ## Requirements
 
-- PostgreSQL 16, 17, 18 or 19 (CI builds and tests all four; 19 is tested as
-  `19rc2` until its GA, and 17 is the default).
+- PostgreSQL 16, 17, 18 or 19 (CI builds and tests all four; 17 is the
+  default).
 - Java 25 and the Maven Wrapper (`./mvnw`) for the build and tests.
 - Docker for the jOOQ codegen and the integration tests (Testcontainers).
 
@@ -767,8 +767,8 @@ the Liquibase CLI at `db.changelog-master.xml`.
 
 ### Prerequisites
 
-- PostgreSQL 16, 17, 18 or 19 (CI builds and tests all four; 19 is tested as
-  `19rc2` until its GA, and 17 is the default).
+- PostgreSQL 16, 17, 18 or 19 (CI builds and tests all four; 17 is the
+  default).
 - Liquibase 5.0.x on your `PATH` (it needs Java 17+). Liquibase 5 ships without
   database drivers, so add the PostgreSQL driver once:
 
@@ -916,7 +916,7 @@ POSTGRES_IMAGE=dml-utils-postgres:16-alpine scripts/start-local-db.sh
 
 The build rejects a stock `postgres` image at `validate` (it lacks the
 application roles and the compiled extensions). CI builds the custom image and
-runs the full build against PostgreSQL 16, 17, 18 and 19rc2 (see
+runs the full build against PostgreSQL 16, 17, 18 and 19 (see
 `.github/workflows/maven.yml`).
 
 ## Changelog validation dependency
