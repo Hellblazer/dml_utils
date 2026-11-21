@@ -1,12 +1,15 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 
+import java.time.OffsetDateTime;
 import java.util.UUID;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,22 +58,27 @@ class MigrationBoundaryStartedAtGuardTest extends PostgresTestBase {
                 FIXTURE_SCHEMA, FIXTURE_TABLE);
         insertBoundary(runId);
 
-        dsl.execute("""
-                UPDATE dml_utils_data.migration_boundary
-                SET started_at = pg_catalog.clock_timestamp() - interval '1 second',
-                    completed_at = pg_catalog.clock_timestamp(),
-                    rows_affected = 1
-                WHERE run_id = ?
-                  AND boundary_no = 0
-                """, runId);
+        OffsetDateTime completedAt = OffsetDateTime.now();
+        dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.STARTED_AT, completedAt.minusSeconds(1))
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT, completedAt)
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 1L)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                .execute();
 
-        assertRejected("22023", "started_at is immutable once completed", () -> dsl.execute(
-                "UPDATE dml_utils_data.migration_boundary"
-                        + " SET started_at = started_at - interval '1 hour'"
-                        + " WHERE run_id = ? AND boundary_no = 0", runId));
-        assertRejected("22023", "started_at is immutable once completed", () -> dsl.execute(
-                "UPDATE dml_utils_data.migration_boundary SET started_at = NULL"
-                        + " WHERE run_id = ? AND boundary_no = 0", runId));
+        assertRejected("22023", "started_at is immutable once completed",
+                () -> dsl.update(MIGRATION_BOUNDARY)
+                        .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.now().minusHours(1))
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .execute());
+        assertRejected("22023", "started_at is immutable once completed",
+                () -> dsl.update(MIGRATION_BOUNDARY)
+                        .set(MIGRATION_BOUNDARY.STARTED_AT, (OffsetDateTime) null)
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .execute());
     }
 
     /**
@@ -83,12 +91,17 @@ class MigrationBoundaryStartedAtGuardTest extends PostgresTestBase {
                 FIXTURE_SCHEMA, FIXTURE_TABLE);
         insertBoundary(runId);
 
-        assertEquals(1, dsl.execute("UPDATE dml_utils_data.migration_boundary"
-                        + " SET started_at = pg_catalog.clock_timestamp()"
-                        + " WHERE run_id = ? AND boundary_no = 0", runId),
+        assertEquals(1, dsl.update(MIGRATION_BOUNDARY)
+                        .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.now())
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .execute(),
                 "setting started_at on a pending boundary applies to its row");
-        assertEquals(1, dsl.execute("UPDATE dml_utils_data.migration_boundary SET started_at = NULL"
-                        + " WHERE run_id = ? AND boundary_no = 0", runId),
+        assertEquals(1, dsl.update(MIGRATION_BOUNDARY)
+                        .set(MIGRATION_BOUNDARY.STARTED_AT, (OffsetDateTime) null)
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .execute(),
                 "clearing started_at before completion applies to its row");
     }
 
@@ -99,10 +112,10 @@ class MigrationBoundaryStartedAtGuardTest extends PostgresTestBase {
      * @param runId the owning run
      */
     private void insertBoundary(long runId) {
-        dsl.execute("""
-                INSERT INTO dml_utils_data.migration_boundary
-                    (run_id, boundary_no, boundary_id)
-                VALUES (?, 0, ROW(ARRAY[1::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key)
-                """, runId);
+        dsl.insertInto(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
+                        MIGRATION_BOUNDARY.BOUNDARY_ID)
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, null, null, null))
+                .execute();
     }
 }

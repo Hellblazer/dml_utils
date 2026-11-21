@@ -49,7 +49,7 @@ class DdlUtilsInstallationTest extends PostgresTestBase {
      */
     @Test
     void installingDdlUtilsDoesNotCloseTheSharedConnection() throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         String scratch = "ddl_install_" + UUID.randomUUID().toString().replace("-", "");
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {

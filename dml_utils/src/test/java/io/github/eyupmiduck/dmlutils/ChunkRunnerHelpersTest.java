@@ -134,7 +134,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
                 schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("next-shadow"),
                 TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try {
             try (java.sql.Connection admin = openAdminConnection(database);
                  java.sql.Statement statement = admin.createStatement()) {

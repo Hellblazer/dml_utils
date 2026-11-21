@@ -825,7 +825,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void estimatesAMidTableChunkAccurately() {
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_composite_pk");
+        dsl.truncate(TEST_COMPOSITE_PK).execute();
         dsl.execute("INSERT INTO dml_utils_fixtures.test_composite_pk (a, b)"
                 + " SELECT a, b FROM generate_series(1, 100) AS a, generate_series(1, 100) AS b");
         dsl.execute("ANALYZE dml_utils_fixtures.test_composite_pk");

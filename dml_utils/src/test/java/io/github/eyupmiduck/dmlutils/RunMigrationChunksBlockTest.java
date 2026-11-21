@@ -97,7 +97,7 @@ class RunMigrationChunksBlockTest extends PostgresTestBase {
                 ChunkingStrategy.blocks, "t", 0, null, false, 3, 1000);
 
         // TRUNCATE gives the table a new relfilenode, changing its filepath.
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_bigint");
+        dsl.truncate(TEST_BIGINT).execute();
 
         assertSqlState("22023", () -> Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 SCHEMA, TEST_BIGINT.getName(), label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000));

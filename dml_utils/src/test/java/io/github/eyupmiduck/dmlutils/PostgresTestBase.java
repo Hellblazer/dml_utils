@@ -10,11 +10,11 @@ import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
-import org.jooq.Field;
 import org.jooq.JSON;
 import org.jooq.Record;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
+import org.jooq.impl.SQLDataType;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.lang.reflect.InvocationTargetException;
@@ -100,19 +100,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             POSTGRES_IMAGE, ChangelogTestSupport.MASTER_RESOURCE,
             DATABASE_CHANGELOG_TABLE, DATABASE_CHANGELOG_LOCK_TABLE, FIXTURES_RESOURCE,
             PostgresTestBase::installProjectExtensionsAndDdlUtils);
-
-    /**
-     * Returns a jOOQ field reference by name, for fixture columns when no
-     * generated field is available.
-     *
-     * @param name the column name
-     * @param type the column's Java type
-     * @param <T>  the column type
-     * @return the field reference
-     */
-    protected static <T> Field<T> field(String name, Class<T> type) {
-        return DSL.field(name, type);
-    }
 
     /**
      * Installs the extensions the changelog's routines need into a database,
@@ -355,6 +342,17 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Returns the name of the database the test's jOOQ context is connected to.
+     * The admin-connection helpers need it, and jOOQ renders
+     * {@link DSL#currentCatalog()} as {@code current_database()} on PostgreSQL.
+     *
+     * @return the current database name
+     */
+    protected String currentDatabase() {
+        return dsl.fetchValue(DSL.currentCatalog());
+    }
+
+    /**
      * Grants the test harness its extra setup privileges after the template
      * database is migrated.
      *
@@ -481,10 +479,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the run id
      */
     protected long runId(String label) {
-        Long id = dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
+        Long id = dsl.fetchValue(MIGRATION_RUN.RUN_ID, MIGRATION_RUN.LABEL.eq(label));
         if (id == null) {
             throw new IllegalStateException("no migration run with label " + label);
         }
@@ -498,10 +493,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the total chunk count
      */
     protected long totalChunks(long runId) {
-        Long total = dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS);
+        Long total = dsl.fetchValue(MIGRATION_RUN.TOTAL_CHUNKS, MIGRATION_RUN.RUN_ID.eq(runId));
         if (total == null) {
             throw new IllegalStateException("no migration run with id " + runId);
         }
@@ -515,10 +507,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the completed chunk count
      */
     protected long totalChunksCompleted(long runId) {
-        Long completed = dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+        Long completed = dsl.fetchValue(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED,
+                MIGRATION_RUN.RUN_ID.eq(runId));
         if (completed == null) {
             throw new IllegalStateException("no migration run with id " + runId);
         }
@@ -545,6 +535,19 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     protected long relationOid(String qualifiedName) {
         return dsl.fetchOne("SELECT ?::regclass::oid", qualifiedName)
                 .get(0, Long.class);
+    }
+
+    /**
+     * Cancels another backend, for the concurrency tests that stop a worker or a
+     * blocked caller.
+     *
+     * @param pid the backend pid to cancel
+     * @return whether the signal was sent
+     */
+    protected boolean cancelBackend(int pid) {
+        return Boolean.TRUE.equals(dsl.fetchValue(DSL.function(
+                DSL.name("pg_catalog", "pg_cancel_backend"), SQLDataType.BOOLEAN,
+                DSL.val(pid))));
     }
 
     /**
@@ -716,7 +719,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the matching row count
      */
     protected int payloadCount(Table<?> table, String value) {
-        return dsl.fetchCount(table, field("payload", String.class).eq(value));
+        return dsl.fetchCount(table, table.field("payload", String.class).eq(value));
     }
 
     /**

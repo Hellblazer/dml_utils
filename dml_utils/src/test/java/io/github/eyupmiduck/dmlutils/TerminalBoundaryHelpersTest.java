@@ -4,6 +4,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.TerminalLeafForRun;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -196,9 +197,9 @@ class TerminalBoundaryHelpersTest extends PartitionTestBase {
     }
 
     private long boundaryNo(long runId) {
-        Long max = dsl.fetchOne("SELECT max(boundary_no) FROM dml_utils_data.migration_boundary"
-                        + " WHERE run_id = ?", runId)
-                .get(0, Long.class);
+        Long max = dsl.fetchValue(dsl.select(DSL.max(MIGRATION_BOUNDARY.BOUNDARY_NO))
+                .from(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)));
         if (max == null) {
             throw new IllegalStateException("no boundaries for run " + runId);
         }

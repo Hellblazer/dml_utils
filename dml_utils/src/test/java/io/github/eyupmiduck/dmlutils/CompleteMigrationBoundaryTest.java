@@ -92,9 +92,11 @@ class CompleteMigrationBoundaryTest extends PostgresTestBase {
     void rejectsACompletedCancelledBoundary() {
         seedBigint(1, 2, 3);
         long runId = populate();
-        dsl.execute("UPDATE dml_utils_data.migration_boundary"
-                + " SET cancelled_at = pg_catalog.clock_timestamp()"
-                + " WHERE run_id = ? AND boundary_no = 0", runId);
+        dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.CANCELLED_AT, OffsetDateTime.now())
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                .execute();
 
         assertSqlState("P0C02", () -> Routines.completeMigrationBoundary(
                 dsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L));

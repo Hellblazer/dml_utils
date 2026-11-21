@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.jooq.Record;
 import org.junit.jupiter.api.Test;
 
@@ -11,9 +12,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * id through its domain, and is deterministic per run.
  */
 class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
-
-    private static final String FUNCTION =
-            "dml_utils_lib.migration_run_calculation_lock_key";
 
     /**
      * The catalog declaration matches the documented contract: immutable, strict
@@ -44,7 +42,8 @@ class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullRunId() {
-        assertDomainViolation(() -> dsl.fetchOne("SELECT " + FUNCTION + "(NULL)"));
+        assertDomainViolation(() -> Routines.migrationRunCalculationLockKey(
+                dsl.configuration(), null));
     }
 
     /**
@@ -53,12 +52,9 @@ class MigrationRunCalculationLockKeyTest extends PostgresTestBase {
      */
     @Test
     void derivesAStableKeyPerRun() {
-        Long first = dsl.fetchOne("SELECT " + FUNCTION + "(42)")
-                .get(0, Long.class);
-        Long again = dsl.fetchOne("SELECT " + FUNCTION + "(42)")
-                .get(0, Long.class);
-        Long other = dsl.fetchOne("SELECT " + FUNCTION + "(43)")
-                .get(0, Long.class);
+        Long first = Routines.migrationRunCalculationLockKey(dsl.configuration(), 42L);
+        Long again = Routines.migrationRunCalculationLockKey(dsl.configuration(), 42L);
+        Long other = Routines.migrationRunCalculationLockKey(dsl.configuration(), 43L);
 
         assertNotNull(first, "a non-NULL run id yields a key");
         assertNotNull(again, "a non-NULL run id yields a key");

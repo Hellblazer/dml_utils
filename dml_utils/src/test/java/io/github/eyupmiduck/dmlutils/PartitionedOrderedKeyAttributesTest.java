@@ -111,7 +111,7 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
      * @throws Exception if the connection or statement fails
      */
     private void executeAsSuperuser(String sql) throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {
             statement.execute(sql);

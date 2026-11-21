@@ -61,10 +61,12 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
         try (Connection blocker = openTestConnection()) {
             blocker.setAutoCommit(false);
             DSLContext blockerDsl = DSL.using(blocker, SQLDialect.POSTGRES);
-            blockerDsl.fetchOne(
-                    "SELECT 1 FROM dml_utils_data.migration_boundary"
-                            + " WHERE run_id = ? AND boundary_no = 0 FOR UPDATE",
-                    runId);
+            blockerDsl.selectOne()
+                    .from(MIGRATION_BOUNDARY)
+                    .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                    .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                    .forUpdate()
+                    .fetchOne();
 
             Future<Void> run = pool.submit(runOnOwnConnection(label));
             awaitWorkerBlockedOnClaim(runId);

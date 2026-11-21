@@ -9,6 +9,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -63,8 +64,10 @@ class MarkMigrationRunCancelledTest extends PostgresTestBase {
     void clearsAPausedRun() {
         seedBigint(1, 2);
         long runId = populateSingleRelationWithLabelPrefix("mark-cancelled", 1);
-        dsl.execute("UPDATE dml_utils_data.migration_run"
-                + " SET paused_at = pg_catalog.clock_timestamp() WHERE run_id = ?", runId);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
 
         Routines.markMigrationRunCancelled(dsl.configuration(), runId);
 

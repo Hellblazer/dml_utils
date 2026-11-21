@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.time.OffsetDateTime;
 import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.*;
@@ -396,11 +397,15 @@ class MigrationRunProgressTest extends PartitionTestBase {
         // milliseconds, so pin an exact value instead of only non-NULL.
         // The terminal boundary is never claimed, so its timestamps are still
         // unset (setting completed_at twice is rejected as immutable).
-        dsl.execute("UPDATE dml_utils_data.migration_boundary"
-                + " SET started_at = timestamptz '2026-01-01 00:00:00+00',"
-                + " completed_at = timestamptz '2026-01-01 00:00:01.25+00',"
-                + " rows_affected = 0"
-                + " WHERE run_id = ? AND completed_at IS NULL", runId);
+        dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.STARTED_AT,
+                        OffsetDateTime.parse("2026-01-01T00:00:00Z"))
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT,
+                        OffsetDateTime.parse("2026-01-01T00:00:01.250Z"))
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .and(MIGRATION_BOUNDARY.COMPLETED_AT.isNull())
+                .execute();
         assertEquals(1250L, Routines.migrationBoundaries(dsl.configuration(), runId)
                         .getLast().getDurationMs(),
                 "duration_ms is the completed-started difference in milliseconds");

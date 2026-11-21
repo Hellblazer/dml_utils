@@ -1,16 +1,20 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationRunSummaryRecord;
 import org.jooq.Record;
+import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.Statement;
+import java.util.List;
 import java.util.stream.Collectors;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.MigrationRunSummary.MIGRATION_RUN_SUMMARY;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Runs the runnable examples in {@code examples/} against the test database.
@@ -53,7 +57,7 @@ class DogBreedsExampleTest extends PostgresTestBase {
      */
     @Test
     void dogBreedsFunctionExampleDoesNotTouchPublicTables() throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {
             // Drop the probe afterwards so the test is re-executable against the
@@ -100,7 +104,7 @@ class DogBreedsExampleTest extends PostgresTestBase {
                 .filter(line -> !line.stripLeading().startsWith("\\"))
                 .collect(Collectors.joining("\n"));
 
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {
             for (String single : splitStatements(sql)) {
@@ -118,20 +122,17 @@ class DogBreedsExampleTest extends PostgresTestBase {
      * @param label  the run label the example uses
      */
     private void assertExampleOutcome(String schema, String label) {
-        assertEquals(SEEDED_BREEDS, dsl.fetchOne("SELECT count(*) FROM " + schema
-                        + ".dogs WHERE status = 'reviewed'").get(0, Integer.class),
+        Table<?> dogs = DSL.table(DSL.name(schema, "dogs"));
+        assertEquals(SEEDED_BREEDS, dsl.fetchCount(dogs,
+                        DSL.field(DSL.name("status"), String.class).eq("reviewed")),
                 "every seeded breed is backfilled");
 
-        Record summary = dsl.fetchOne("""
-                SELECT count(*) AS runs,
-                       bool_and(completed_at IS NOT NULL) AS all_completed
-                FROM dml_utils.migration_run_summary(?)
-                WHERE archived_at IS NULL
-                """, label);
-        assertEquals(1, summary.get("runs", Integer.class),
-                "the example reports only the current run");
-        assertTrue(summary.get("all_completed", Boolean.class),
-                "the current run completed");
+        List<MigrationRunSummaryRecord> summaries = dsl.selectFrom(
+                        MIGRATION_RUN_SUMMARY.call(label))
+                .where(MIGRATION_RUN_SUMMARY.ARCHIVED_AT.isNull())
+                .fetch();
+        assertEquals(1, summaries.size(), "the example reports only the current run");
+        assertNotNull(summaries.getFirst().getCompletedAt(), "the current run completed");
 
         // The terminal high-water boundary has no chunk to complete, so every
         // boundary must be completed or be the terminal one.

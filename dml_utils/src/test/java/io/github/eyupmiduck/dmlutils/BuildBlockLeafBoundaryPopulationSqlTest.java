@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedQuoted.TEST_PARTITIONED_QUOTED;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitioned_22odd_22.TEST_PARTITIONED__22ODD_22;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -107,8 +108,11 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
      */
     @Test
     void quotesALeafNameThatNeedsIt() {
-        dsl.execute("INSERT INTO " + PARTITION_SCHEMA
-                + ".\"test partitioned \"\"odd\"\"\" (id, payload) VALUES (1, 'a'), (2, 'b')");
+        dsl.insertInto(TEST_PARTITIONED__22ODD_22,
+                        TEST_PARTITIONED__22ODD_22.ID, TEST_PARTITIONED__22ODD_22.PAYLOAD)
+                .values(1L, "a")
+                .values(2L, "b")
+                .execute();
         long runId = populatePartitionWise("block-leaf-quoted", "test_partitioned_quoted",
                 TEMPLATE, ChunkingStrategy.blocks, 1, null);
         int ordinal = leafOrdinal(runId, QUOTED);

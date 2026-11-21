@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.sql.Connection;
 import java.sql.Statement;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -163,7 +164,7 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
      * @throws Exception if the connection or statement fails
      */
     private void executeAsSuperuser(String sql) throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try (Connection admin = openAdminConnection(database);
              Statement statement = admin.createStatement()) {
             statement.execute(sql);
@@ -200,15 +201,19 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
      * @return the run id
      */
     private long insertOrderedRun(String label, String index) {
-        return dsl.fetchOne("""
-                        INSERT INTO dml_utils_data.migration_run
-                            (label, sql_text, chunk_size, chunk_by, partition_wise, threads,
-                             driving_table_schema_name, driving_table_name,
-                             ordered_key_index, ordered_key_columns, ordered_key_kinds)
-                        VALUES (?, 'SELECT 1', 1, 'ordered_key', true, 1,
-                                ?, ?, ?, ARRAY['id']::name[], ARRAY['bigint'])
-                        RETURNING run_id
-                        """, label, PARTITION_SCHEMA, PARTITIONED_RANGE, index)
-                .get(0, Long.class);
+        Long runId = dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT,
+                        MIGRATION_RUN.CHUNK_SIZE, MIGRATION_RUN.CHUNK_BY,
+                        MIGRATION_RUN.PARTITION_WISE, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.ORDERED_KEY_INDEX,
+                        MIGRATION_RUN.ORDERED_KEY_COLUMNS, MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values(label, "SELECT 1", 1, ChunkingStrategy.ordered_key, true, 1,
+                        PARTITION_SCHEMA, PARTITIONED_RANGE, index,
+                        new String[]{"id"}, new String[]{"bigint"})
+                .returningResult(MIGRATION_RUN.RUN_ID)
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the ordered run insert returned no id");
+        return runId;
     }
 }

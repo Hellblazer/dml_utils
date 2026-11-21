@@ -30,7 +30,7 @@ class AssertSchemaExistsTest extends PostgresTestBase {
     void acceptsASchemaNameLongerThanTheIdentifierLimit() throws Exception {
         String longName = "long_" + "x".repeat(80);
         String stored = longName.substring(0, 63);
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         try (Connection owner = openAdminConnection(database);
              Statement statement = owner.createStatement()) {
             // Let PostgreSQL truncate the identifier, as it does for any DDL,

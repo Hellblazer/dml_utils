@@ -88,7 +88,7 @@ class AssertReadCommittedTest extends PostgresTestBase {
     @Test
     void sleepBetweenChunksRejectsANonReadCommittedTransaction() {
         assertSqlState("0A000", () -> inIsolation("repeatable read", tx ->
-                tx.execute("SELECT dml_utils_lib.sleep_between_migration_chunks(1, 100)")));
+                Routines.sleepBetweenMigrationChunks(tx.configuration(), 1L, 100)));
     }
 
     /**
@@ -97,7 +97,7 @@ class AssertReadCommittedTest extends PostgresTestBase {
     @Test
     void calculateBoundariesRejectsANonReadCommittedTransaction() {
         assertSqlState("0A000", () -> inIsolation("serializable", tx ->
-                tx.execute("SELECT dml_utils_lib.calculate_migration_run_boundaries(1)")));
+                Routines.calculateMigrationRunBoundaries(tx.configuration(), 1L)));
     }
 
     /**

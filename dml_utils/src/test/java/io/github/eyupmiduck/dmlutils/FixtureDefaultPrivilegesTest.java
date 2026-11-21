@@ -1,7 +1,7 @@
 package io.github.eyupmiduck.dmlutils;
 
-import org.jooq.DSLContext;
-import org.jooq.SQLDialect;
+import org.jooq.*;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +25,8 @@ class FixtureDefaultPrivilegesTest extends PostgresTestBase {
      */
     @Test
     void tablesCreatedLaterAreUsableByTheTestRole() throws Exception {
+        Table<Record> probe = DSL.table(DSL.name("dml_utils_fixtures", "default_acl_probe"));
+        Field<Integer> id = probe.field("id", Integer.class);
         try (Connection owner = openOwnerConnection()) {
             DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
             ownerDsl.execute("CREATE TABLE " + PROBE + " (id integer)");
@@ -38,9 +40,8 @@ class FixtureDefaultPrivilegesTest extends PostgresTestBase {
                             "the test role should hold " + privilege);
                 }
 
-                dsl.execute("INSERT INTO " + PROBE + " (id) VALUES (1)");
-                assertEquals(1, dsl.fetchCount(DSL.table(DSL.name("dml_utils_fixtures",
-                                "default_acl_probe"))),
+                dsl.insertInto(probe, id).values(1).execute();
+                assertEquals(1, dsl.fetchCount(probe),
                         "the test role should be able to use the table");
             } finally {
                 ownerDsl.execute("DROP TABLE IF EXISTS " + PROBE);

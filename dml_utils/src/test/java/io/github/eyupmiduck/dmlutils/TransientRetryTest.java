@@ -69,7 +69,7 @@ class TransientRetryTest extends PostgresTestBase {
                             + " AND pid <> pg_catalog.pg_backend_pid()")) {
                 Integer pid = row.get(0, Integer.class);
                 try {
-                    dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", pid);
+                    cancelBackend(pid);
                 } catch (RuntimeException ignored) {
                     // The backend may already be gone.
                 }
@@ -408,10 +408,9 @@ class TransientRetryTest extends PostgresTestBase {
      */
     private long awaitFirstAttempt(String label) throws InterruptedException {
         for (int attempt = 0; attempt < 200; attempt++) {
-            Record row = dsl.fetchOne(
-                    "SELECT run_id FROM dml_utils_data.migration_run WHERE label = ?", label);
-            if (row != null && probeCalled()) {
-                return row.get(0, Long.class);
+            Long runId = dsl.fetchValue(MIGRATION_RUN.RUN_ID, MIGRATION_RUN.LABEL.eq(label));
+            if (runId != null && probeCalled()) {
+                return runId;
             }
             Thread.sleep(50);
         }

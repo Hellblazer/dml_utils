@@ -1,17 +1,23 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
+import org.jooq.TableField;
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
@@ -46,6 +52,16 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
     }
 
     /**
+     * The terminal timestamps a run can be closed with.
+     *
+     * @return the terminal timestamp columns
+     */
+    private static Stream<TableField<MigrationRunRecord, OffsetDateTime>> terminalColumns() {
+        return Stream.of(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT, MIGRATION_RUN.CANCELLED_AT,
+                MIGRATION_RUN.COMPLETED_AT, MIGRATION_RUN.ARCHIVED_AT);
+    }
+
+    /**
      * Removes the runs (and, by cascade, their leaves) left by earlier tests.
      */
     @BeforeEach
@@ -58,7 +74,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void acceptsAPendingLeafOnAnOpenRun() {
-        long runId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
 
         insertLeaf(runId, 1, null);
 
@@ -79,11 +95,10 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void rejectsALeafForANonPartitionWiseRun() {
-        long runId = insertRun(false, "primary_key");
+        long runId = insertRun(false, ChunkingStrategy.primary_key);
 
         assertRejected("22023", "require a partition-wise run", () -> insertLeaf(runId, 1, null));
     }
-
 
     /**
      * A run that is finalized (boundaries calculated), cancelled, completed or
@@ -92,10 +107,10 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      * @param terminalColumn the timestamp that makes the run terminal
      */
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"boundaries_calculated_at", "cancelled_at", "completed_at",
-            "archived_at"})
-    void rejectsALeafOnceTheRunIsTerminal(String terminalColumn) {
-        long runId = insertRun(true, "primary_key");
+    @MethodSource("terminalColumns")
+    void rejectsALeafOnceTheRunIsTerminal(
+            TableField<MigrationRunRecord, OffsetDateTime> terminalColumn) {
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
         closeRun(runId, terminalColumn);
 
         assertRejected("55000", "cannot add a leaf", () -> insertLeaf(runId, 1, null));
@@ -106,7 +121,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void rejectsABlocksLeafWithoutARelationFilepath() {
-        long runId = insertRun(true, "blocks");
+        long runId = insertRun(true, ChunkingStrategy.blocks);
 
         assertRejected("22023", "must record its relation filepath",
                 () -> insertLeaf(runId, 1, null));
@@ -118,7 +133,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void rejectsARelationFilepathOnANonBlocksLeaf() {
-        long runId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
 
         assertRejected("22023", "only a partition-wise blocks leaf",
                 () -> insertLeaf(runId, 1, "base/1"));
@@ -130,8 +145,8 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void rejectsChangesToTheManifestIdentity() {
-        long runId = insertRun(true, "primary_key");
-        long otherRunId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
+        long otherRunId = insertRun(true, ChunkingStrategy.primary_key);
         insertLeaf(runId, 1, null);
 
         for (String assignment : List.of(
@@ -154,12 +169,14 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void rejectsAChangedBlocksRelationFilepath() {
-        long runId = insertRun(true, "blocks");
+        long runId = insertRun(true, ChunkingStrategy.blocks);
         insertLeaf(runId, 1, "base/1");
 
-        assertRejected("22023", "identity is immutable", () -> dsl.execute(
-                "UPDATE dml_utils_data.migration_run_leaf SET relation_filepath = 'base/2'"
-                        + " WHERE run_id = ? AND leaf_ordinal = 1", runId));
+        assertRejected("22023", "identity is immutable", () -> dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.RELATION_FILEPATH, "base/2")
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
     }
 
     /**
@@ -168,27 +185,26 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void freezesTheTerminalSnapshotOnceSet() {
-        long runId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
         insertLeaf(runId, 1, null);
 
-        dsl.execute("""
-                UPDATE dml_utils_data.migration_run_leaf
-                SET state = 'calculated',
-                    boundary_count = 1,
-                    calculated_at = pg_catalog.now(),
-                    terminal_boundary_id =
-                        ROW(ARRAY[1::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key
-                WHERE run_id = ?
-                  AND leaf_ordinal = 1
-                """, runId);
+        dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.STATE, "calculated")
+                .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 1L)
+                .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{1L}, null, null, null))
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute();
 
-        assertRejected("22023", "terminal snapshot is immutable once set", () -> dsl.execute("""
-                UPDATE dml_utils_data.migration_run_leaf
-                SET terminal_boundary_id =
-                        ROW(ARRAY[2::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key
-                WHERE run_id = ?
-                  AND leaf_ordinal = 1
-                """, runId));
+        assertRejected("22023", "terminal snapshot is immutable once set", () -> dsl.update(
+                        MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{2L}, null, null, null))
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
     }
 
     /**
@@ -198,23 +214,21 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void allowsAFailedLeafUpdateAfterTheRunIsCancelled() {
-        long runId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
         insertLeaf(runId, 1, null);
-        closeRun(runId, "cancelled_at");
+        closeRun(runId, MIGRATION_RUN.CANCELLED_AT);
 
-        dsl.execute("""
-                UPDATE dml_utils_data.migration_run_leaf
-                SET state = 'failed',
-                    error_sqlstate = '57014',
-                    error_message = 'cancelled while processing'
-                WHERE run_id = ?
-                  AND leaf_ordinal = 1
-                """, runId);
+        dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.STATE, "failed")
+                .set(MIGRATION_RUN_LEAF.ERROR_SQLSTATE, "57014")
+                .set(MIGRATION_RUN_LEAF.ERROR_MESSAGE, "cancelled while processing")
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute();
 
-        assertEquals("failed", dsl.fetchOne(
-                        "SELECT state FROM dml_utils_data.migration_run_leaf"
-                                + " WHERE run_id = ? AND leaf_ordinal = 1", runId)
-                .get(0, String.class));
+        assertEquals("failed", dsl.fetchValue(MIGRATION_RUN_LEAF.STATE,
+                MIGRATION_RUN_LEAF.RUN_ID.eq(runId)
+                        .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))));
     }
 
     /**
@@ -225,7 +239,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      */
     @Test
     void holdsTheRunRowAgainstAConcurrentClose() throws Exception {
-        long runId = insertRun(true, "primary_key");
+        long runId = insertRun(true, ChunkingStrategy.primary_key);
 
         try (Connection holder = openTestConnection();
              Connection closer = openTestConnection()) {
@@ -261,16 +275,18 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      * @param chunkBy       the chunking strategy
      * @return the new run's id
      */
-    private long insertRun(boolean partitionWise, String chunkBy) {
-        return dsl.fetchOne("""
-                        INSERT INTO dml_utils_data.migration_run
-                            (label, sql_text, chunk_size, chunk_by, partition_wise, threads,
-                             driving_table_schema_name, driving_table_name, started_at)
-                        VALUES (?, 'SELECT 1', 10, ?::dml_utils_data.chunking_strategy, ?, 1,
-                                ?, ?, pg_catalog.clock_timestamp())
-                        RETURNING run_id
-                        """, "leaf-guard-" + UUID.randomUUID(), chunkBy, partitionWise,
-                FIXTURE_SCHEMA, FIXTURE_TABLE).get(0, Long.class);
+    private long insertRun(boolean partitionWise, ChunkingStrategy chunkBy) {
+        Long id = dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.PARTITION_WISE,
+                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.STARTED_AT)
+                .values("leaf-guard-" + UUID.randomUUID(), "SELECT 1", 10, chunkBy,
+                        partitionWise, 1, FIXTURE_SCHEMA, FIXTURE_TABLE, OffsetDateTime.now())
+                .returningResult(MIGRATION_RUN.RUN_ID)
+                .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(id, "the run insert returned no id");
+        return id;
     }
 
     /**
@@ -282,13 +298,14 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      * @param relationFilepath the blocks heap filepath, or {@code null}
      */
     private void insertLeaf(long runId, int ordinal, String relationFilepath) {
-        dsl.execute("""
-                        INSERT INTO dml_utils_data.migration_run_leaf
-                            (run_id, leaf_ordinal, leaf_schema_name, leaf_name, leaf_oid,
-                             leaf_bound, relation_filepath)
-                        VALUES (?, ?, ?, ?, ?::oid, 'FOR VALUES IN (1)', ?)
-                        """, runId, ordinal, FIXTURE_SCHEMA, FIXTURE_TABLE + "_" + ordinal,
-                String.valueOf(100000 + ordinal), relationFilepath);
+        dsl.insertInto(MIGRATION_RUN_LEAF,
+                        MIGRATION_RUN_LEAF.RUN_ID, MIGRATION_RUN_LEAF.LEAF_ORDINAL,
+                        MIGRATION_RUN_LEAF.LEAF_SCHEMA_NAME, MIGRATION_RUN_LEAF.LEAF_NAME,
+                        MIGRATION_RUN_LEAF.LEAF_OID, MIGRATION_RUN_LEAF.LEAF_BOUND,
+                        MIGRATION_RUN_LEAF.RELATION_FILEPATH)
+                .values(runId, ordinal, FIXTURE_SCHEMA, FIXTURE_TABLE + "_" + ordinal,
+                        100000L + ordinal, "FOR VALUES IN (1)", relationFilepath)
+                .execute();
     }
 
     /**
@@ -297,9 +314,12 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      * @param runId  the run id
      * @param column the terminal timestamp column to set
      */
-    private void closeRun(long runId, String column) {
-        dsl.execute("UPDATE dml_utils_data.migration_run SET " + column
-                + " = pg_catalog.clock_timestamp() WHERE run_id = ?", runId);
+    private void closeRun(long runId,
+                          TableField<MigrationRunRecord, OffsetDateTime> column) {
+        dsl.update(MIGRATION_RUN)
+                .set(column, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
     }
 
     /**
@@ -309,8 +329,6 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
      * @return the leaf count
      */
     private int leafCount(long runId) {
-        return dsl.fetchCount(
-                dsl.selectFrom(MIGRATION_RUN_LEAF)
-                        .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId)));
+        return dsl.fetchCount(MIGRATION_RUN_LEAF, MIGRATION_RUN_LEAF.RUN_ID.eq(runId));
     }
 }

@@ -53,11 +53,9 @@ abstract class PartitionTestBase extends PostgresTestBase {
      * @return the leaf ordinal
      */
     protected int leafOrdinal(long runId, String leafName) {
-        Integer ordinal = dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .from(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName))
-                .fetchOne(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
+        Integer ordinal = dsl.fetchValue(MIGRATION_RUN_LEAF.LEAF_ORDINAL,
+                MIGRATION_RUN_LEAF.RUN_ID.eq(runId)
+                        .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName)));
         assertNotNull(ordinal, () -> "no manifest leaf " + leafName + " in run " + runId);
         return ordinal;
     }

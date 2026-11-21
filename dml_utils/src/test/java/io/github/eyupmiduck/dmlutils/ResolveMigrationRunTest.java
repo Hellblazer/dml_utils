@@ -13,7 +13,6 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
@@ -406,17 +405,12 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         try (Connection winner = openTestConnection()) {
             winner.setAutoCommit(false);
-            long winnerRunId;
-            try (Statement insert = winner.createStatement();
-                 ResultSet result = insert.executeQuery(
-                         "SELECT dml_utils_lib.populate_migration_boundaries("
-                                 + "'" + schema() + "', '" + name() + "', '" + label + "', '"
-                                 + TEMPLATE.replace("'", "''") + "', 2, 1,"
-                                 + " 'primary_key'::dml_utils_data.chunking_strategy,"
-                                 + " 't', 0, NULL, false, 3, 1000)")) {
-                assertTrue(result.next(), "the winner creates the run");
-                winnerRunId = result.getLong(1);
-            }
+            Long winnerId = Routines.populateMigrationBoundaries(
+                    DSL.using(winner, SQLDialect.POSTGRES).configuration(),
+                    schema(), name(), label, TEMPLATE, 2, 1, ChunkingStrategy.primary_key,
+                    "t", 0, null, false, 3, 1000);
+            assertNotNull(winnerId, "the winner creates the run");
+            long winnerRunId = winnerId;
 
             CompletableFuture<Long> loser = CompletableFuture.supplyAsync(() -> {
                 try (Connection connection = openTestConnection()) {

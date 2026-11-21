@@ -761,10 +761,11 @@ class RunMigrationChunksTest extends PostgresTestBase {
 
         String completed = label("set-sql-completed");
         long completedRun = populate(TEST_BIGINT, completed, TEMPLATE, 2);
-        dsl.execute("UPDATE dml_utils_data.migration_run"
-                        + " SET total_chunks_completed = total_chunks,"
-                        + " completed_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
-                completedRun);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(completedRun))
+                .execute();
 
         String cancelled = label("set-sql-cancelled");
         long cancelledRun = populate(TEST_BIGINT, cancelled, TEMPLATE, 2);
@@ -775,9 +776,10 @@ class RunMigrationChunksTest extends PostgresTestBase {
         // Archive without cancelling: archive_migration_run would cancel first, so
         // completed_at/cancelled_at would reject the update and the archived_at
         // guard would never be exercised.
-        dsl.execute("UPDATE dml_utils_data.migration_run"
-                        + " SET archived_at = pg_catalog.clock_timestamp() WHERE run_id = ?",
-                archivedRun);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(archivedRun))
+                .execute();
 
         for (long runId : List.of(completedRun, cancelledRun, archivedRun)) {
             String terminalLabel = dsl.select(MIGRATION_RUN.LABEL)
@@ -1265,9 +1267,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         // 5 would all be processed, so a count below 5 proves one was suppressed.
         assertTrue(doneCount(TEST_BIGINT) < 5,
                 "a chunk after the failure should have been suppressed");
-        assertNotNull(dsl.selectFrom(MIGRATION_ERROR)
-                        .where(MIGRATION_ERROR.RUN_ID.eq(runId))
-                        .fetchOne(),
+        assertTrue(dsl.fetchExists(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "the failed chunk should be recorded");
     }
 
@@ -1371,7 +1371,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
 
     private void createSource(Table<?> table, long... ids) {
         for (long id : ids) {
-            dsl.insertInto(table, field("id", Long.class)).values(id).execute();
+            dsl.insertInto(table, table.field("id", Long.class)).values(id).execute();
         }
     }
 

@@ -118,7 +118,7 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
      */
     @Test
     void concurrentBootstrapDoesNotFailTheInstall() throws Exception {
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
         String role = "ddl_race_" + UUID.randomUUID().toString().replace("-", "");
         String sql = TestResources.read(BOOTSTRAP).replace("ddl_utils_caller", role);
 

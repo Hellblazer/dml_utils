@@ -109,7 +109,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     void cancelledWaitCancelsTheWorkerAndLeavesNoRun() throws Exception {
         seedBigint(1, 2, 3);
         String label = uniqueLabel("create-cancelled");
-        String database = dsl.fetchOne("SELECT current_database()").get(0, String.class);
+        String database = currentDatabase();
 
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (Connection admin = openAdminConnection(database);
@@ -135,7 +135,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
             });
             try {
                 awaitWorker(label);
-                dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", callerPid);
+                cancelBackend(callerPid);
 
                 call.get(10, TimeUnit.SECONDS);
                 assertEquals("57014", sqlstate.get(),
@@ -150,7 +150,7 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                 } catch (TimeoutException e) {
                     // The worker never appeared or the wait was not interrupted:
                     // unblock the waiter so the connection can close.
-                    dsl.execute("SELECT pg_catalog.pg_cancel_backend(?)", callerPid);
+                    cancelBackend(callerPid);
                 }
             }
         } finally {

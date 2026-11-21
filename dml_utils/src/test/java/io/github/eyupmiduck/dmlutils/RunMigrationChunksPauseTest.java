@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.jooq.DSLContext;
-import org.jooq.Record;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
@@ -232,18 +231,17 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         try (Connection probeConnection = openOwnerConnection()) {
             DSLContext probe = DSL.using(probeConnection, SQLDialect.POSTGRES);
             for (int attempt = 0; attempt < 400; attempt++) {
-                Record row = probe.fetchOne(
-                        "SELECT run_id FROM dml_utils_data.migration_run"
-                                + " WHERE label = ? AND total_chunks_completed > 0"
-                                + " AND completed_at IS NULL",
-                        label);
-                if (row != null
+                Long runId = probe.fetchValue(MIGRATION_RUN.RUN_ID,
+                        MIGRATION_RUN.LABEL.eq(label)
+                                .and(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED.gt(0L))
+                                .and(MIGRATION_RUN.COMPLETED_AT.isNull()));
+                if (runId != null
                         && Boolean.TRUE.equals(probe.fetchOne(
                         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS a"
                                 + " WHERE a.datname = pg_catalog.current_database()"
                                 + " AND a.query LIKE '%run_migration_chunks%'"
                                 + " AND a.wait_event = 'PgSleep')").get(0, Boolean.class))) {
-                    return row.get(0, Long.class);
+                    return runId;
                 }
                 Thread.sleep(25);
             }
@@ -283,15 +281,16 @@ class RunMigrationChunksPauseTest extends PostgresTestBase {
         try (Connection probeConnection = openOwnerConnection()) {
             DSLContext probe = DSL.using(probeConnection, SQLDialect.POSTGRES);
             for (int attempt = 0; attempt < 200; attempt++) {
-                Record row = probe.fetchOne(
-                        "SELECT r.run_id FROM dml_utils_data.migration_run AS r"
-                                + " WHERE r.label = ?"
-                                + " AND r.total_chunks_completed >= ?"
-                                + " AND EXISTS (SELECT 1 FROM dml_utils_data.migration_boundary AS b"
-                                + " WHERE b.run_id = r.run_id)",
-                        label, completedAtLeast);
-                if (row != null) {
-                    long runId = row.get(0, Long.class);
+                Long runId = probe.fetchValue(MIGRATION_RUN.RUN_ID,
+                        MIGRATION_RUN.LABEL.eq(label)
+                                .and(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED
+                                        .ge((long) completedAtLeast))
+                                .and(DSL.exists(
+                                        probe.selectOne()
+                                                .from(MIGRATION_BOUNDARY)
+                                                .where(MIGRATION_BOUNDARY.RUN_ID
+                                                        .eq(MIGRATION_RUN.RUN_ID)))));
+                if (runId != null) {
                     if (Boolean.TRUE.equals(probe.fetchOne(
                                     "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks AS l"
                                             + " JOIN pg_catalog.pg_stat_activity AS a ON a.pid = l.pid"
