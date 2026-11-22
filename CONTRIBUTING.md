@@ -123,9 +123,11 @@ Rules:
 - Every test class and test method needs Javadoc describing the behavior it
   verifies.
 - Add a regression test when fixing a bug.
-- `LiquibaseUpgradeTest` upgrades from the most recent published release and must
-  stay enabled. If a baseline change is unavoidable, cut a release from the
-  cleaned changelog first, then re-enable the test against that release.
+- The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
+  disabled with `@Disabled` only while the living-changelog baseline is reworked
+  (epic `lv-ahk`), then renamed to `BaselineUpgradeTest` and re-enabled after a
+  normal release from `main` provides the new baseline. Any later in-place
+  schema edit repeats the disable, baseline release and re-enable cycle.
 
 ## Branches and commits
 

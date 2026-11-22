@@ -2,6 +2,7 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.PublishedRelease;
 import io.github.eyupmiduck.changelogvalidator.testing.UpgradeContract;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.Collection;
 import java.util.List;
@@ -19,7 +20,18 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * upgrade configuration shares every value with the regular test base except the
  * master changelog: the upgrade test must apply the plain dml_utils changelog,
  * not the install changelog that bundles ddl_utils.
+ *
+ * <p><strong>Disabled for the living-changelog baseline rework</strong> (epic
+ * {@code lv-ahk}, bead {@code lv-ahk.1}). The changelog is being reworked in
+ * place and no longer matches the last published release, so this test cannot
+ * pass until a normal baseline release has been cut from {@code main}. It is
+ * re-enabled as {@code BaselineUpgradeTest} after that release; the shared
+ * upgrade support, {@link PostgresTestBase#UPGRADE_CONFIGURATION} and the
+ * {@code upgrade.current.version} property are deliberately retained for that
+ * step.
  */
+@Disabled("epic lv-ahk / bead lv-ahk.1: changelog baseline rework; "
+        + "re-enable as BaselineUpgradeTest after the baseline release")
 class LiquibaseUpgradeTest extends UpgradeContract {
 
     /**

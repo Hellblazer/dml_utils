@@ -714,7 +714,10 @@ over the changelog `.sql` files, and the Liquibase changelog linter. Docker must
 be running.
 
 `LiquibaseUpgradeTest` upgrades from the most recent published release to the
-current changelog and is enabled in `verify`.
+current changelog. It is disabled with `@Disabled` only while the living-changelog
+baseline is reworked (epic `lv-ahk`); it is renamed to `BaselineUpgradeTest` and
+re-enabled in `verify` after a normal release from `main` provides the new
+baseline.
 
 - One test: `./mvnw -pl dml_utils -am test -Dtest=DomainTest`
 - Skip SQLFluff: `./mvnw verify -Dskip.sqlfluff`
