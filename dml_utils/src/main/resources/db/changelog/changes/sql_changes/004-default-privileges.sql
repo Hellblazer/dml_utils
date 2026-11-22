@@ -1,6 +1,6 @@
 -- PostgreSQL grants EXECUTE on functions and USAGE on types to PUBLIC by
 -- default. Revoke those hard-wired defaults for the owner role before any
--- routine or type is created (this changeset runs before 004/005), so a newly
+-- routine or type is created (this changeset runs before 005/006), so a newly
 -- added routine or explicitly created type never inherits a world-executable /
 -- world-usable default even when it is omitted from 999-grant-privileges.
 --

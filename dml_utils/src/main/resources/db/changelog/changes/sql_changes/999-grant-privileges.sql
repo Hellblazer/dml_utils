@@ -38,7 +38,7 @@ GRANT USAGE ON TYPE dml_utils_data.migration_key TO dml_utils_caller;
 REVOKE USAGE ON TYPE dml_utils_data.chunking_strategy FROM public;
 GRANT USAGE ON TYPE dml_utils_data.chunking_strategy TO dml_utils_caller;
 
--- The default ACLs for future objects are installed by 007-default-privileges,
+-- The default ACLs for future objects are installed by 004-default-privileges,
 -- before the functions include, so every routine is created already protected
 -- instead of becoming world-executable until this changeset runs. That default
 -- ACL is database-wide and cannot cover table row types (PostgreSQL does not

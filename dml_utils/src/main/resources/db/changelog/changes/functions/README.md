@@ -34,7 +34,7 @@ metadata writes and removes direct DML, but a malicious template can still call
 the helpers. Treat raw templates as trusted, or add a parser/template allowlist.
 
 One exception: `dml_utils_lib.migration_key_is_canonical` is loaded earlier, by
-`changes/sql_changes/005-create-migration-key-check.sql`, because the
+`changes/sql_changes/006-create-migration-key-check.sql`, because the
 `migration_boundary_key_check` constraint is created with its table and calls it.
 Its drop lives in `changes/rollback/`.
 
@@ -2616,7 +2616,7 @@ RETURNS trigger
 `SECURITY INVOKER`. The shared `BEFORE UPDATE ... FOR EACH ROW` trigger function
 that stamps `NEW.updated_at := now()` on every table, so no caller can bypass
 it. Attach it to each table with a trigger named `<table>_set_updated_at`; see
-`changes/sql_changes/006-create-migration-tables.sql`.
+`changes/sql_changes/007-create-migration-tables.sql`.
 
 ### `dml_utils_data.reject_migration_run_update()`
 

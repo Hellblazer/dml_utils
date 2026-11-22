@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * grants: it delegates the per-function comparison to
  * {@link GrantAssertions#assertGrantRollbackMirrors}, and it must not re-open
  * PUBLIC's default privileges, which the forward changeset never changed (they
- * belong to {@code 007-default-privileges}).
+ * belong to {@code 004-default-privileges}).
  */
 class GrantPrivilegesRollbackTest extends PostgresTestBase {
 

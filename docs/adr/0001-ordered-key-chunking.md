@@ -51,7 +51,7 @@ Add `ordered_key` to `dml_utils_data.chunking_strategy`:
 The split makes the run metadata truthful (a run is not "primary_key" when it
 used a secondary index) and gives the eligibility checks a distinct branch.
 
-The enum was added to `004-create-domains.sql` before the first deployment;
+The enum was added to `005-create-domains.sql` before the first deployment;
 after deployment, a new enum value needs `ALTER TYPE ... ADD VALUE`.
 
 ### 2. The caller names an index, not a column list
@@ -120,16 +120,16 @@ v1 supports the same collapsed kinds as the primary key plus timestamptz:
 These were applied to the pre-deployment baseline. After the first deployment,
 schema changes go in new changesets.
 
-- `004-create-domains.sql`
+- `005-create-domains.sql`
     - add the `ordered_key` enum label;
     - add `timestamptz_values timestamptz[]` to `dml_utils_data.migration_key`;
     - update the type and enum comments.
-- `005-create-migration-key-check.sql`
+- `006-create-migration-key-check.sql`
     - extend `migration_key_is_canonical` (arity, one-dimensional/1-based arrays,
       exactly one non-NULL element per position) and its comment for the fourth
       array;
     - update `migration_key_values` and `migration_key_pair_values`.
-- `006-create-migration-tables.sql`
+- `007-create-migration-tables.sql`
     - add to `migration_run`:
       ```sql
       ordered_key_index   name,

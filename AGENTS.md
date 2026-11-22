@@ -144,7 +144,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   table and add its `BEFORE UPDATE ... FOR EACH ROW` trigger as a new changeset
   in `changes/triggers.xml` with its body under `changes/triggers/<schema>/` (the
   shared function already exists). The migration tables are the reference
-  implementation for the columns (`changes/sql_changes/006-create-migration-tables.sql`)
+  implementation for the columns (`changes/sql_changes/007-create-migration-tables.sql`)
   and the triggers (`changes/triggers/dml_utils_data/`).
 - **Every object has a comment.** Add a `COMMENT ON` for each schema, table,
   column, domain, function and procedure, describing what it is for. Comment a
