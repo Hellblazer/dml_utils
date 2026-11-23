@@ -728,11 +728,10 @@ control, argument naming) are on by default; the opt-in
 `require-not-valid-constraint` and `require-if-exists-on-drop` rules are enabled
 in `.liquibase-linter.yml`.
 
-`LiquibaseUpgradeTest` upgrades from the most recent published release to the
-current changelog. It is disabled with `@Disabled` only while the living-changelog
-baseline is reworked (epic `lv-ahk`); it is renamed to `BaselineUpgradeTest` and
-re-enabled in `verify` after a normal release from `main` provides the new
-baseline.
+`BaselineUpgradeTest` upgrades from the latest published release below the
+current revision to the current changelog and compares the two catalogs. It is
+enabled in `verify`; disable it only while a baseline is edited in place, and
+re-enable it after the replacement release.
 
 - One test: `./mvnw -pl dml_utils -am test -Dtest=DomainTest`
 - Skip SQLFluff: `./mvnw verify -Dskip.sqlfluff`
