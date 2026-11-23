@@ -130,11 +130,11 @@ Rules:
 - Every test class and test method needs Javadoc describing the behavior it
   verifies.
 - Add a regression test when fixing a bug.
-- The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
-  disabled with `@Disabled` only while the living-changelog baseline is reworked (epic `lv-ahk`), then renamed to
-  `BaselineUpgradeTest` and re-enabled after a
-  normal release from `main` provides the new baseline. Any later in-place
-  schema edit repeats the disable, baseline release and re-enable cycle.
+- The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
+  latest published release below the current revision and compares the upgraded
+  catalog with the current changelog. It is enabled in `verify`; disable it only
+  while a baseline is edited in place, and re-enable it after the replacement
+  release. Any later in-place schema edit repeats that cycle.
 
 ## Branches and commits
 

@@ -62,7 +62,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     static final String FIXTURES_RESOURCE = "db/changelog-fixtures/db.changelog-fixtures.xml";
     /**
      * The container configuration, shared by this base and
-     * {@link LiquibaseUpgradeTest} so the two cannot drift (the container's
+     * {@link BaselineUpgradeTest} so the two cannot drift (the container's
      * template database is prepared once per JVM from the first class that
      * runs, so an inconsistent configuration would be order-dependent).
      */
@@ -74,7 +74,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     static final String TEST_PASSWORD = "dml_utils_test";
     /**
      * The one container and changelog configuration, returned by this class and
-     * by {@link LiquibaseUpgradeTest} so the two cannot drift.
+     * by {@link BaselineUpgradeTest} so the two cannot drift.
      *
      * <p>The master changelog is the install changelog: ddl_utils first, then the
      * dml_utils changes, so the test database has the DDL helpers that future
@@ -86,7 +86,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             DATABASE_CHANGELOG_TABLE, DATABASE_CHANGELOG_LOCK_TABLE, FIXTURES_RESOURCE,
             PostgresTestBase::installProjectExtensions);
     /**
-     * The configuration for {@link LiquibaseUpgradeTest}. It differs from
+     * The configuration for {@link BaselineUpgradeTest}. It differs from
      * {@link #CONFIGURATION} only in the master changelog: the upgrade test
      * compares dml_utils with its own previous release, so it must apply the
      * plain dml_utils changelog and not the install changelog that bundles
@@ -137,7 +137,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     /**
      * Installs the extensions the changelog's routines need into a database,
      * and grants the roles they require. Shared with
-     * {@link LiquibaseUpgradeTest}, whose scratch database needs the same
+     * {@link BaselineUpgradeTest}, whose scratch database needs the same
      * extensions before the changelog runs.
      *
      * @param admin a superuser connection to the target database
