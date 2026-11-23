@@ -53,7 +53,7 @@
         <postgresql.version>42.7.14</postgresql.version>
         <commons-compress.version>1.28.0</commons-compress.version>
         <liquibase.version>5.0.4</liquibase.version>
-        <jooq.version>3.21.9</jooq.version>
+        <jooq.version>3.21.10</jooq.version>
         <jakarta-xml-bind.version>4.0.5</jakarta-xml-bind.version>
         <testcontainers-jooq-codegen.version>0.0.4</testcontainers-jooq-codegen.version>
         <liquibase-validation.version>1.13.0</liquibase-validation.version>
