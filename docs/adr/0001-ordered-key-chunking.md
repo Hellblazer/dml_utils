@@ -32,7 +32,7 @@ engine but let the caller choose the ordered, unique key from an index.
 No dml_utils changelog has been deployed anywhere, so this design also adopts
 the pre-deployment baseline policy: edit the create changesets and routine files
 in place instead of adding compatibility changesets or backfills, and suspend
-`LiquibaseUpgradeTest` while the baseline changes (tracked in `dml-b87.12`,
+`BaselineUpgradeTest` while the baseline changes (tracked in `dml-b87.12`,
 restored in `dml-b87.13`).
 
 ## Decision
@@ -294,11 +294,12 @@ These changes were applied to the pre-deployment baseline:
 - no compatibility changesets, `ALTER TYPE`/`ALTER TABLE` follow-ups or
   backfills were added;
 - local/dev/benchmark databases were recreated instead of migrated;
-- `LiquibaseUpgradeTest` was suspended in `dml-b87.12` and restored in
+- `BaselineUpgradeTest` was suspended in `dml-b87.12` and restored in
   `dml-b87.13` against a release cut from the cleaned changelog.
 
 This policy no longer applies: the baseline is published, so further changes are
-new changesets and `LiquibaseUpgradeTest` stays enabled.
+new changesets and `BaselineUpgradeTest` is enabled. A later in-place baseline
+edit repeats the disable -> baseline release -> re-enable cycle.
 
 ## Implementation map
 
