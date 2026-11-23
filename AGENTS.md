@@ -412,10 +412,13 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   `CommentContract`, `AuditColumnsContract`, `PlpgsqlCheckContract`,
   `RollbackSignatureContract`, `RoutineSignatureContract`,
   `RoutineDocumentationContract`, `PrivilegeContract`, `RoutineSecurityContract`,
+  `SchemaLayeringContract`, `RoutineFileContract`,
   `ChangelogRoundTripContract`, `ChangelogReapplyContract` and `UpgradeContract`.
   Supply only the project profile and the project-specific allow-lists (for
   example `allowedSecurityDefiners()`, `catalogRoutines()` or
   `applicationTypes()`).
+  `SchemaLayeringContract` defaults to the managed schemas ordered highest to
+  lowest; override `schemaLayers()` when they are not in dependency order.
 - `ChangelogRoundTripContract` and `ChangelogReapplyContract` are live
   Testcontainers tests: they create a scratch database per contract class, apply
   the plain production master, roll it back or re-apply it, and compare the

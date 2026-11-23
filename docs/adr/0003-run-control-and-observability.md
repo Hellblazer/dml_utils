@@ -311,7 +311,7 @@ Nothing is deployed, so this epic edits the baseline in place:
   signature;
 - brand-new routines still use the normal one-changeset-per-routine convention
   in `changes/functions.xml`;
-- `LiquibaseUpgradeTest` was disabled for the baseline rewrite and was restored
+- `BaselineUpgradeTest` was disabled for the baseline rewrite and was restored
   in `dml-99x.3` against `v1.19.0`, the first release cut from the cleaned
   changelog;
 - recreate local/dev/benchmark databases after the edits.
