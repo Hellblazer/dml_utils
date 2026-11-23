@@ -1,11 +1,10 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.changelogvalidator.testing.PublishedRelease;
 import io.github.eyupmiduck.changelogvalidator.testing.UpgradeContract;
 import org.junit.jupiter.api.Disabled;
 
-import java.util.Collection;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -62,25 +61,14 @@ class LiquibaseUpgradeTest extends UpgradeContract {
     }
 
     /**
-     * The schemas the changelog manages, compared between the upgraded database
-     * and a from-scratch build.
+     * Returns the upgrade profile, which shares every value with the regular
+     * test base except the master changelog.
      *
-     * @return the managed schemas
+     * @return the project profile
      */
     @Override
-    protected Collection<String> managedSchemas() {
-        return List.of("dml_utils", "dml_utils_lib", "dml_utils_data");
-    }
-
-    /**
-     * Returns the upgrade configuration, which shares every value with the
-     * regular test base except the master changelog.
-     *
-     * @return the configuration
-     */
-    @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.UPGRADE_CONFIGURATION;
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.UPGRADE_PROFILE;
     }
 
     /**

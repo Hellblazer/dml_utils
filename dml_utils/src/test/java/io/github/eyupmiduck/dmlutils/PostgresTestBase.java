@@ -1,6 +1,7 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
@@ -17,8 +18,6 @@ import org.jooq.impl.DSL;
 import org.jooq.impl.SQLDataType;
 import org.junit.jupiter.api.BeforeEach;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Proxy;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -102,6 +101,40 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             PostgresTestBase::installProjectExtensionsAndDdlUtils);
 
     /**
+     * The one project profile, shared by this base and every contract so a
+     * schema, role or directory rename cannot drift between them. The managed
+     * schemas are the application schemas; the round-trip schemas also include
+     * the fixture schema and the installed ddl_utils baseline.
+     *
+     * <p>The round-trip/re-apply contracts use the plain production master plus
+     * the staged ddl_utils changelog as a baseline; the install changelog cannot
+     * be rolled back because its role-bootstrap changeset has no rollback.
+     */
+    static final ProjectProfile PROFILE = ProjectProfile.builder(CONFIGURATION)
+            .managedSchemas("dml_utils", "dml_utils_lib", "dml_utils_data")
+            .routineSchemas(TestSchemas.APPLICATION)
+            .callerRole("dml_utils_caller")
+            .routineRollbackDirectories(
+                    "db/changelog/changes/functions-rollback",
+                    "db/changelog/changes/procedures-rollback")
+            .triggerRollbackDirectories("db/changelog/changes/triggers-rollback")
+            .roundTripSchemas("dml_utils", "dml_utils_lib", "dml_utils_data",
+                    "dml_utils_fixtures", "ddl_utils", "ddl_utils_lib")
+            .baselineChangelogs("db/changelog-install/ddl-utils/db/changelog/db.changelog-master.xml")
+            .build();
+
+    /**
+     * The profile for the previous-release upgrade test: the plain dml_utils
+     * master (not the install changelog) so it compares dml_utils with its own
+     * previous release. Its extension hook pre-installs ddl_utils.
+     */
+    static final ProjectProfile UPGRADE_PROFILE = ProjectProfile.builder(UPGRADE_CONFIGURATION)
+            .managedSchemas("dml_utils", "dml_utils_lib", "dml_utils_data")
+            .routineSchemas(TestSchemas.APPLICATION)
+            .callerRole("dml_utils_caller")
+            .build();
+
+    /**
      * Installs the extensions the changelog's routines need into a database,
      * and grants the roles they require. Shared with
      * {@link LiquibaseUpgradeTest}, whose scratch database needs the same
@@ -182,28 +215,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         }
     }
 
-    /**
-     * Wraps a connection so {@link Connection#close()} does nothing. Used where a
-     * library would otherwise close a connection the caller still owns.
-     *
-     * @param delegate the real connection
-     * @return a view of the connection whose close() is a no-op
-     */
-    static Connection closeIgnoring(Connection delegate) {
-        return (Connection) Proxy.newProxyInstance(
-                Connection.class.getClassLoader(),
-                new Class<?>[]{Connection.class},
-                (proxy, method, args) -> {
-                    if ("close".equals(method.getName())) {
-                        return null;
-                    }
-                    try {
-                        return method.invoke(delegate, args);
-                    } catch (InvocationTargetException error) {
-                        throw error.getCause();
-                    }
-                });
-    }
 
     /**
      * Installs the extensions and grants the template and upgrade scratch
@@ -383,8 +394,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     @Override
-    protected Configuration configuration() {
-        return CONFIGURATION;
+    protected ProjectProfile projectProfile() {
+        return PROFILE;
     }
 
     /**

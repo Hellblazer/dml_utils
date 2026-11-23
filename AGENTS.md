@@ -343,6 +343,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   finding and a stale whitelist entry both fail the build); skip with
   `-Dskip.liquibase-linter`. A separate `Changelog linter` workflow uploads the
   same run as SARIF to GitHub code scanning; `verify` remains the gate.
+- The hygiene rules are on by default: a routine changeset must set
+  `runOnChange`, a `CREATE TRIGGER` must be `CREATE OR REPLACE TRIGGER`
+  (PostgreSQL 14+), a changeset needs a non-blank author, a numbered changeset's
+  file paths must match its id, an id/author/file identity must be unique, a
+  routine body must not use `SELECT *` or transaction control, and routine
+  parameters/locals use the `i_`/`o_`/`io_`/`l_` prefixes. The two opt-in
+  production-safety rules are enabled in `.liquibase-linter.yml`:
+  `require-not-valid-constraint` and `require-if-exists-on-drop`.
 
 ## jOOQ
 
@@ -388,16 +396,31 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   database cloned with `CREATE DATABASE ... TEMPLATE ...` (fast, isolated
   data). Use the inherited `dsl` (jOOQ); do not run Liquibase or start
   containers in individual tests.
-- The container configuration is the single `PostgresTestBase.CONFIGURATION` /
-  `UPGRADE_CONFIGURATION` value, which also carries the extension installer.
-  Return it from `configuration()` in the base, the contract tests and the
-  upgrade test (`LiquibaseUpgradeTest` today, re-enabled as `BaselineUpgradeTest`
-  after the baseline release) instead of overriding the individual accessors.
+- The project values are the single `PostgresTestBase.PROFILE` (`ProjectProfile`)
+  value (and `UPGRADE_PROFILE` for the previous-release test): the container/
+  changelog `CONFIGURATION`, the managed/application/routine schemas, the caller
+  role, the rollback directories, the round-trip schemas and the installed
+  ddl_utils baseline. Return it from `projectProfile()` in the base, every
+  contract subclass and the upgrade test (`LiquibaseUpgradeTest` today,
+  re-enabled as `BaselineUpgradeTest` after the baseline release) instead of
+  overriding the individual accessors. A contract subclass that needs the
+  container must override `projectProfile()`; the library defaults do not know
+  the project's roles or image.
 - A test whose shape already exists as a contract inherits it rather than
   copying the body: `ChangelogLinterContract`, `ChangelogNamingContract`,
-  `ChangelogSqlFilesContract`, `TrackingTablesContract`,
-  `PlpgsqlCheckContract`, `RollbackSignatureContract`, `UpgradeContract`.
-  Supply only the project schemas and the configuration.
+  `ChangelogSqlFilesContract`, `ChangelogLayoutContract`, `TrackingTablesContract`,
+  `CommentContract`, `AuditColumnsContract`, `PlpgsqlCheckContract`,
+  `RollbackSignatureContract`, `RoutineSignatureContract`,
+  `RoutineDocumentationContract`, `PrivilegeContract`, `RoutineSecurityContract`,
+  `ChangelogRoundTripContract`, `ChangelogReapplyContract` and `UpgradeContract`.
+  Supply only the project profile and the project-specific allow-lists (for
+  example `allowedSecurityDefiners()`, `catalogRoutines()` or
+  `applicationTypes()`).
+- `ChangelogRoundTripContract` and `ChangelogReapplyContract` are live
+  Testcontainers tests: they create a scratch database per contract class, apply
+  the plain production master, roll it back or re-apply it, and compare the
+  catalog. The staged ddl_utils changelog is applied as a baseline outside the
+  dml_utils rollback. They run in `verify`, not in the per-change unit-test loop.
 - Read classpath SQL through `TestResources` (one resource, or every `.sql`
   file in a directory) instead of re-implementing the stream handling.
 - Every test class and test method must have Javadoc describing the behavior

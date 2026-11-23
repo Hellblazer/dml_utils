@@ -80,34 +80,4 @@ class DefaultPrivilegesTest extends PostgresTestBase {
                 "PUBLIC must not hold a default EXECUTE/USAGE grant for the owner role");
     }
 
-    /**
-     * A routine and an explicitly created type made after the changelog are not
-     * usable by PUBLIC, which is the behaviour the default-ACL revokes exist for.
-     */
-    @Test
-    void newRoutinesAndTypesAreNotUsableByPublic() throws Exception {
-        try (Connection owner = openOwnerConnection()) {
-            DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
-            ownerDsl.execute("CREATE FUNCTION dml_utils.default_acl_probe() RETURNS integer"
-                    + " LANGUAGE sql AS 'SELECT 1'");
-            ownerDsl.execute("CREATE TYPE dml_utils.default_acl_probe_type AS ENUM ('a')");
-            try {
-                assertEquals(Boolean.FALSE, ownerDsl.fetchOne(
-                                        "SELECT pg_catalog.has_function_privilege('public',"
-                                                + " 'dml_utils.default_acl_probe()'::pg_catalog.regprocedure,"
-                                                + " 'EXECUTE')")
-                                .get(0, Boolean.class),
-                        "a new routine must not be executable by PUBLIC");
-                assertEquals(Boolean.FALSE, ownerDsl.fetchOne(
-                                        "SELECT pg_catalog.has_type_privilege('public',"
-                                                + " 'dml_utils.default_acl_probe_type'::pg_catalog.regtype,"
-                                                + " 'USAGE')")
-                                .get(0, Boolean.class),
-                        "a new type must not be usable by PUBLIC");
-            } finally {
-                ownerDsl.execute("DROP TYPE IF EXISTS dml_utils.default_acl_probe_type");
-                ownerDsl.execute("DROP FUNCTION IF EXISTS dml_utils.default_acl_probe()");
-            }
-        }
-    }
 }

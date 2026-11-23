@@ -824,6 +824,31 @@ milliseconds. A `started_at` of `NULL` means the chunk has not been claimed; a
 `dml_utils_lib` is the engine. It may reference `dml_utils_data`, but never
 `dml_utils`.
 
+### `dml_utils_lib.assert_plain_heap(i_schema_name, i_table_name)`
+
+`SECURITY INVOKER`. Raises unless the relation is a plain heap table, so the
+chunk runner does not silently operate on a partitioned, foreign or other
+non-heap relation.
+
+### `dml_utils_lib.claim_migration_boundary(i_run_id, i_boundary_no)`
+
+`SECURITY DEFINER`. Locks and claims one boundary row, returning its start time
+so the worker can complete it.
+
+### `dml_utils_lib.complete_migration_boundary(i_run_id, i_boundary_no, i_started_at, i_rows_affected)`
+
+`SECURITY DEFINER`. Marks a claimed boundary complete with its row count,
+refusing a second completion.
+
+### `dml_utils_lib.complete_migration_run(i_run_id)`
+
+`SECURITY DEFINER`. Completes a run once every boundary is complete.
+
+### `dml_utils_lib.mark_migration_run_cancelled(i_run_id)`
+
+`SECURITY DEFINER`. Marks a run cancelled and its pending boundaries cancelled;
+a completed run is left untouched.
+
 ### `dml_utils_lib.assert_schema_exists(i_schema_name)`
 
 ```sql

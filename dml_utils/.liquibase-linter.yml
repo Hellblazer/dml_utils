@@ -12,11 +12,15 @@ pgVersion: '17'
 # changeset-rollback-parity is deliberately not enabled: its statement-count
 # heuristic warns on legitimate many-to-few inversions, so it would be noise
 # here.
+# routine-dynamic-sql is not enabled: the chunk renderer and runner assemble SQL
+# by design, and the rule is informational rather than a gate.
 include:
   - changeset-prefer-single-statement
   - require-concurrent-index-creation
   - require-concurrent-index-deletion
   - changeset-rollback-required
+  - require-not-valid-constraint
+  - require-if-exists-on-drop
 
 # A finding is accepted by listing its rule under `exclude`, or by downgrading
 # it under `rules`. The verify gate fails on `error` findings (see the
