@@ -41,40 +41,39 @@
     </changeSet>
 
     <!-- Revoke PUBLIC's default EXECUTE/USAGE on future objects before any type
-         or routine is created. It must run before 004 (domains and the
-         chunking_strategy enum) and 005 (the boundary-key helper), because
+         or routine is created. It must run before 005 (domains and the
+         chunking_strategy enum) and 006 (the boundary-key helper), because
          ALTER DEFAULT PRIVILEGES only affects objects created after it executes;
          anything created earlier keeps PostgreSQL's world-readable ACLs until
          999-grant-privileges runs. The revokes are database-wide: a schema-scoped
          default ACL is added on top of the hard-wired default and cannot remove
-         it. The id keeps its original number; the file-order position is what
-         Liquibase applies. -->
-    <changeSet id="007-default-privileges" author="lee.horner" dbms="postgresql">
-        <sqlFile path="sql_changes/007-default-privileges.sql" relativeToChangelogFile="true"/>
+         it. -->
+    <changeSet id="004-default-privileges" author="lee.horner" dbms="postgresql">
+        <sqlFile path="sql_changes/004-default-privileges.sql" relativeToChangelogFile="true"/>
         <rollback>
-            <sqlFile path="rollback/007-default-privileges-rollback.sql"
+            <sqlFile path="rollback/004-default-privileges-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
 
     <!-- Domains must exist before any routine that types its arguments with
          them, so create them before the functions include. -->
-    <changeSet id="004-create-domains" author="lee.horner" dbms="postgresql">
-        <sqlFile path="sql_changes/004-create-domains.sql" relativeToChangelogFile="true"/>
+    <changeSet id="005-create-domains" author="lee.horner" dbms="postgresql">
+        <sqlFile path="sql_changes/005-create-domains.sql" relativeToChangelogFile="true"/>
         <rollback>
-            <sqlFile path="rollback/004-create-domains-rollback.sql" relativeToChangelogFile="true"/>
+            <sqlFile path="rollback/005-create-domains-rollback.sql" relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
 
     <!-- The boundary-key check helper. It needs only the migration_key type
          (created above), so it is defined before the table whose CHECK calls
          it. -->
-    <changeSet id="005-create-migration-key-check" author="lee.horner" dbms="postgresql"
+    <changeSet id="006-create-migration-key-check" author="lee.horner" dbms="postgresql"
                runOnChange="true">
-        <sqlFile path="sql_changes/005-create-migration-key-check.sql"
+        <sqlFile path="sql_changes/006-create-migration-key-check.sql"
                  relativeToChangelogFile="true" splitStatements="false"/>
         <rollback>
-            <sqlFile path="rollback/005-create-migration-key-check-rollback.sql"
+            <sqlFile path="rollback/006-create-migration-key-check-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -85,10 +84,10 @@
          tables come first. The index is part of the table changeset, so it is a
          plain CREATE INDEX: the table is new, so there is no completed prefix to
          block and no need for CONCURRENTLY. -->
-    <changeSet id="006-create-migration-tables" author="lee.horner" dbms="postgresql">
-        <sqlFile path="sql_changes/006-create-migration-tables.sql" relativeToChangelogFile="true"/>
+    <changeSet id="007-create-migration-tables" author="lee.horner" dbms="postgresql">
+        <sqlFile path="sql_changes/007-create-migration-tables.sql" relativeToChangelogFile="true"/>
         <rollback>
-            <sqlFile path="rollback/006-create-migration-tables-rollback.sql" relativeToChangelogFile="true"/>
+            <sqlFile path="rollback/007-create-migration-tables-rollback.sql" relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
 

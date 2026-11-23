@@ -11,16 +11,16 @@ import java.util.regex.Pattern;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies that the {@code 004-create-domains} rollback drops every type and
+ * Verifies that the {@code 005-create-domains} rollback drops every type and
  * domain its forward changeset creates, so a rollback (or a re-apply after one)
  * cannot leave an orphan behind and fail with "type already exists".
  */
 class DomainRollbackTest {
 
     private static final String FORWARD =
-            "db/changelog/changes/sql_changes/004-create-domains.sql";
+            "db/changelog/changes/sql_changes/005-create-domains.sql";
     private static final String ROLLBACK =
-            "db/changelog/changes/rollback/004-create-domains-rollback.sql";
+            "db/changelog/changes/rollback/005-create-domains-rollback.sql";
 
     private static final Pattern CREATED = Pattern.compile(
             "^\\s*CREATE\\s+(TYPE|DOMAIN)\\s+(dml_utils_data\\.[a-z0-9_]+)",

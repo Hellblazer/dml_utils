@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.changelogvalidator.testing.TrackingTablesContract;
 
 import java.util.ArrayList;
@@ -16,17 +17,8 @@ import java.util.List;
 class LiquibaseTrackingTablesTest extends TrackingTablesContract {
 
     /**
-     * The dml_utils container and changelog configuration.
-     *
-     * @return the configuration
-     */
-    @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.CONFIGURATION;
-    }
-
-    /**
-     * The schemas that must not hold Liquibase's generic tracking-table names.
+     * The schemas that must not hold Liquibase's generic tracking-table names:
+     * the application schemas plus the test-only fixture schema.
      *
      * @return the application schemas
      */
@@ -36,5 +28,16 @@ class LiquibaseTrackingTablesTest extends TrackingTablesContract {
         schemas.add(PUBLIC_SCHEMA);
         schemas.add("dml_utils_fixtures");
         return schemas;
+    }
+
+    /**
+     * The dml_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
+     *
+     * @return the dml_utils profile
+     */
+    @Override
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }

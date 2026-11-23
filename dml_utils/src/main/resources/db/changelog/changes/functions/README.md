@@ -34,7 +34,7 @@ metadata writes and removes direct DML, but a malicious template can still call
 the helpers. Treat raw templates as trusted, or add a parser/template allowlist.
 
 One exception: `dml_utils_lib.migration_key_is_canonical` is loaded earlier, by
-`changes/sql_changes/005-create-migration-key-check.sql`, because the
+`changes/sql_changes/006-create-migration-key-check.sql`, because the
 `migration_boundary_key_check` constraint is created with its table and calls it.
 Its drop lives in `changes/rollback/`.
 
@@ -823,6 +823,31 @@ milliseconds. A `started_at` of `NULL` means the chunk has not been claimed; a
 
 `dml_utils_lib` is the engine. It may reference `dml_utils_data`, but never
 `dml_utils`.
+
+### `dml_utils_lib.assert_plain_heap(i_schema_name, i_table_name)`
+
+`SECURITY INVOKER`. Raises unless the relation is a plain heap table, so the
+chunk runner does not silently operate on a partitioned, foreign or other
+non-heap relation.
+
+### `dml_utils_lib.claim_migration_boundary(i_run_id, i_boundary_no)`
+
+`SECURITY DEFINER`. Locks and claims one boundary row, returning its start time
+so the worker can complete it.
+
+### `dml_utils_lib.complete_migration_boundary(i_run_id, i_boundary_no, i_started_at, i_rows_affected)`
+
+`SECURITY DEFINER`. Marks a claimed boundary complete with its row count,
+refusing a second completion.
+
+### `dml_utils_lib.complete_migration_run(i_run_id)`
+
+`SECURITY DEFINER`. Completes a run once every boundary is complete.
+
+### `dml_utils_lib.mark_migration_run_cancelled(i_run_id)`
+
+`SECURITY DEFINER`. Marks a run cancelled and its pending boundaries cancelled;
+a completed run is left untouched.
 
 ### `dml_utils_lib.assert_schema_exists(i_schema_name)`
 
@@ -2616,7 +2641,7 @@ RETURNS trigger
 `SECURITY INVOKER`. The shared `BEFORE UPDATE ... FOR EACH ROW` trigger function
 that stamps `NEW.updated_at := now()` on every table, so no caller can bypass
 it. Attach it to each table with a trigger named `<table>_set_updated_at`; see
-`changes/sql_changes/006-create-migration-tables.sql`.
+`changes/sql_changes/007-create-migration-tables.sql`.
 
 ### `dml_utils_data.reject_migration_run_update()`
 

@@ -3,7 +3,7 @@
 REVOKE USAGE ON SCHEMA dml_utils FROM dml_utils_caller;
 REVOKE USAGE ON SCHEMA dml_utils_lib FROM dml_utils_caller;
 REVOKE USAGE ON SCHEMA dml_utils_data FROM dml_utils_caller;
--- 007-default-privileges runs before 004 and uses a database-wide default ACL, so
+-- 004-default-privileges runs before 005 and uses a database-wide default ACL, so
 -- the domains and the explicitly created types below exist without PUBLIC usage:
 -- the forward PUBLIC revokes are no-ops and the pre-999 state is "no PUBLIC
 -- access". Take the caller's grant back only; granting USAGE to PUBLIC would

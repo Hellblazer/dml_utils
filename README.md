@@ -713,8 +713,26 @@ scripts/build-postgres-image.sh postgres:17-alpine   # once, or after scripts/po
 over the changelog `.sql` files, and the Liquibase changelog linter. Docker must
 be running.
 
+The container tests inherit the shared contracts from `liquibase-validation`
+(layout, comments, audit columns, routine signatures/documentation, privileges,
+routine security, tracking tables, round trip and re-apply) and read the one
+`PostgresTestBase.PROFILE` value, so the schemas, roles, image, changelog,
+rollback directories and installed ddl_utils baseline cannot drift.
+`ChangelogRoundTripTest` applies the plain production changelog, rolls it back,
+checks the dml schemas are gone while the ddl_utils baseline survives, and
+re-applies; `ChangelogReapplyTest` applies it twice and requires the second run
+to be a no-op. Both are live Testcontainers tests and belong in `verify`, not
+the per-change unit loop. The hygiene rules (routine `runOnChange`, `CREATE OR
+REPLACE TRIGGER`, author/file/id conventions, body `SELECT *`/transaction
+control, argument naming) are on by default; the opt-in
+`require-not-valid-constraint` and `require-if-exists-on-drop` rules are enabled
+in `.liquibase-linter.yml`.
+
 `LiquibaseUpgradeTest` upgrades from the most recent published release to the
-current changelog and is enabled in `verify`.
+current changelog. It is disabled with `@Disabled` only while the living-changelog
+baseline is reworked (epic `lv-ahk`); it is renamed to `BaselineUpgradeTest` and
+re-enabled in `verify` after a normal release from `main` provides the new
+baseline.
 
 - One test: `./mvnw -pl dml_utils -am test -Dtest=DomainTest`
 - Skip SQLFluff: `./mvnw verify -Dskip.sqlfluff`

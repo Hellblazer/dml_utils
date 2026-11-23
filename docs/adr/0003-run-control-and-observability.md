@@ -304,7 +304,7 @@ runs.
 
 Nothing is deployed, so this epic edits the baseline in place:
 
-- edit `changes/sql_changes/006-create-migration-tables.sql`, its rollback, the
+- edit `changes/sql_changes/007-create-migration-tables.sql`, its rollback, the
   trigger function files, routine files and `999-grant-privileges.sql` directly;
 - do not add compatibility or backfill changesets and do not add `DROP FUNCTION`
   statements for old signatures — a fresh database defines only the new
