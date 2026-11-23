@@ -714,8 +714,9 @@ over the changelog `.sql` files, and the Liquibase changelog linter. Docker must
 be running.
 
 The container tests inherit the shared contracts from `liquibase-validation`
-(layout, comments, audit columns, routine signatures/documentation, privileges,
-routine security, tracking tables, round trip and re-apply) and read the one
+(layout, routine files, schema layering, comments, audit columns, routine
+signatures/documentation, privileges, routine security, tracking tables, round
+trip and re-apply) and read the one
 `PostgresTestBase.PROFILE` value, so the schemas, roles, image, changelog,
 rollback directories and installed ddl_utils baseline cannot drift.
 `ChangelogRoundTripTest` applies the plain production changelog, rolls it back,
