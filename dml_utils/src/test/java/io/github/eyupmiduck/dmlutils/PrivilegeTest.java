@@ -31,6 +31,21 @@ class PrivilegeTest extends PrivilegeContract {
             "db/changelog/changes/rollback/999-grant-privileges-rollback.sql";
 
     /**
+     * Splits a SQL script into statements on top-level semicolons.
+     *
+     * @param script the script
+     * @return the statements
+     */
+    private static List<String> splitStatements(String script) {
+        StringBuilder withoutComments = new StringBuilder();
+        for (String line : script.split("\n", -1)) {
+            int comment = line.indexOf("--");
+            withoutComments.append(comment < 0 ? line : line.substring(0, comment)).append('\n');
+        }
+        return List.of(withoutComments.toString().split(";"));
+    }
+
+    /**
      * Every domain, enum, composite type and implicit table row type the caller
      * may use.
      *
@@ -113,21 +128,6 @@ class PrivilegeTest extends PrivilegeContract {
                 }
             }
         }
-    }
-
-    /**
-     * Splits a SQL script into statements on top-level semicolons.
-     *
-     * @param script the script
-     * @return the statements
-     */
-    private static List<String> splitStatements(String script) {
-        StringBuilder withoutComments = new StringBuilder();
-        for (String line : script.split("\n", -1)) {
-            int comment = line.indexOf("--");
-            withoutComments.append(comment < 0 ? line : line.substring(0, comment)).append('\n');
-        }
-        return List.of(withoutComments.toString().split(";"));
     }
 
     private int publicDefaultAclGrants(DSLContext context) {

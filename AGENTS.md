@@ -91,8 +91,8 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
 - The previous-release upgrade test is `LiquibaseUpgradeTest` today. It is
-  disabled with `@Disabled` only while the living-changelog baseline is reworked
-  (epic `lv-ahk`); it is renamed to `BaselineUpgradeTest` and re-enabled after a
+  disabled with `@Disabled` only while the living-changelog baseline is reworked (epic `lv-ahk`); it is renamed to
+  `BaselineUpgradeTest` and re-enabled after a
   normal release from `main` provides the new baseline. Do not delete the shared
   upgrade support, `UPGRADE_CONFIGURATION` or the `upgrade.current.version`
   property during that window. Any later in-place schema edit repeats the

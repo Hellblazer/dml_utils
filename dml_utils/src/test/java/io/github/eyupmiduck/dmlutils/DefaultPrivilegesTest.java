@@ -1,12 +1,7 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.TestResources;
-import org.jooq.DSLContext;
-import org.jooq.SQLDialect;
-import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
-
-import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
