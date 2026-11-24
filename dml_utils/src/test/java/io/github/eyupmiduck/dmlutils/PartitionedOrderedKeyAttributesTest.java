@@ -7,8 +7,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import java.sql.Connection;
-import java.sql.Statement;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -101,21 +99,6 @@ class PartitionedOrderedKeyAttributesTest extends PartitionTestBase {
         assertSqlState("42704", () -> attributes(
                 "test_partitioned_range", "test_ordered_key_created_at_id_idx"));
         assertSqlState("0A000", () -> attributes("test_bigint", "test_bigint_pkey"));
-    }
-
-    /**
-     * Executes one statement as the container superuser, which is required for
-     * system-catalog changes.
-     *
-     * @param sql the statement
-     * @throws Exception if the connection or statement fails
-     */
-    private void executeAsSuperuser(String sql) throws Exception {
-        String database = currentDatabase();
-        try (Connection admin = openAdminConnection(database);
-             Statement statement = admin.createStatement()) {
-            statement.execute(sql);
-        }
     }
 
     /**

@@ -11,8 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.concurrent.*;
@@ -210,21 +208,6 @@ class RunResolutionHelpersTest extends PostgresTestBase {
                   AND query LIKE '%populate_migration_boundaries%'
                   AND query LIKE ?
                 """, "%" + label + "%").get(0, Integer.class);
-    }
-
-    /**
-     * Returns a connection's backend pid.
-     *
-     * @param connection the connection to identify
-     * @return its backend pid
-     * @throws SQLException if the query fails
-     */
-    private int backendPid(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
-            assertTrue(rows.next(), "pg_backend_pid() returns a row");
-            return rows.getInt(1);
-        }
     }
 
     /**

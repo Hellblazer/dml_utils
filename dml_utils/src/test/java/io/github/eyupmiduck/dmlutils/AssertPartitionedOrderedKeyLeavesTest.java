@@ -5,8 +5,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.Statement;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
@@ -154,21 +152,6 @@ class AssertPartitionedOrderedKeyLeavesTest extends PartitionTestBase {
     void rejectsANullRunId() {
         assertDomainViolation(() -> Routines.assertPartitionedOrderedKeyLeaves(
                 dsl.configuration(), null, PARENT_INDEX));
-    }
-
-    /**
-     * Executes one statement as the container superuser, which is required for
-     * system-catalog changes.
-     *
-     * @param sql the statement
-     * @throws Exception if the connection or statement fails
-     */
-    private void executeAsSuperuser(String sql) throws Exception {
-        String database = currentDatabase();
-        try (Connection admin = openAdminConnection(database);
-             Statement statement = admin.createStatement()) {
-            statement.execute(sql);
-        }
     }
 
     /**

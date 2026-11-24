@@ -76,35 +76,7 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
         }
     }
 
-    /**
-     * Returns a connection's backend pid.
-     *
-     * @param connection the connection to identify
-     * @return its backend pid
-     * @throws SQLException if the query fails
-     */
-    private static int backendPid(Connection connection) throws SQLException {
-        try (Statement statement = connection.createStatement();
-             ResultSet rows = statement.executeQuery("SELECT pg_backend_pid()")) {
-            assertTrue(rows.next(), "pg_backend_pid() returns a row");
-            return rows.getInt(1);
-        }
-    }
-
-    /**
-     * Runs one statement on the connection.
-     *
-     * @param connection the connection
-     * @param sql        the statement
-     * @throws SQLException if it fails
-     */
-    private static void execute(Connection connection, String sql) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute(sql);
-        }
-    }
-
-    /**
+            /**
      * The loser of the role race succeeds: its {@code NOT EXISTS} passes while the
      * winner's {@code CREATE ROLE} is uncommitted, the insert then hits
      * {@code pg_authid}'s unique index and must be absorbed rather than failing
@@ -132,11 +104,11 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
             // The winner creates the role but keeps its transaction open, so the
             // loser's check cannot see it.
             winner.setAutoCommit(false);
-            execute(winner, sql);
+            executeStatement(winner, sql);
 
             Future<?> call = executor.submit(() -> {
                 try {
-                    execute(loser, sql);
+                    executeStatement(loser, sql);
                 } catch (Throwable error) {
                     loserError.set(error);
                 }
