@@ -355,11 +355,21 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 
 ## jOOQ
 
-- Prefer jOOQ's type-safe DSL over constructing SQL strings manually.
-- Use generated jOOQ classes where available.
+- Use jOOQ's type-safe DSL for database access. Use the generated table and
+  routine classes for every changelog-defined table, view, function and
+  procedure; do not hand-write SQL for an object jOOQ generates.
 - Do not duplicate database schema definitions in Java.
-- Use plain SQL when PostgreSQL-specific functionality cannot be expressed
-  clearly with the jOOQ DSL.
+- Raw SQL is reserved for what the DSL cannot express clearly:
+  - DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`) and schema or extension setup;
+  - `pg_catalog` and `information_schema` introspection;
+  - session settings, locks and privileges (`SET`, `LOCK`, `GRANT`, `REVOKE`);
+  - deliberately malformed input that exercises an error path, and PostgreSQL
+    features with no clear jOOQ equivalent (for example `generate_series` or
+    interval arithmetic).
+- For dynamically named test fixtures, use `DSL.table(DSL.name(...))` and
+  `DSL.field(...)` where it keeps the statement clear; a raw statement is
+  acceptable when the fixture is simpler that way. Keep any raw SQL local to
+  the fixture.
 - The generated convenience facades can trip `-Werror` or fail at class
   initialisation:
     - `dml_utils/pom.xml` sets `globalUDTReferences=false`: the generated `UDTs`

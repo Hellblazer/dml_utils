@@ -4,11 +4,14 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.MigrationRunSummaryRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 
@@ -178,10 +181,13 @@ class CancelMigrationRunTest extends PostgresTestBase {
 
         try (Connection holder = openTestConnection()) {
             holder.setAutoCommit(false);
-            try (Statement claim = holder.createStatement()) {
-                claim.execute("SELECT 1 FROM dml_utils_data.migration_boundary"
-                        + " WHERE run_id = " + runId + " AND boundary_no = 0 FOR UPDATE");
-            }
+            DSL.using(holder, SQLDialect.POSTGRES)
+                    .selectOne()
+                    .from(MIGRATION_BOUNDARY)
+                    .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                    .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                    .forUpdate()
+                    .execute();
 
             assertEquals(runId, Routines.cancelMigrationRun(dsl.configuration(), label),
                     "the cancel does not wait for the claimed boundary");
@@ -221,24 +227,28 @@ class CancelMigrationRunTest extends PostgresTestBase {
 
         try (Connection holder = openTestConnection()) {
             holder.setAutoCommit(false);
-            try (Statement claim = holder.createStatement()) {
-                // What claim_next_migration_leaf does: lock the run row, then write
-                // the leaf's boundaries in the same transaction.
-                claim.execute("SELECT 1 FROM dml_utils_data.migration_run"
-                        + " WHERE run_id = " + runId + " FOR UPDATE");
-                claim.execute("INSERT INTO dml_utils_data.migration_boundary"
-                        + " (run_id, boundary_no, boundary_id)"
-                        + " VALUES (" + runId + ", 999,"
-                        + " ROW(ARRAY[999::bigint], NULL, NULL, NULL)::dml_utils_data.migration_key)");
-            }
+            // What claim_next_migration_leaf does: lock the run row, then write
+            // the leaf's boundaries in the same transaction.
+            DSLContext holderDsl = DSL.using(holder, SQLDialect.POSTGRES);
+            holderDsl.selectOne()
+                    .from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                    .forUpdate()
+                    .execute();
+            holderDsl.insertInto(MIGRATION_BOUNDARY,
+                            MIGRATION_BOUNDARY.RUN_ID,
+                            MIGRATION_BOUNDARY.BOUNDARY_NO,
+                            MIGRATION_BOUNDARY.BOUNDARY_ID)
+                    .values(runId, 999L,
+                            new MigrationKeyRecord(new Long[]{999L}, null, null, null))
+                    .execute();
 
             try (Connection caller = openTestConnection();
-                 Statement cancel = caller.createStatement()) {
-                cancel.execute("SET lock_timeout = '1s'");
-                SQLException error = assertThrows(SQLException.class, () -> cancel.execute(
-                        "SELECT dml_utils.cancel_migration_run('" + label + "')"));
-                assertEquals("55P03", error.getSQLState(),
-                        () -> "unexpected error: " + error.getMessage());
+                 Statement setting = caller.createStatement()) {
+                setting.execute("SET lock_timeout = '1s'");
+                DSLContext callerDsl = DSL.using(caller, SQLDialect.POSTGRES);
+                assertSqlState("55P03",
+                        () -> Routines.cancelMigrationRun(callerDsl.configuration(), label));
             }
 
             holder.commit();
