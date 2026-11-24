@@ -51,19 +51,6 @@ class RenderChunkSqlTest extends PostgresTestBase {
     }
 
     /**
-     * Quotes a SQL identifier, doubling embedded quotes and quoting each dotted
-     * part.
-     *
-     * @param identifier the identifier or dotted name
-     * @return the quoted identifier
-     */
-    private static String quoteIdentifier(String identifier) {
-        return java.util.Arrays.stream(identifier.split("\\."))
-                .map(part -> "\"" + part.replace("\"", "\"\"") + "\"")
-                .collect(java.util.stream.Collectors.joining("."));
-    }
-
-    /**
      * Quotes a SQL string literal, doubling embedded quotes.
      *
      * @param value the literal value
@@ -81,7 +68,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      * @return the qualified name
      */
     private static String qualify(String schema, String table) {
-        return quoteIdentifier(schema) + "." + quoteIdentifier(table);
+        return quoteQualifiedIdentifier(schema) + "." + quoteQualifiedIdentifier(table);
     }
 
     /**
@@ -973,13 +960,13 @@ class RenderChunkSqlTest extends PostgresTestBase {
                 endTuple.append(", ");
                 selectList.append(", ");
             }
-            columnTuple.append(quoteIdentifier("t." + columns[i]));
-            selectList.append(quoteIdentifier(columns[i]));
+            columnTuple.append(quoteQualifiedIdentifier("t." + columns[i]));
+            selectList.append(quoteQualifiedIdentifier(columns[i]));
             startTuple.append(quoteLiteral(start[i])).append("::").append(kinds[i]);
             endTuple.append(quoteLiteral(end[i])).append("::").append(kinds[i]);
         }
         String tupleSql = "SELECT " + selectList + " FROM "
-                + qualify(schema, table) + " " + quoteIdentifier("t") + " WHERE ("
+                + qualify(schema, table) + " " + quoteQualifiedIdentifier("t") + " WHERE ("
                 + columnTuple + ") >= (" + startTuple + ") AND (" + columnTuple + ") "
                 + (isFinal ? "<=" : "<") + " (" + endTuple + ")";
 

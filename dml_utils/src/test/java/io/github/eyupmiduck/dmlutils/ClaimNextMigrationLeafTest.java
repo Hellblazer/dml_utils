@@ -11,7 +11,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -29,19 +28,6 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
-
-    /**
-     * Sets a session's statement timeout.
-     *
-     * @param connection the connection
-     * @param timeout    the timeout, as a psql interval literal
-     * @throws Exception if the SET fails
-     */
-    private static void setTimeout(Connection connection, String timeout) throws Exception {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET statement_timeout = '" + timeout + "'");
-        }
-    }
 
     /**
      * Empties the fixture and migration metadata between tests.
@@ -148,12 +134,12 @@ class ClaimNextMigrationLeafTest extends PartitionTestBase {
                     "the holder claims the first leaf and holds the run row");
 
             // A short timeout makes the serialization visible without hanging.
-            setTimeout(waiter, "250ms");
+            setStatementTimeout(waiter, "250ms");
             assertSqlState("57014", () -> claim(waiterDsl, runId));
             waiter.rollback();
 
             holder.commit();
-            setTimeout(waiter, "5s");
+            setStatementTimeout(waiter, "5s");
             assertEquals(1, claim(waiterDsl, runId).getFirst().getOLeafOrdinal(),
                     "a calculating leaf is retryable, so the second session reclaims it");
             waiter.commit();

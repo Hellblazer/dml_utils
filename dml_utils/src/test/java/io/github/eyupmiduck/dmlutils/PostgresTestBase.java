@@ -12,10 +12,8 @@ import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import org.jooq.JSON;
-import org.jooq.Record;
 import org.jooq.Table;
 import org.jooq.impl.DSL;
-import org.jooq.impl.SQLDataType;
 import org.junit.jupiter.api.BeforeEach;
 
 import java.math.BigDecimal;
@@ -259,27 +257,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         return OffsetDateTime.parse("2026-01-01T00:00:00Z").plusSeconds(second);
     }
 
-    /**
-     * Returns the schema name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's schema name
-     */
-    protected static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    /**
-     * Returns the name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's name
-     */
-    protected static String name(Table<?> table) {
-        return table.getName();
-    }
-
-    /**
+            /**
      * Returns the default bigint fixture's schema name.
      *
      * @return the schema name
@@ -327,43 +305,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 "bigint position");
     }
 
-    /**
-     * Sets the current role on a test connection.
-     *
-     * @param connection the connection
-     * @param role       the role to assume
-     * @throws SQLException if the role cannot be set
-     */
-    protected static void setRole(Connection connection, String role) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + quoteIdentifier(role));
-        }
-    }
-
-    /**
-     * Quotes an SQL identifier, doubling embedded double quotes. {@code SET ROLE},
-     * like most utility statements, takes no bind parameter, so a role name must
-     * be quoted rather than concatenated raw.
-     *
-     * @param identifier the identifier to quote
-     * @return the double-quoted identifier
-     */
-    private static String quoteIdentifier(String identifier) {
-        return '"' + identifier.replace("\"", "\"\"") + '"';
-    }
-
-    /**
-     * Returns the name of the database the test's jOOQ context is connected to.
-     * The admin-connection helpers need it, and jOOQ renders
-     * {@link DSL#currentCatalog()} as {@code current_database()} on PostgreSQL.
-     *
-     * @return the current database name
-     */
-    protected String currentDatabase() {
-        return dsl.fetchValue(DSL.currentCatalog());
-    }
-
-    /**
+                /**
      * Grants the test harness its extra setup privileges after the template
      * database is migrated.
      *
@@ -396,25 +338,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     @Override
     protected ProjectProfile projectProfile() {
         return PROFILE;
-    }
-
-    /**
-     * Evaluates a SQL expression and returns its single value as the given
-     * Java type.
-     *
-     * <p>This is plain SQL on purpose: testing a domain's check constraint
-     * means casting a literal to the domain, and jOOQ renders a cast to a
-     * {@code Domain}'s data type as the base type, so the constraint would not
-     * be exercised.
-     *
-     * @param expression the SQL expression to evaluate
-     * @param type       the Java type to read the value as
-     * @param <T>        the value type
-     * @return the expression's value
-     */
-    protected <T> T evaluate(String expression, Class<T> type) {
-        Record record = dsl.fetchOne("SELECT " + expression);
-        return record.get(0, type);
     }
 
     /**
@@ -537,31 +460,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
     }
 
-    /**
-     * Resolves a schema-qualified relation name to its OID.
-     *
-     * @param qualifiedName the schema-qualified relation name
-     * @return the relation OID
-     */
-    protected long relationOid(String qualifiedName) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", qualifiedName)
-                .get(0, Long.class);
-    }
-
-    /**
-     * Cancels another backend, for the concurrency tests that stop a worker or a
-     * blocked caller.
-     *
-     * @param pid the backend pid to cancel
-     * @return whether the signal was sent
-     */
-    protected boolean cancelBackend(int pid) {
-        return Boolean.TRUE.equals(dsl.fetchValue(DSL.function(
-                DSL.name("pg_catalog", "pg_cancel_backend"), SQLDataType.BOOLEAN,
-                DSL.val(pid))));
-    }
-
-    /**
+            /**
      * Creates a void function over the composite fixture that appends a value to
      * each processed row's payload, so processing a row twice is observable.
      *

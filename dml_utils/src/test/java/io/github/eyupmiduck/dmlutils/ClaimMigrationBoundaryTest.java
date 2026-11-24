@@ -9,7 +9,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.sql.Connection;
-import java.sql.Statement;
 import java.time.OffsetDateTime;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -100,13 +99,13 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
             assertNotNull(Routines.claimMigrationBoundary(
                     holderDsl.configuration(), runId, 0L), "the holder claims first");
 
-            setTimeout(waiter, "250ms");
+            setStatementTimeout(waiter, "250ms");
             assertSqlState("57014", () -> Routines.claimMigrationBoundary(
                     waiterDsl.configuration(), runId, 0L));
             waiter.rollback();
 
             holder.rollback();
-            setTimeout(waiter, "5s");
+            setStatementTimeout(waiter, "5s");
             assertNotNull(Routines.claimMigrationBoundary(
                             waiterDsl.configuration(), runId, 0L),
                     "the waiter can claim after the holder releases the lock");
@@ -124,11 +123,5 @@ class ClaimMigrationBoundaryTest extends PostgresTestBase {
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo))
                 .fetchOne();
-    }
-
-    private void setTimeout(Connection connection, String timeout) throws Exception {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET statement_timeout = '" + timeout + "'");
-        }
     }
 }
