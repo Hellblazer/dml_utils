@@ -53,11 +53,11 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             // A count aggregate always returns one row; the call itself proves the
             // caller can SELECT the metadata table (a denial would throw), so no
             // assertion on the row is needed.
-            caller.fetchOne("SELECT count(*) FROM dml_utils_data.migration_run");
-            assertSqlState("42501", () -> caller.execute(
-                    "UPDATE dml_utils_data.migration_run SET label = label"));
-            assertSqlState("42501", () -> caller.execute(
-                    "DELETE FROM dml_utils_data.migration_boundary"));
+            caller.fetchCount(MIGRATION_RUN);
+            assertSqlState("42501", () -> caller.update(MIGRATION_RUN)
+                    .set(MIGRATION_RUN.LABEL, MIGRATION_RUN.LABEL)
+                    .execute());
+            assertSqlState("42501", () -> caller.deleteFrom(MIGRATION_BOUNDARY).execute());
         }
     }
 

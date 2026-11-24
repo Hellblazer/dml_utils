@@ -107,7 +107,10 @@ Rules:
   small and focused.
 - Use modern Java 25 features where they improve readability.
 - Prefer jOOQ's type-safe DSL over hand-built SQL strings, and use generated
-  jOOQ classes where available.
+  jOOQ classes for every changelog-defined object.
+- Raw SQL is reserved for DDL, catalog introspection, session settings, locks,
+  privileges, deliberately malformed input, and SQL with no clear jOOQ
+  equivalent.
 - Do not duplicate schema definitions in Java.
 - Avoid adding dependencies or frameworks without a clear benefit.
 - Do not add comments that restate the code.

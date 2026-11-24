@@ -3,13 +3,15 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.sql.Connection;
-import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 
@@ -265,17 +267,25 @@ class PauseMigrationRunTest extends PostgresTestBase {
         try (Connection holder = openTestConnection();
              Connection caller = openTestConnection()) {
             holder.setAutoCommit(false);
-            try (Statement lock = holder.createStatement()) {
-                lock.execute("SELECT 1 FROM dml_utils_data.migration_run"
-                        + " WHERE run_id = " + runId + " FOR UPDATE");
-            }
+            DSL.using(holder, SQLDialect.POSTGRES)
+                    .selectOne()
+                    .from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                    .forUpdate()
+                    .execute();
 
-            try (Statement call = caller.createStatement()) {
-                call.execute("SET lock_timeout = '1s'");
-                SQLException error = assertThrows(SQLException.class, () -> call.execute(
-                        "SELECT dml_utils." + routine + "('" + label + "')"));
-                assertEquals("55P03", error.getSQLState(),
-                        () -> "unexpected error: " + error.getMessage());
+            try (Statement setting = caller.createStatement()) {
+                setting.execute("SET lock_timeout = '1s'");
+                DSLContext callerDsl = DSL.using(caller, SQLDialect.POSTGRES);
+                assertSqlState("55P03", () -> {
+                    switch (routine) {
+                        case "pause_migration_run" ->
+                                Routines.pauseMigrationRun(callerDsl.configuration(), label);
+                        case "resume_migration_run" ->
+                                Routines.resumeMigrationRun(callerDsl.configuration(), label);
+                        default -> throw new IllegalArgumentException("unknown routine: " + routine);
+                    }
+                });
             }
 
             holder.commit();
