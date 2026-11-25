@@ -135,15 +135,20 @@ BEGIN
     END IF;
 
     -- A cancelled run is terminal; a paused run is resumable but must not be
-    -- auto-resumed. Completion wins when every chunk is already done.
+    -- auto-resumed. Completion wins when every chunk is already done. The
+    -- resolver rejects a run that is already cancelled; this re-read covers a
+    -- cancellation that commits between resolve and here, and fails closed
+    -- rather than returning a successful no-op.
     SELECT r.cancelled_at, r.paused_at
     INTO l_cancelled_at, l_paused_at
     FROM dml_utils_data.migration_run AS r
     WHERE r.run_id = l_run_id;
 
     IF l_cancelled_at IS NOT NULL THEN
-        RAISE NOTICE 'run for label % is cancelled; archive it or use a new label', i_label;
-        RETURN;
+        RAISE EXCEPTION
+            'migration run % for label % is cancelled; archive it with dml_utils.archive_migration_run and create a new run',
+            l_run_id, i_label
+            USING ERRCODE = '55000';
     END IF;
 
     IF l_paused_at IS NOT NULL THEN
@@ -606,10 +611,14 @@ COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
         'failed chunk it stops launching, lets the in-flight chunks commit, drains '
         'and detaches them, and re-raises the error; the failure is recorded (best '
         'effort) in dml_utils_data.migration_error first. A boundary already claimed '
-        'by another coordinator (P0C01) is treated as benign. A run cancelled with '
-        'dml_utils.cancel_migration_run stops launching, cancels the in-flight '
+        'by another coordinator (P0C01) is treated as benign. A run that is '
+        'already cancelled when the call starts is rejected with '
+        'object_not_in_prerequisite_state (55000): cancellation is terminal, so '
+        'archive the run and create a new one instead of treating the call as a '
+        'successful no-op. A run cancelled with dml_utils.cancel_migration_run '
+        'while this call is running stops launching, cancels the in-flight '
         'workers, marks the run and its remaining boundaries cancelled and '
-        'returns; a cancelled run is terminal. Requires READ COMMITTED '
+        'returns. Requires READ COMMITTED '
         '(assert_read_committed raises 0A000 otherwise), because the coordinator '
         'observes workers'' autonomous commits and polls the run row. A run paused with '
         'dml_utils.pause_migration_run stops launching, waits for the in-flight '

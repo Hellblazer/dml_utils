@@ -59,17 +59,25 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
-    -- Reuse the active run for the label when there is one; otherwise create it
-    -- by running populate_migration_boundaries in a worker so it commits
-    -- autonomously and the boundaries become visible to the processing workers.
+    -- A terminal (completed or cancelled) non-archived run owns the label.
+    -- Resolve it first so completion is reported and cancellation is rejected;
+    -- otherwise reuse the live run, or create one when the label is free. The
+    -- label index admits at most one non-archived row, so the two lookups are
+    -- mutually exclusive.
     --
     -- The lookup outcome is materialized in l_run_found immediately: FOUND is
     -- reset by every later statement, and the resume-vs-create decision must not
     -- depend on it surviving. The whole row is selected, so a new migration_run
     -- column cannot break this assignment the way a copied column list would.
-    l_run := (SELECT active_run
-              FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+    l_run := (SELECT terminal_run
+              FROM dml_utils_lib.find_terminal_migration_run(i_label => i_label) AS terminal_run);
     l_run_found := l_run.run_id IS NOT NULL;
+
+    IF NOT l_run_found THEN
+        l_run := (SELECT active_run
+                  FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+        l_run_found := l_run.run_id IS NOT NULL;
+    END IF;
 
     IF NOT l_run_found THEN
         -- Validate the requested count before creating anything, so a rejected
@@ -101,9 +109,14 @@ BEGIN
                     i_retry_backoff_ms => i_retry_backoff_ms);
         EXCEPTION
             WHEN unique_violation THEN
-                l_run := (SELECT active_run
-                          FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+                l_run := (SELECT terminal_run
+                          FROM dml_utils_lib.find_terminal_migration_run(i_label => i_label) AS terminal_run);
                 l_run_found := l_run.run_id IS NOT NULL;
+                IF NOT l_run_found THEN
+                    l_run := (SELECT active_run
+                              FROM dml_utils_lib.find_active_migration_run(i_label => i_label) AS active_run);
+                    l_run_found := l_run.run_id IS NOT NULL;
+                END IF;
                 IF NOT l_run_found THEN
                     -- No winner to adopt: keep the original unique violation.
                     RAISE;
@@ -111,8 +124,18 @@ BEGIN
         END;
     END IF;
 
+    -- A cancelled run is terminal. Its non-archived row still blocks the label
+    -- (migration_run_label_active_idx), so creating a second run would only fail
+    -- on that index. Fail closed and name the action that frees the label.
+    IF l_run_found AND l_run.cancelled_at IS NOT NULL THEN
+        RAISE EXCEPTION
+            'migration run % for label % is cancelled; archive it with dml_utils.archive_migration_run and create a new run',
+            l_run.run_id, i_label
+            USING ERRCODE = '55000';
+    END IF;
+
     -- The completed no-op covers both a pre-existing run and an adopted winner
-    -- that finished before this lookup.
+    -- that finished before this lookup. Cancellation was rejected above.
     IF l_run_found AND l_run.completed_at IS NOT NULL THEN
         RAISE NOTICE 'run for label % already completed at %', i_label, l_run.completed_at;
         o_run_id := l_run.run_id;
@@ -207,24 +230,27 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.resolve_migration_run IS
-    'Resolves or creates the active run for the label and returns the inputs the '
+    'Resolves or creates the current run for the label and returns the inputs the '
         'coordinator should use: the run id, whether it was already complete, the '
         'effective sql_text/schema/table/alias/threads/sleep_ms/retry-policy and '
         'chunking strategy (stored values for a resumed run), whether the run is '
         'partition-wise, and the boundary key columns and kinds (the stored '
         'ordered-key descriptor for ordered_key, the real primary key for '
         'primary_key, or a single bigint block number for blocks). '
-        'find_active_migration_run, resume_migration_run and create_migration_run '
-        'own the lookup, resume validation and autonomous creation. A new label '
+        'find_terminal_migration_run/find_active_migration_run, '
+        'resume_migration_run and create_migration_run own the lookup, resume '
+        'validation and autonomous creation. A new label '
         'that another session created concurrently resolves to the winner''s run: '
         'a 23505 from the create is adopted when the winner is visible, and '
         'otherwise the original error is re-raised. Creation commits in an '
         'autonomous worker, so the routine requires READ COMMITTED (the default) '
         'to observe the created or adopted row; assert_read_committed raises '
         '0A000 for any other isolation level instead of letting the lookup fail '
-        'later. When the run is already complete, '
-        'only o_run_id and o_already_completed are set and the other outputs stay '
-        'NULL: the caller stops on that flag. A resumed run fails '
-        'closed if the driving table''s physical filepath changed, and a resumed '
-        'ordered-key run re-validates its stored index and descriptor, raising '
+        'later. When the run is already complete, only o_run_id and '
+        'o_already_completed are set and the other outputs stay NULL: the caller '
+        'stops on that flag. A cancelled run is terminal and raises '
+        'object_not_in_prerequisite_state (55000) telling the caller to archive '
+        'it and create a new run. A resumed run fails closed if the driving '
+        'table''s physical filepath changed, and a resumed ordered-key run '
+        're-validates its stored index and descriptor, raising '
         'object_not_in_prerequisite_state (55000) if the index no longer matches.';

@@ -311,7 +311,8 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
 
     /**
      * Cancelling a run before its leaves are calculated stops the calculation and
-     * processing; the pending leaves are left for the operator to archive.
+     * processing: a later call fails closed with {@code 55000}, and the pending
+     * leaves are left for the operator to archive.
      */
     @Test
     void cancellationStopsLeafCalculation() {
@@ -323,7 +324,7 @@ class PartitionWiseRunnerTest extends PartitionTestBase {
                 ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         Routines.cancelMigrationRun(dsl.configuration(), label);
 
-        run(PARTITIONED_RANGE, label, 2, true);
+        assertSqlState("55000", () -> run(PARTITIONED_RANGE, label, 2, true));
 
         MigrationRunRecord run = run(label);
         assertNotNull(run.getCancelledAt());

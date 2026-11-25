@@ -169,8 +169,9 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
     }
 
     /**
-     * A cancelled run is terminal: a later call resolves the stored strategy and
-     * index but processes no chunk.
+     * A cancelled run is terminal: a later call fails closed with {@code 55000}
+     * instead of resolving the stored strategy and returning a successful no-op,
+     * and it processes no chunk.
      */
     @Test
     void doesNotProcessChunksForACancelledRun() {
@@ -183,7 +184,8 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                         2, 1, ChunkingStrategy.ordered_key, "t", 0, UUID_INDEX, false, 3, 1000);
         Routines.cancelMigrationRun(dsl.configuration(), label);
 
-        run(label, TEST_ORDERED_KEY_UUID, UUID_INDEX, 2, 1, APPEND_TEMPLATE);
+        assertSqlState("55000", () -> run(label, TEST_ORDERED_KEY_UUID, UUID_INDEX, 2, 1,
+                APPEND_TEMPLATE));
 
         assertEquals(0, dsl.fetchCount(TEST_ORDERED_KEY_UUID,
                         TEST_ORDERED_KEY_UUID.PAYLOAD.eq("x")),

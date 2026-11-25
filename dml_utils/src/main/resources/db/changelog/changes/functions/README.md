@@ -188,6 +188,58 @@ an advanced mitigation, not a guarantee. The transformation must be idempotent,
 the trigger must not recurse, and it does not make deletes, concurrent DML or
 heap rewrites safe; it does not replace a quiescent source.
 
+## Migration run lifecycle
+
+A label addresses at most one non-archived run
+(`migration_run_label_active_idx`). A run is *active* while it is not archived,
+completed or cancelled; `paused_at` is a flag on an active run, not a separate
+terminal state.
+
+```text
+                    resolve_migration_run / create_migration_run
+                                    |
+                                    v
+       active (started_at, boundaries_calculated_at) --run_migration_chunks--> running
+             |                    ^                              |
+      pause  |                    | resume                       | every chunk completed
+             v                    |                              v
+          paused ----------------+                        completed (terminal)
+             |                                                    |
+      cancel |                                                    | archive
+             v                                                    v
+        cancelled (terminal) --------------------------------> archived --> deleted (archive rows only)
+```
+
+| Transition | Routine | Stored change |
+| --- | --- | --- |
+| create | `resolve_migration_run` -> `create_migration_run` / `populate_migration_boundaries` | inserts the run and its boundaries, sets `started_at` and `boundaries_calculated_at` |
+| process | `run_migration_chunks` | completes boundaries and `completed_at` when every chunk finishes |
+| pause | `pause_migration_run` | sets `paused_at` |
+| resume | `resume_migration_run` | clears `paused_at` (no-op when not paused) |
+| complete | `complete_migration_run` | sets `completed_at`, clears `paused_at` |
+| cancel | `cancel_migration_run` | sets `cancelled_at`, clears `paused_at`, marks unclaimed boundaries cancelled |
+| archive | `archive_migration_run` | cancels an unfinished run, then sets `archived_at`; frees the label |
+| delete | `delete_archived_migration_runs` | deletes archived rows |
+
+`completed` and `cancelled` are terminal. Archiving is the transition that frees
+the label; deleting only removes archived history. A completed unarchived run is
+reported as already complete by the resolver. A cancelled unarchived run is
+rejected by the resolver and the runner with `55000`: archive it and create a
+new run, because its non-archived row still owns the label.
+
+The routines intentionally read different subsets of the lifecycle:
+
+| Routine | Row predicate / handling |
+| --- | --- |
+| `find_terminal_migration_run` | `archived_at IS NULL AND (completed_at IS NOT NULL OR cancelled_at IS NOT NULL)` |
+| `find_active_migration_run` | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL` |
+| `resolve_migration_run` | terminal first (`completed_at` -> `o_already_completed`; `cancelled_at` -> `55000`), then active, otherwise create |
+| `pause_migration_run` / `resume_migration_run` / `cancel_migration_run` | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL` |
+| `complete_migration_run` | not completed or cancelled, boundaries calculated, all chunks completed |
+| `archive_migration_run` | `archived_at IS NULL`; cancels an unfinished run first |
+| `delete_archived_migration_runs` | `archived_at IS NOT NULL` |
+| `run_migration_chunks` | completed -> return; cancelled -> `55000`; paused -> drain and return; otherwise process |
+
 ## `dml_utils`
 
 ### `dml_utils.run_migration_chunks(...)`
@@ -253,7 +305,7 @@ like `i_threads`; a resumed run uses the stored value, and
 to that many chunks can still be in flight, so use a small thread count and/or
 smaller chunks for strict pacing. `i_sql_text` is a template with
 `<driving_table>` and `<chunking_clause>` (see `render_chunk_sql`). Reuses the
-active run for the label, or creates it by running
+current run for the label, or creates it by running
 `dml_utils_lib.populate_migration_boundaries` in a worker so its boundaries
 commit before the chunks run (run resolution is delegated to
 `dml_utils_lib.resolve_migration_run`). A resumed run uses the recorded SQL
@@ -273,9 +325,12 @@ transaction so a failed attempt rolls it back. Raises `unique_violation` (`23505
 when another active run already exists for the label, and re-raises a chunk
 worker's failure
 with its original SQLSTATE. `RAISE NOTICE` and returns when the run is already
-complete. A run cancelled with `cancel_migration_run` stops launching, cancels
-the in-flight workers, marks the run and its remaining boundaries cancelled and
-returns; a cancelled run is terminal. Requires `READ COMMITTED` (`assert_read_committed`
+complete. A run that is already cancelled when the call starts raises
+`object_not_in_prerequisite_state` (`55000`): cancellation is terminal, so
+archive it and create a new run instead of treating the call as a successful
+no-op. A run cancelled with `cancel_migration_run` while this call is running
+stops launching, cancels the in-flight workers, marks the run and its remaining
+boundaries cancelled and returns. Requires `READ COMMITTED` (`assert_read_committed`
 raises `0A000` otherwise), because the coordinator observes workers' autonomous
 commits and polls the run row; do not hold locks on the driving table across the
 call. `i_poll_timeout_ms` is how long the coordinator waits for a
@@ -1283,7 +1338,7 @@ RETURNS record (o_run_id bigint, o_already_completed boolean,
 ```
 
 `SECURITY INVOKER`. The run-resolution half of `run_migration_chunks`: it reuses
-the active run for the label or creates one (populating its boundaries in a
+the current run for the label or creates one (populating its boundaries in a
 `pg_background` worker so they commit autonomously), then returns the run id,
 whether it was already complete, the effective sql_text/schema/table/alias/
 threads, sleep and chunking strategy (the stored values for a resumed run,
@@ -1299,12 +1354,17 @@ loser adopts the winner's run instead of surfacing the raw `23505`: a
 `unique_violation` from either create-time source (the label index insert or the
 worker's pre-insert active-run assert) is retried as a lookup, and if no winner
 is visible the original error is re-raised rather than masked. If the adopted run
-is already complete it reports the completed no-op. Creation commits in an
+is already complete it reports the completed no-op. If it is cancelled (a run
+cancelled while two sessions race to create or resume it), it raises `55000`
+like any other cancelled current run. Creation commits in an
 autonomous worker, so the routine requires `READ COMMITTED` (the default) to
 observe the created or adopted row; `assert_read_committed` raises `0A000` for any
 other isolation level instead of letting the lookup fail later. On the already-completed path only
 `o_run_id` and `o_already_completed` are set; the other outputs are NULL because
-the caller stops on that flag. For a new
+the caller stops on that flag. A cancelled current run raises
+`object_not_in_prerequisite_state` (`55000`) naming the archive action: its
+non-archived row still owns the label, so the caller must archive it before a new
+run can be created. For a new
 partition-wise run the worker only creates the run and its pending leaf manifest;
 `run_migration_chunks` then calculates the leaves and finalizes. A resumed run
 keeps its stored `partition_wise` flag, ignoring a differing input with a notice.
@@ -2476,9 +2536,24 @@ i_label dml_utils_data.non_null_text
 RETURNS SETOF dml_utils_data.migration_run
 ```
 
-`STABLE`, `SECURITY INVOKER`. Returns the active (not archived) run for a label,
-or no row, as the `migration_run` composite itself (a whole-row reference, not a
-copied column list), so the projection cannot drift from the table.
+`STABLE`, `SECURITY INVOKER`. Returns the live (active) run for a label — not
+archived, completed or cancelled — or no row, as the `migration_run` composite
+itself (a whole-row reference, not a copied column list), so the projection
+cannot drift from the table. The resolver calls it after
+`find_terminal_migration_run` has ruled out a terminal run.
+
+### `dml_utils_lib.find_terminal_migration_run(i_label)`
+
+```sql
+i_label dml_utils_data.non_null_text
+RETURNS SETOF dml_utils_data.migration_run
+```
+
+`STABLE`, `SECURITY INVOKER`. Returns the terminal (completed or cancelled)
+non-archived run for a label, or no row, as the `migration_run` composite
+itself. The resolver checks it before the live-run lookup: completed is the
+`o_already_completed` no-op; cancelled raises `55000`, because its non-archived
+row still owns the label until it is archived.
 
 ###
 

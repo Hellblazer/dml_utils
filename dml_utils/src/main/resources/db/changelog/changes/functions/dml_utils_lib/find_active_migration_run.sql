@@ -10,14 +10,20 @@ $$
     -- Select the whole row, not a copied column list: the function's result type
     -- is the table composite, so this cannot drift when a column is added. (Not a
     -- `*` projection: the row reference is a single composite value.)
+    --
+    -- "Active" is the live run: not archived, completed or cancelled. Terminal
+    -- rows are returned by find_terminal_migration_run so the resolver can report
+    -- completion or reject cancellation without treating either as resumable.
 SELECT run
 FROM dml_utils_data.migration_run AS run
 WHERE run.label = i_label
-  AND run.archived_at IS NULL;
+  AND run.archived_at IS NULL
+  AND run.completed_at IS NULL
+  AND run.cancelled_at IS NULL;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.find_active_migration_run IS
-    'Returns the active (not archived) run for a label, or no row, as the '
-        'migration_run composite itself so the projection cannot drift from the '
-        'table. Used by resolve_migration_run to decide between resume and '
-        'creation.';
+    'Returns the live (active) run for a label: not archived, completed or '
+        'cancelled, or no row, as the migration_run composite itself so the '
+        'projection cannot drift from the table. Used by resolve_migration_run '
+        'after find_terminal_migration_run has ruled out a terminal run.';

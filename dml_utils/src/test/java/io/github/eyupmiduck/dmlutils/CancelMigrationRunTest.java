@@ -86,7 +86,9 @@ class CancelMigrationRunTest extends PostgresTestBase {
 
     /**
      * A cancelled run is terminal: a resumed {@code run_migration_chunks} call
-     * returns without processing or completing it.
+     * fails closed with {@code 55000} instead of returning a successful no-op,
+     * leaves the run and its boundaries unprocessed, and archiving the run frees
+     * the label for a new run that processes normally.
      */
     @Test
     void refusesToResumeACancelledRun() {
@@ -95,9 +97,9 @@ class CancelMigrationRunTest extends PostgresTestBase {
         Long runId = populateSingleRelation(label, TEMPLATE, 2);
         assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
 
-        Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
+        assertSqlState("55000", () -> Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
                 schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
+                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
 
         MigrationRunRecord run = migrationRun(runId);
         assertNotNull(run.getCancelledAt(), "the run stays cancelled");
@@ -106,6 +108,24 @@ class CancelMigrationRunTest extends PostgresTestBase {
                         MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                                 .and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())),
                 "no chunk is processed after cancellation");
+
+        assertEquals(runId, Routines.archiveMigrationRun(dsl.configuration(), label),
+                "the cancelled run is archived");
+
+        Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
+                schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
+                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
+
+        Long replacementId = dsl.fetchValue(MIGRATION_RUN.RUN_ID,
+                MIGRATION_RUN.LABEL.eq(label).and(MIGRATION_RUN.ARCHIVED_AT.isNull()));
+        assertNotNull(replacementId, "the label is reused by a new run");
+        assertNotEquals(runId, replacementId, "the archived run is not resumed");
+        assertNotNull(migrationRun(replacementId).getCompletedAt(),
+                "the replacement run processes and completes");
+        assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY,
+                        MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                                .and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())),
+                "the cancelled run stays unprocessed");
     }
 
     /**

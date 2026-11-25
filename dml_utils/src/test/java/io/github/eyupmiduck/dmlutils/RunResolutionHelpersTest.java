@@ -42,8 +42,9 @@ class RunResolutionHelpersTest extends PostgresTestBase {
     }
 
     /**
-     * The active-run lookup returns the run, ignores a missing label and ignores
-     * an archived run.
+     * The active-run lookup returns the live run, ignores a missing label, and
+     * stops returning a run once it is cancelled or archived; the terminal
+     * lookup is the one that sees the cancelled row until it is archived.
      */
     @Test
     void findsOnlyTheActiveRun() {
@@ -55,11 +56,43 @@ class RunResolutionHelpersTest extends PostgresTestBase {
         assertTrue(Routines.findActiveMigrationRun(dsl.configuration(),
                 "no-such-label").isEmpty());
 
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                .cancelMigrationRun(dsl.configuration(), label);
+        assertTrue(Routines.findActiveMigrationRun(dsl.configuration(), label).isEmpty(),
+                "a cancelled run is not active");
+        assertEquals(runId, Routines.findTerminalMigrationRun(dsl.configuration(), label)
+                        .getFirst().getRunId(),
+                "the terminal lookup sees the cancelled unarchived run");
+
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
-        assertTrue(Routines.findActiveMigrationRun(dsl.configuration(), label).isEmpty());
+        assertTrue(Routines.findActiveMigrationRun(dsl.configuration(), label).isEmpty(),
+                "an archived run is not active");
+        assertTrue(Routines.findTerminalMigrationRun(dsl.configuration(), label).isEmpty(),
+                "an archived run is not terminal-current");
+    }
+
+    /**
+     * A completed unarchived run is terminal, not active; the resolver uses the
+     * terminal lookup to report it as already complete.
+     */
+    @Test
+    void findsACompletedRunAsTerminal() {
+        String label = uniqueLabel("find-completed");
+        long runId = populate(label, ChunkingStrategy.primary_key);
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertTrue(Routines.findActiveMigrationRun(dsl.configuration(), label).isEmpty(),
+                "a completed run is not active");
+        assertEquals(runId, Routines.findTerminalMigrationRun(dsl.configuration(), label)
+                        .getFirst().getRunId(),
+                "the terminal lookup sees the completed unarchived run");
     }
 
     /**
