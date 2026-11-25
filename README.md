@@ -28,8 +28,10 @@ Docker required (see
 Liquibase loads three application schemas, layered so nothing lower depends on
 anything above it:
 
-- **`dml_utils`** — the caller-facing API: `dml_utils.run_migration_chunks` and
-  the `run_function_over_table` wrapper, plus the run controls (`set_migration_run_sql_text`,
+- **`dml_utils`** — the caller-facing API: `dml_utils.run_migration_chunks`, its
+  committing procedure twin `run_migration_chunks_committing` (see
+  [Keeping VACUUM effective](#keeping-vacuum-effective-run_migration_chunks_committing))
+  and the `run_function_over_table` wrapper, plus the run controls (`set_migration_run_sql_text`,
   `set_migration_run_function`,
   `set_migration_run_threads`, `set_migration_run_sleep_ms`,
   `set_migration_run_retries`, `pause_migration_run`, `resume_migration_run`,
@@ -82,17 +84,74 @@ The work is done through [`pg_background`](https://github.com/vibhorkum/pg_backg
 which runs SQL in a background worker with an **autonomous transaction**: a
 worker's `COMMIT` is independent of the caller's transaction, so a chunk is
 committed while the calling `run_migration_chunks` is still running, and each
-worker is a separate backend.
+worker is a separate backend. That is what makes chunks durable one at a time
+and lets `i_threads` workers run in parallel.
 
-This could instead be a stored procedure that commits between chunks — functions
-cannot commit, so a procedure is the only in-database alternative. In practice
-that bloats the driving table badly. The whole procedure runs in one backend,
-and a backend's dead tuples are not reported to the shared buffer for reuse
-until its top-level call completes, so every chunk's old row versions pile up
-and `VACUUM` cannot reclaim them until the entire run returns. The end result is
-a table bloated by the full migration rather than one chunk at a time. Because
-each `pg_background` worker is its own backend, its dead tuples become reclaimable
-as soon as that chunk commits, so the bloat stays bounded by a single chunk.
+What a worker's commit does not do by itself is let `VACUUM` reclaim that
+chunk's old row versions while the run goes on. `VACUUM` removes a dead row only
+once no snapshot in the database can still see it, and a snapshot is held by
+every backend that is inside a statement or transaction, the coordinator
+included. `run_migration_chunks` is a function, so one `SELECT` runs the whole
+migration as a single statement, and that statement's snapshot holds the vacuum
+horizon until the call returns. Measured on PostgreSQL 17 with autovacuum off on
+a 20,004-row driving table, 21 chunks of 1,000: a `VACUUM` run seven chunks in
+removed 0 rows and reported 7,000 "dead but not yet removable", with a removable
+cutoff equal to the coordinator's `backend_xmin`; the same `VACUUM` after the call
+returned removed all 20,004. So with the function the table bloats by the whole
+migration, not by one chunk. The next section is the entry point that does not.
+
+### Keeping VACUUM effective: `run_migration_chunks_committing`
+
+`dml_utils.run_migration_chunks_committing` is a **procedure** with the same
+parameters, defaults and behavior as `run_migration_chunks`: labels, resume,
+`i_threads`, `i_sleep_ms`, `i_partition_wise`, `ordered_key`, error recording and
+cancellation all work the same, and both entry points drive one shared
+coordinator (`dml_utils_lib.coordinate_migration_chunks`). The difference is that
+the procedure `COMMIT`s after every launch, wait and settle step, so the
+coordinator never holds one snapshot across chunks: its `backend_xmin` is renewed
+at every step instead of staying at the value from the start of the call. The
+chunks still run in `pg_background` workers; only the coordinator changes.
+
+```sql
+CALL dml_utils.run_migration_chunks_committing(
+    i_sql_text => 'UPDATE <driving_table> SET payload = ''done'' WHERE <chunking_clause>',
+    i_driving_table_schema_name => 'app',
+    i_driving_table_name => 'big_table',
+    i_label => 'backfill-payload',
+    i_chunk_size => 10000,
+    i_threads => 2);
+```
+
+What that buys, measured by `RunMigrationChunksBloatTest` (12,000 rows, chunks of
+1,000, 400 ms between chunks, autovacuum off on the table, a `VACUUM (VERBOSE)`
+five chunks in):
+
+| Entry point                       | Coordinator `backend_xmin` over the run                 | `VACUUM (VERBOSE)` after 5 chunks committed                |
+|-----------------------------------|---------------------------------------------------------|------------------------------------------------------------|
+| `run_migration_chunks`            | one value in all 176 samples                            | 0 removed, 5,000 dead but not yet removable (all 5 chunks) |
+| `run_migration_chunks_committing` | 13 distinct values in 186 samples, renewed every step   | 4,492 removed, 0 dead but not yet removable                |
+
+The coordinator still holds a snapshot while a statement is running (a wait or a
+100 ms slice of the delay), so `backend_xmin` is not null in most samples; what
+changes is that each snapshot is new, taken after every earlier chunk committed,
+instead of one snapshot from the start of the call. The 508 rows the `VACUUM` did
+not have to remove had already been pruned by the chunks' own page access, which
+the pinned horizon prevents.
+
+**Limit: it must be `CALL`ed at top level.** A procedure that `COMMIT`s cannot run
+inside an explicit transaction block (`BEGIN ... COMMIT`), cannot be called from a
+function or a `DO` block inside a transaction, and cannot be wrapped in a client
+that opens a transaction around the call. PostgreSQL then fails the first
+`COMMIT` with `2D000` (`invalid_transaction_termination`); the procedure takes
+that failure as its very first statement, before any run exists, so a misplaced
+call changes nothing. Run it from `psql` or any driver in autocommit mode. When
+the call has to sit inside a transaction (for example in a migration tool that
+wraps every script in one), use `run_migration_chunks` and accept the pinned
+horizon, or drive the call from outside the transaction. The same holds for
+`run_function_over_table`, which is a function and has no committing variant.
+
+If the coordinator's session is killed, the run resumes exactly as with the
+function: call again with the same label.
 
 ### How it works
 
@@ -456,7 +515,8 @@ function with `dml_utils.set_migration_run_function`. See
 - `pg_background` must be installed and the caller must hold
   `pgbackground_role` (the custom image's init script grants it to
   `dml_utils_caller`).
-- `run_migration_chunks` and `process_migration_chunk` are `SECURITY INVOKER`:
+- `run_migration_chunks`, `run_migration_chunks_committing` and
+  `process_migration_chunk` are `SECURITY INVOKER`:
   the chunk SQL runs with the caller's privileges and needs whatever privileges
   that SQL needs on the driving table (typically `UPDATE`). The caller role is
   granted only `USAGE`/`EXECUTE` plus `SELECT` on the migration metadata; grant

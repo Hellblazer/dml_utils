@@ -95,6 +95,10 @@
          after the tables so routines may reference them. -->
     <include file="functions.xml" relativeToChangelogFile="true"/>
 
+    <!-- Stored procedures: only the routines that must COMMIT. They call the
+         functions above, so they run after the functions include. -->
+    <include file="procedures.xml" relativeToChangelogFile="true"/>
+
     <!-- The tables' triggers, one per file. They call the routines defined
          above, so they run after the functions include. -->
     <include file="triggers.xml" relativeToChangelogFile="true"/>

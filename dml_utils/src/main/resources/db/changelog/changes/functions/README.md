@@ -18,6 +18,9 @@ Dependencies point downward: `dml_utils_lib` may reference `dml_utils_data`;
 changeset; the matching drop lives in `changes/functions-rollback/`. Every
 routine is `SECURITY INVOKER` unless it genuinely needs `SECURITY DEFINER`.
 
+The routines that must `COMMIT` are procedures, so they live in
+[`../procedures/`](../procedures/README.md) (`changes/procedures.xml`) instead.
+
 The chunk executor is deliberately `SECURITY INVOKER`: `process_migration_chunk`
 runs caller-supplied SQL with the caller's privileges. Metadata writes are
 delegated to owner-owned `SECURITY DEFINER` helpers (`claim_migration_boundary`,
@@ -347,7 +350,9 @@ workers to commit their current chunk, leaves the run unfinished and resumable,
 and returns with a notice; calling again while paused is a no-op. Cancellation
 wins over pause. Each completed boundary records the statement's `ROW_COUNT` in
 `migration_boundary.rows_affected` and advances `migration_run.total_rows_affected`
-in the same transaction.
+in the same transaction. The function runs the whole migration as one statement, so its
+snapshot holds the vacuum horizon until it returns; `dml_utils.run_migration_chunks_committing`
+(see [the procedures README](../procedures/README.md)) does the same work without that.
 
 ### `dml_utils.explain_migration_chunks(...)`
 
