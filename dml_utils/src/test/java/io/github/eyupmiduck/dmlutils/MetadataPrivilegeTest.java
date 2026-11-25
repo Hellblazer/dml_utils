@@ -50,12 +50,14 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             setRole(connection, "dml_utils_caller");
             DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
 
-            assertNotNull(caller.fetchOne(
-                    "SELECT count(*) FROM dml_utils_data.migration_run"));
-            assertSqlState("42501", () -> caller.execute(
-                    "UPDATE dml_utils_data.migration_run SET label = label"));
-            assertSqlState("42501", () -> caller.execute(
-                    "DELETE FROM dml_utils_data.migration_boundary"));
+            // A count aggregate always returns one row; the call itself proves the
+            // caller can SELECT the metadata table (a denial would throw), so no
+            // assertion on the row is needed.
+            caller.fetchCount(MIGRATION_RUN);
+            assertSqlState("42501", () -> caller.update(MIGRATION_RUN)
+                    .set(MIGRATION_RUN.LABEL, MIGRATION_RUN.LABEL)
+                    .execute());
+            assertSqlState("42501", () -> caller.deleteFrom(MIGRATION_BOUNDARY).execute());
         }
     }
 
@@ -75,7 +77,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
 
             Routines.runMigrationChunks(caller.configuration(), ROLE_TEMPLATE,
                     TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(), label,
-                    2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false);
+                    2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
         }
 
         assertEquals(3, dsl.fetchCount(TEST_BIGINT,
@@ -96,14 +98,6 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     .values(uuid(i), timestamp((i + 1) / 2))
                     .execute();
         }
-        try (Connection owner = openOwnerConnection();
-             Statement statement = owner.createStatement()) {
-            statement.execute("GRANT SELECT, UPDATE ON dml_utils_fixtures.test_ordered_key_uuid"
-                    + " TO dml_utils_caller");
-            statement.execute("GRANT SELECT ON dml_utils_fixtures.test_ordered_key"
-                    + " TO dml_utils_caller");
-        }
-
         try (Connection connection = openTestConnection()) {
             connection.setAutoCommit(true);
             setRole(connection, "dml_utils_caller");
@@ -113,13 +107,13 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     TEST_ORDERED_KEY_UUID.getSchema().getName(),
                     TEST_ORDERED_KEY_UUID.getName(), uniqueLabel("caller-ordered"),
                     2, 1, "t", ChunkingStrategy.ordered_key, 1, 0,
-                    "test_ordered_key_uuid_created_at_id_idx", false);
+                    "test_ordered_key_uuid_created_at_id_idx", false, 3, 1000);
 
             assertSqlState("0A000", () -> Routines.runMigrationChunks(
                     caller.configuration(), ROLE_TEMPLATE,
                     TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
                     uniqueLabel("caller-ordered-unsafe"), 2, 1, "t",
-                    ChunkingStrategy.ordered_key, 1, 0, "test_ordered_key_nonunique_idx", false));
+                    ChunkingStrategy.ordered_key, 1, 0, "test_ordered_key_nonunique_idx", false, 3, 1000));
         }
 
         assertEquals(4, dsl.fetchCount(TEST_ORDERED_KEY_UUID,
@@ -147,7 +141,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             assertSqlState("42501", () -> Routines.runMigrationChunks(
                     caller.configuration(), malicious, TEST_BIGINT.getSchema().getName(),
                     TEST_BIGINT.getName(), label, 2, 1, "t",
-                    ChunkingStrategy.primary_key, 1, 0, null, false));
+                    ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
         }
 
         assertFalse(runCompleted(label), "the failed run must not be complete");
@@ -156,11 +150,13 @@ class MetadataPrivilegeTest extends PostgresTestBase {
         assertEquals(1, dsl.fetchCount(MIGRATION_ERROR,
                         MIGRATION_ERROR.RUN_ID.eq(runId(label))),
                 "the chunk failure should be recorded by the owner-owned helper");
+        assertEquals(0, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.eq("done")),
+                "the failed chunk's first update must roll back with its worker");
     }
 
     /**
      * The completion helper is idempotent: a second direct call fails without
-     * incrementing the run's counter twice.
+     * incrementing either run counter twice.
      */
     @Test
     void completeBoundaryDoesNotDoubleIncrement() {
@@ -169,14 +165,23 @@ class MetadataPrivilegeTest extends PostgresTestBase {
         long runId = populate(label);
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                dsl.configuration(), runId, 0L, OffsetDateTime.now());
+                dsl.configuration(), runId, 0L, OffsetDateTime.now(), 3L);
         assertEquals(1L, totalCompleted(runId));
+        assertEquals(3L, totalRowsAffected(runId));
         assertTrue(boundaryCompleted(runId, 0));
 
         assertSqlState("P0C02", () ->
                 io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                        dsl.configuration(), runId, 0L, OffsetDateTime.now()));
+                        dsl.configuration(), runId, 0L, OffsetDateTime.now(), 7L));
         assertEquals(1L, totalCompleted(runId), "the failed second completion must not count");
+        assertEquals(3L, totalRowsAffected(runId),
+                "the failed second completion must not change the row count");
+        assertEquals(3L, dsl.select(MIGRATION_BOUNDARY.ROWS_AFFECTED)
+                        .from(MIGRATION_BOUNDARY)
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .fetchOne(MIGRATION_BOUNDARY.ROWS_AFFECTED),
+                "the boundary keeps the first recorded count");
     }
 
     /**
@@ -194,9 +199,9 @@ class MetadataPrivilegeTest extends PostgresTestBase {
         assertFalse(runCompleted(runId), "a run with pending chunks must not complete");
 
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                dsl.configuration(), runId, 0L, OffsetDateTime.now());
+                dsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                dsl.configuration(), runId, 1L, OffsetDateTime.now());
+                dsl.configuration(), runId, 1L, OffsetDateTime.now(), 0L);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationRun(
                 dsl.configuration(), runId);
 
@@ -213,9 +218,9 @@ class MetadataPrivilegeTest extends PostgresTestBase {
         String label = uniqueLabel("cancel-completed");
         long runId = populate(label);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                dsl.configuration(), runId, 0L, OffsetDateTime.now());
+                dsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
-                dsl.configuration(), runId, 1L, OffsetDateTime.now());
+                dsl.configuration(), runId, 1L, OffsetDateTime.now(), 0L);
         io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationRun(
                 dsl.configuration(), runId);
         assertTrue(runCompleted(runId));
@@ -248,7 +253,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
             long runId = io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                     .populateMigrationBoundaries(caller.configuration(),
                             TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(), label,
-                            ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                            ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
             Routines.setMigrationRunThreads(caller.configuration(), label, 2);
             Routines.setMigrationRunSleepMs(caller.configuration(), label, 5);
@@ -258,7 +263,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
 
             assertEquals(runId, Routines.cancelMigrationRun(caller.configuration(), label));
             assertEquals(runId, Routines.archiveMigrationRun(caller.configuration(), label));
-            assertTrue(Routines.deleteArchivedMigrationRuns1(caller.configuration()) >= 1,
+            assertTrue(Routines.deleteArchivedMigrationRuns(caller.configuration(), null, 1000) >= 1,
                     "the caller should be able to delete the archived run");
         } finally {
             dsl.execute("DROP FUNCTION IF EXISTS public.caller_mark(bigint)");
@@ -285,7 +290,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                     io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                             .populateMigrationBoundaries(caller.configuration(),
                                     schema(TEST_NO_PK), name(TEST_NO_PK), label,
-                                    ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
+                                    ROLE_TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
         } finally {
             try (Connection owner = openOwnerConnection(); Statement statement = owner.createStatement()) {
                 statement.execute("GRANT SELECT ON " + schema(TEST_NO_PK) + "." + name(TEST_NO_PK)
@@ -297,7 +302,7 @@ class MetadataPrivilegeTest extends PostgresTestBase {
     private long populate(String label) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                label, "SELECT 1", 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                label, "SELECT 1", 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
     }
 
     private long totalCompleted(long runId) {
@@ -305,6 +310,13 @@ class MetadataPrivilegeTest extends PostgresTestBase {
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+    }
+
+    private long totalRowsAffected(long runId) {
+        return dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_ROWS_AFFECTED);
     }
 
 }

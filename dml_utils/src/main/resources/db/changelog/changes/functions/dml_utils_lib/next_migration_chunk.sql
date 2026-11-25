@@ -1,10 +1,10 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.next_migration_chunk(
-    i_run_id bigint,
-    i_partition_wise boolean,
-    i_key_kinds text[],
-    i_in_flight_boundaries bigint[],
-    i_default_schema_name text,
-    i_default_table_name text,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_partition_wise dml_utils_data.non_null_boolean,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
+    i_in_flight_boundaries dml_utils_data.non_null_element_bigint_array,
+    i_default_schema_name dml_utils_data.non_null_text,
+    i_default_table_name dml_utils_data.non_null_text,
     OUT o_boundary_no bigint,
     OUT o_chunk_schema_name text,
     OUT o_chunk_table_name text,
@@ -16,6 +16,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.next_migration_chunk(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE
@@ -59,7 +60,7 @@ BEGIN
                        ON leaf.run_id = b.run_id
                            AND leaf.leaf_ordinal = b.leaf_ordinal
              CROSS JOIN LATERAL (
-        SELECT max(boundary_no) AS boundary_no
+        SELECT pg_catalog.max(boundary_no) AS boundary_no
         FROM dml_utils_data.migration_boundary
         WHERE run_id = b.run_id
         ) AS last
@@ -78,7 +79,7 @@ BEGIN
         RETURN;
     END IF;
 
-    IF i_partition_wise THEN
+    IF i_partition_wise::boolean THEN
         IF o_chunk_schema_name IS NULL THEN
             RAISE EXCEPTION 'partition tree changed for run %: leaf ordinal % is missing from the manifest',
                 i_run_id, l_start_leaf_ordinal
@@ -111,16 +112,11 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk(
-    bigint,
-    boolean,
-    text[],
-    bigint[],
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.next_migration_chunk IS
     'Selects the next unclaimed boundary for a run (not in flight), extracts its '
         'start and end keys and, for a partition-wise run, ends the last chunk of '
         'each leaf at the manifest high-water snapshot with an inclusive bound. '
-        'Returns no boundary number when nothing is left to launch. A missing '
-        'leaf or terminal snapshot raises 55000.';
+        'Returns no boundary number when nothing is left to launch. Selection is '
+        'advisory: the coordinator claims the boundary atomically before running '
+        'it, so two coordinators can select the same boundary and the claim '
+        'decides. A missing leaf or terminal snapshot raises 55000.';

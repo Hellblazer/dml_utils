@@ -207,13 +207,17 @@ processing path keeps its existing claim/cancellation behaviour.
   partition-wise ordered keys the parent index is resolved to the key
   descriptor and every leaf's matching child index is validated before the run.
 - `explain_migration_chunks` and `explain_migration_chunk` gain
-  `i_partition_wise` and a leaf selector (ordinal or name; the first leaf is
-  the default). Their plan rows identify the leaf schema/name. The run-based
-  explain reads the boundary's `leaf_ordinal`; the synthetic explain renders the
-  selected leaf.
-- `run_function_over_table` stays non-partition-wise in v1: its contract binds
-  the function's argument types to one key and its template is generated from
-  the parent. Supporting it is a follow-up, not part of this decision.
+  `i_partition_wise` and an ordinal leaf selector (`i_leaf_ordinal`; NULL
+  selects the first leaf; name-based selection is deferred). Their plan rows
+  identify the leaf schema/name/ordinal. The run-based
+  `explain_migration_run_chunk(run_id, boundary_no)` reads the boundary's stored
+  `leaf_ordinal`, uses the manifest high-water snapshot for a leaf-final chunk,
+  and fails closed if the live tree no longer matches the manifest. The synthetic
+  explain renders the selected leaf.
+- `run_function_over_table` is partition-wise as of `dml-99x.4`: it accepts
+  `i_boundary_key_index` and `i_partition_wise` and forwards them to the base
+  engine. Its function contract still binds the arguments to the parent primary
+  key; the chunk key is independent.
 - Non-partitioned runs keep their current API and behaviour; the default is
   `partition_wise = false`.
 
@@ -235,15 +239,16 @@ leaf is rejected.
 ### 10. Baseline policy (pre-deployment, historical)
 
 These changes were applied to the pre-deployment baseline:
-`006-create-migration-tables.sql`, the create/type scripts, routine files,
+`007-create-migration-tables.sql`, the create/type scripts, routine files,
 grants and rollbacks were edited in place; no compatibility changesets or
 backfills were added, and local/dev/benchmark databases were recreated.
-`LiquibaseUpgradeTest` was suspended while the baseline was edited in place (`dml-b87.12`) and was restored in
+`BaselineUpgradeTest` was suspended while the baseline was edited in place (`dml-b87.12`) and was restored in
 `dml-b87.13` against v1.16.0, the first
 release cut from the cleaned changelog.
 
 This policy no longer applies: the baseline is published, so further changes are
-new changesets and `LiquibaseUpgradeTest` stays enabled.
+new changesets and `BaselineUpgradeTest` is enabled. A later in-place baseline
+edit repeats the disable -> baseline release -> re-enable cycle.
 
 ## Example
 
@@ -326,9 +331,8 @@ Negative / risks:
 - Old-style inheritance trees, foreign partitions, moving rows between
   partitions, automatic partition creation/rotation.
 - Cross-partition chunks.
-- Parallel boundary calculation in v1.
+- Parallel boundary calculation in this version.
 - Reconciling a changed partition tree.
-- Partition-wise `run_function_over_table` in v1.
 - Old runs or backfills from before the first deployment.
 
 ## Implementation map
@@ -346,3 +350,8 @@ Negative / risks:
 | `dml-sw6.9`  | Documentation                                                                      |
 | `dml-sw6.10` | Partitioned benchmark variant                                                      |
 | `dml-b87.13` | Restore the previous-release upgrade test after this epic                          |
+
+The later `dml-99x` epic completed the follow-up surface: partition-wise and
+ordered-key `run_function_over_table`, public explain leaf selection, the
+run-based chunk explain, the public leaf manifest, rows-affected progress and
+transient retries. See ADR 0003 for that design.

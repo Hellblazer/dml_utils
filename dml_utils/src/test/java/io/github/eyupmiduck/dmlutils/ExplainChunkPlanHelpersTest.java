@@ -12,8 +12,8 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies the strategy-specific explain helpers: each returns a boundary-insert
- * plan followed by a non-final and final chunk plan, and the rendered chunk SQL
- * uses the expected block or key range.
+ * plan followed by a non-final and final chunk plan, and each chunk plan renders
+ * the strategy's key column (ctid blocks or the key column).
  */
 class ExplainChunkPlanHelpersTest extends PostgresTestBase {
 
@@ -34,8 +34,16 @@ class ExplainChunkPlanHelpersTest extends PostgresTestBase {
                 plans.stream().map(ExplainBlockChunkPlansRecord::getOPlanKind).toList());
         assertTrue(plans.get(0).getOSqlText()
                 .contains("INSERT INTO dml_utils_data.migration_boundary"));
-        assertTrue(plans.get(1).getOSqlText().contains("t.ctid"));
-        assertTrue(plans.get(2).getOSqlText().contains("t.ctid"));
+        // The two ranges are the half-open 0..10 and 10..20 block chunks, so the
+        // rendered tid literals carry the block boundaries, not only a ctid column.
+        assertTrue(plans.get(1).getOSqlText().contains("((t.ctid) >= ('(0,0)'::tid)"),
+                plans.get(1).getOSqlText());
+        assertTrue(plans.get(1).getOSqlText().contains("AND (t.ctid) < ('(10,0)'::tid))"),
+                plans.get(1).getOSqlText());
+        assertTrue(plans.get(2).getOSqlText().contains("((t.ctid) >= ('(10,0)'::tid)"),
+                plans.get(2).getOSqlText());
+        assertTrue(plans.get(2).getOSqlText().contains("AND (t.ctid) < ('(20,0)'::tid))"),
+                plans.get(2).getOSqlText());
         for (ExplainBlockChunkPlansRecord plan : plans) {
             assertNotNull(plan.getOPlan(), "every row carries a JSON plan");
         }

@@ -1,16 +1,18 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.ChangelogTestSupport;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationBoundaryRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import liquibase.Liquibase;
 import liquibase.database.Database;
 import liquibase.database.DatabaseFactory;
 import liquibase.database.jvm.JdbcConnection;
 import liquibase.resource.ClassLoaderResourceAccessor;
 import org.jooq.DSLContext;
-import org.jooq.Field;
 import org.jooq.JSON;
-import org.jooq.Record;
 import org.jooq.Table;
 import org.jooq.exception.DataAccessException;
 import org.jooq.impl.DSL;
@@ -22,13 +24,16 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * dml_utils' PostgreSQL test base: the shared
@@ -57,7 +62,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     static final String FIXTURES_RESOURCE = "db/changelog-fixtures/db.changelog-fixtures.xml";
     /**
      * The container configuration, shared by this base and
-     * {@link LiquibaseUpgradeTest} so the two cannot drift (the container's
+     * {@link BaselineUpgradeTest} so the two cannot drift (the container's
      * template database is prepared once per JVM from the first class that
      * runs, so an inconsistent configuration would be order-dependent).
      */
@@ -69,7 +74,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     static final String TEST_PASSWORD = "dml_utils_test";
     /**
      * The one container and changelog configuration, returned by this class and
-     * by {@link LiquibaseUpgradeTest} so the two cannot drift.
+     * by {@link BaselineUpgradeTest} so the two cannot drift.
      *
      * <p>The master changelog is the install changelog: ddl_utils first, then the
      * dml_utils changes, so the test database has the DDL helpers that future
@@ -81,7 +86,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             DATABASE_CHANGELOG_TABLE, DATABASE_CHANGELOG_LOCK_TABLE, FIXTURES_RESOURCE,
             PostgresTestBase::installProjectExtensions);
     /**
-     * The configuration for {@link LiquibaseUpgradeTest}. It differs from
+     * The configuration for {@link BaselineUpgradeTest}. It differs from
      * {@link #CONFIGURATION} only in the master changelog: the upgrade test
      * compares dml_utils with its own previous release, so it must apply the
      * plain dml_utils changelog and not the install changelog that bundles
@@ -96,22 +101,43 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             PostgresTestBase::installProjectExtensionsAndDdlUtils);
 
     /**
-     * Returns a jOOQ field reference by name, for fixture columns when no
-     * generated field is available.
+     * The one project profile, shared by this base and every contract so a
+     * schema, role or directory rename cannot drift between them. The managed
+     * schemas are the application schemas; the round-trip schemas also include
+     * the fixture schema and the installed ddl_utils baseline.
      *
-     * @param name the column name
-     * @param type the column's Java type
-     * @param <T>  the column type
-     * @return the field reference
+     * <p>The round-trip/re-apply contracts use the plain production master plus
+     * the staged ddl_utils changelog as a baseline; the install changelog cannot
+     * be rolled back because its role-bootstrap changeset has no rollback.
      */
-    protected static <T> Field<T> field(String name, Class<T> type) {
-        return DSL.field(name, type);
-    }
+    static final ProjectProfile PROFILE = ProjectProfile.builder(CONFIGURATION)
+            .managedSchemas("dml_utils", "dml_utils_lib", "dml_utils_data")
+            .routineSchemas(TestSchemas.APPLICATION)
+            .callerRole("dml_utils_caller")
+            .routineRollbackDirectories(
+                    "db/changelog/changes/functions-rollback",
+                    "db/changelog/changes/procedures-rollback")
+            .triggerRollbackDirectories("db/changelog/changes/triggers-rollback")
+            .roundTripSchemas("dml_utils", "dml_utils_lib", "dml_utils_data",
+                    "dml_utils_fixtures", "ddl_utils", "ddl_utils_lib")
+            .baselineChangelogs("db/changelog-install/ddl-utils/db/changelog/db.changelog-master.xml")
+            .build();
+
+    /**
+     * The profile for the previous-release upgrade test: the plain dml_utils
+     * master (not the install changelog) so it compares dml_utils with its own
+     * previous release. Its extension hook pre-installs ddl_utils.
+     */
+    static final ProjectProfile UPGRADE_PROFILE = ProjectProfile.builder(UPGRADE_CONFIGURATION)
+            .managedSchemas("dml_utils", "dml_utils_lib", "dml_utils_data")
+            .routineSchemas(TestSchemas.APPLICATION)
+            .callerRole("dml_utils_caller")
+            .build();
 
     /**
      * Installs the extensions the changelog's routines need into a database,
      * and grants the roles they require. Shared with
-     * {@link LiquibaseUpgradeTest}, whose scratch database needs the same
+     * {@link BaselineUpgradeTest}, whose scratch database needs the same
      * extensions before the changelog runs.
      *
      * @param admin a superuser connection to the target database
@@ -166,8 +192,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                     + " TO " + OWNER_USER);
         }
         try {
+            // Liquibase's Database.close() closes the underlying connection. The
+            // admin connection is caller-owned and shared by several setup steps, so
+            // wrap it in a delegate whose close() is a no-op.
             Database database = DatabaseFactory.getInstance()
-                    .findCorrectDatabaseImplementation(new JdbcConnection(admin));
+                    .findCorrectDatabaseImplementation(
+                            new JdbcConnection(closeIgnoring(admin)));
             database.setDefaultSchemaName("public");
             database.setLiquibaseSchemaName(LIQUIBASE_SCHEMA);
             database.setDatabaseChangeLogTableName("ddl_utils_databasechangelog");
@@ -184,6 +214,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
             throw new SQLException("could not install ddl_utils", error);
         }
     }
+
 
     /**
      * Installs the extensions and grants the template and upgrade scratch
@@ -203,23 +234,29 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * A synthetic uuid for the uuid-key fixtures, with the given value in its
      * final twelve digits. Shared so every test builds the same values.
      *
-     * @param n the trailing value
+     * @param n the trailing value; it must be non-negative
      * @return the synthetic uuid
+     * @throws IllegalArgumentException if {@code n} is negative (the formatted
+     *                                  literal would not be a valid uuid)
      */
     protected static UUID uuid(int n) {
-        return UUID.fromString("00000000-0000-0000-0000-" + String.format("%012d", n));
+        if (n < 0) {
+            throw new IllegalArgumentException("uuid() trailing value must not be negative: " + n);
+        }
+        return UUID.fromString(
+                String.format(Locale.ROOT, "00000000-0000-0000-0000-%012d", n));
     }
 
     /**
-     * A synthetic timestamptz one second after 2026-01-01T00:00:00Z, for the
-     * ordered-key fixtures. The value is formatted zero-padded so any second
-     * count yields a valid instant.
+     * A synthetic timestamptz {@code second} seconds after 2026-01-01T00:00:00Z,
+     * for the ordered-key fixtures. Built arithmetically, so any count (including
+     * 60+, or negative) yields a valid instant instead of an unparseable literal.
      *
-     * @param second the second within the first minute
+     * @param second seconds after the fixture epoch
      * @return the synthetic instant
      */
     protected static OffsetDateTime timestamp(int second) {
-        return OffsetDateTime.parse(String.format("2026-01-01T00:00:%02dZ", second));
+        return OffsetDateTime.parse("2026-01-01T00:00:00Z").plusSeconds(second);
     }
 
     /**
@@ -248,26 +285,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Returns the schema name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's schema name
-     */
-    protected static String schema(Table<?> table) {
-        return table.getSchema().getName();
-    }
-
-    /**
-     * Returns the name of a fixture table.
-     *
-     * @param table the jOOQ table
-     * @return the table's name
-     */
-    protected static String name(Table<?> table) {
-        return table.getName();
-    }
-
-    /**
      * Returns the default bigint fixture's schema name.
      *
      * @return the schema name
@@ -286,6 +303,19 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
+     * Splits an SQL script into statements on top-level semicolons, respecting
+     * quoting and comments; see {@link SqlStatements#split(String)}.
+     * Used by the tests that execute changelog or example scripts, so a
+     * semicolon inside a literal or a function body cannot corrupt a statement.
+     *
+     * @param script the SQL script
+     * @return the statements, in order
+     */
+    protected static List<String> splitStatements(String script) {
+        return SqlStatements.split(script);
+    }
+
+    /**
      * Asserts the two position-aligned parts of a {@code (timestamptz, bigint)}
      * boundary key.
      *
@@ -300,19 +330,6 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 "timestamptz position");
         assertEquals(id, boundary.getBoundaryId().getBigintValues()[1].longValue(),
                 "bigint position");
-    }
-
-    /**
-     * Sets the current role on a test connection.
-     *
-     * @param connection the connection
-     * @param role       the role to assume
-     * @throws SQLException if the role cannot be set
-     */
-    protected static void setRole(Connection connection, String role) throws SQLException {
-        try (Statement statement = connection.createStatement()) {
-            statement.execute("SET ROLE " + role);
-        }
     }
 
     /**
@@ -346,27 +363,8 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     @Override
-    protected Configuration configuration() {
-        return CONFIGURATION;
-    }
-
-    /**
-     * Evaluates a SQL expression and returns its single value as the given
-     * Java type.
-     *
-     * <p>This is plain SQL on purpose: testing a domain's check constraint
-     * means casting a literal to the domain, and jOOQ renders a cast to a
-     * {@code Domain}'s data type as the base type, so the constraint would not
-     * be exercised.
-     *
-     * @param expression the SQL expression to evaluate
-     * @param type       the Java type to read the value as
-     * @param <T>        the value type
-     * @return the expression's value
-     */
-    protected <T> T evaluate(String expression, Class<T> type) {
-        Record record = dsl.fetchOne("SELECT " + expression);
-        return record.get(0, type);
+    protected ProjectProfile projectProfile() {
+        return PROFILE;
     }
 
     /**
@@ -389,9 +387,14 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @param ids the primary-key values to insert
      */
     protected void seedBigint(long... ids) {
-        for (long id : ids) {
-            dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID).values(id).execute();
+        if (ids.length == 0) {
+            return;
         }
+        var insert = dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID);
+        for (long id : ids) {
+            insert = insert.values(id);
+        }
+        insert.execute();
     }
 
     /**
@@ -399,7 +402,16 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * the bigint column is the tiebreaker.
      */
     protected void seedOrderedKey() {
-        for (int i = 1; i <= 5; i++) {
+        seedOrderedKey(5);
+    }
+
+    /**
+     * Seeds the ordered-key fixture with a chosen number of rows.
+     *
+     * @param rows the row count
+     */
+    protected void seedOrderedKey(int rows) {
+        for (int i = 1; i <= rows; i++) {
             dsl.insertInto(TEST_ORDERED_KEY,
                             TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
                             TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
@@ -428,10 +440,11 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the run id
      */
     protected long runId(String label) {
-        return dsl.select(MIGRATION_RUN.RUN_ID)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.RUN_ID);
+        Long id = dsl.fetchValue(MIGRATION_RUN.RUN_ID, MIGRATION_RUN.LABEL.eq(label));
+        if (id == null) {
+            throw new IllegalStateException("no migration run with label " + label);
+        }
+        return id;
     }
 
     /**
@@ -441,10 +454,11 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the total chunk count
      */
     protected long totalChunks(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS);
+        Long total = dsl.fetchValue(MIGRATION_RUN.TOTAL_CHUNKS, MIGRATION_RUN.RUN_ID.eq(runId));
+        if (total == null) {
+            throw new IllegalStateException("no migration run with id " + runId);
+        }
+        return total;
     }
 
     /**
@@ -454,10 +468,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the completed chunk count
      */
     protected long totalChunksCompleted(long runId) {
-        return dsl.select(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED)
-                .from(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED);
+        Long completed = dsl.fetchValue(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED,
+                MIGRATION_RUN.RUN_ID.eq(runId));
+        if (completed == null) {
+            throw new IllegalStateException("no migration run with id " + runId);
+        }
+        return completed;
     }
 
     /**
@@ -472,14 +488,23 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
     }
 
     /**
-     * Resolves a schema-qualified relation name to its OID.
+     * Creates a void function over the composite fixture that appends a value to
+     * each processed row's payload, so processing a row twice is observable.
      *
-     * @param qualifiedName the schema-qualified relation name
-     * @return the relation OID
+     * @param functionName the function name in the {@code public} schema
+     * @param value        the value to append
      */
-    protected long relationOid(String qualifiedName) {
-        return dsl.fetchOne("SELECT ?::regclass::oid", qualifiedName)
-                .get(0, Long.class);
+    protected void createCompositeMarkFunction(String functionName, String value) {
+        // Append rather than overwrite: a row processed twice would then hold the
+        // value twice, so an exact match proves each row was processed once
+        // (which a plain assignment could not show). The literal is quoted by
+        // DSL.inline, so a value containing a quote cannot break the body.
+        dsl.execute("CREATE OR REPLACE FUNCTION public." + quoteIdentifier(functionName)
+                + "(p_a bigint, p_b text) RETURNS void LANGUAGE sql AS $$"
+                + " UPDATE " + schema(TEST_COMPOSITE_MIXED) + "."
+                + name(TEST_COMPOSITE_MIXED)
+                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
+                + " WHERE a = p_a AND b = p_b $$");
     }
 
     /**
@@ -493,6 +518,91 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
                 .fetch();
+    }
+
+    /**
+     * Reads a run row, failing with the run id when it is missing.
+     *
+     * @param runId the run id
+     * @return the run record
+     */
+    protected MigrationRunRecord migrationRun(long runId) {
+        MigrationRunRecord row = dsl.selectFrom(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne();
+        assertNotNull(row, () -> "no migration run " + runId);
+        return row;
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with a label
+     * derived from a prefix and a non-executed {@code SELECT 1} template.
+     *
+     * @param labelPrefix a short descriptive prefix
+     * @param chunkSize   the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelationWithLabelPrefix(String labelPrefix, int chunkSize) {
+        return populateSingleRelation(uniqueLabel(labelPrefix), "SELECT 1", chunkSize);
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with an exact
+     * label, without processing any chunk.
+     *
+     * @param label     the exact run label
+     * @param sqlText   the chunk SQL template
+     * @param chunkSize the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelation(String label, String sqlText, int chunkSize) {
+        return Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), label, sqlText, chunkSize, 1,
+                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+    }
+
+    /**
+     * Creates a non-partition-wise run over the bigint fixture with a label
+     * derived from a prefix, without processing any chunk.
+     *
+     * @param labelPrefix a short descriptive prefix
+     * @param sqlText     the chunk SQL template
+     * @param chunkSize   the chunk size
+     * @return the run id
+     */
+    protected long populateSingleRelationWithLabelPrefix(String labelPrefix, String sqlText,
+                                                         int chunkSize) {
+        return populateSingleRelation(uniqueLabel(labelPrefix), sqlText, chunkSize);
+    }
+
+    /**
+     * Calculates every leaf boundary of a partition-wise run and finalizes it.
+     *
+     * @param runId the run id
+     */
+    protected void calculateRun(long runId) {
+        Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
+    }
+
+    /**
+     * Empties the migration metadata and the single-bigint fixture between tests.
+     */
+    protected void resetRunsAndBigint() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_BIGINT).execute();
+    }
+
+    /**
+     * Executes one statement as the owner.
+     *
+     * @param sql the statement to run
+     * @throws SQLException if the statement fails
+     */
+    protected void executeAsOwner(String sql) throws SQLException {
+        try (Connection connection = openOwnerConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute(sql);
+        }
     }
 
     /**
@@ -525,13 +635,17 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the run id
      */
     protected long insertRun(String label, String schemaName, String tableName) {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long id = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
                         MIGRATION_RUN.DRIVING_TABLE_NAME)
                 .values(label, "SELECT 1", 1, 1, schemaName, tableName)
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        if (id == null) {
+            throw new IllegalStateException("the run insert for " + label + " returned no id");
+        }
+        return id;
     }
 
     /**
@@ -542,7 +656,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return the matching row count
      */
     protected int payloadCount(Table<?> table, String value) {
-        return dsl.fetchCount(table, field("payload", String.class).eq(value));
+        return dsl.fetchCount(table, table.field("payload", String.class).eq(value));
     }
 
     /**
@@ -552,10 +666,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean runCompleted(long runId) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull());
+        assertNotNull(completed, () -> "no migration run " + runId);
+        return completed;
     }
 
     /**
@@ -565,10 +681,12 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean runCompleted(String label) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_RUN.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.LABEL.eq(label))
-                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT.isNotNull());
+        assertNotNull(completed, () -> "no migration run for label " + label);
+        return completed;
     }
 
     /**
@@ -578,25 +696,30 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code started_at} is set
      */
     protected boolean runStarted(long runId) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_RUN.STARTED_AT.isNotNull())
+        Boolean started = dsl.select(MIGRATION_RUN.STARTED_AT.isNotNull())
                 .from(MIGRATION_RUN)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne(MIGRATION_RUN.STARTED_AT.isNotNull()));
+                .fetchOne(MIGRATION_RUN.STARTED_AT.isNotNull());
+        assertNotNull(started, () -> "no migration run " + runId);
+        return started;
     }
 
     /**
-     * Whether the boundary {@code (runId, boundaryNo)} has been claimed.
+     * Whether the boundary {@code (runId, boundaryNo)} has completed.
      *
      * @param runId      the run id
      * @param boundaryNo the boundary number
      * @return {@code true} when {@code completed_at} is set
      */
     protected boolean boundaryCompleted(long runId, long boundaryNo) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())
+        Boolean completed = dsl.select(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull())
                 .from(MIGRATION_BOUNDARY)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo)))
-                .fetchOne(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
+                .fetchOne(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull());
+        assertNotNull(completed,
+                () -> "no migration boundary " + boundaryNo + " for run " + runId);
+        return completed;
     }
 
     /**
@@ -608,10 +731,13 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
      * @return {@code true} when {@code started_at} is set
      */
     protected boolean boundaryStarted(long runId, long boundaryNo) {
-        return Boolean.TRUE.equals(dsl.select(MIGRATION_BOUNDARY.STARTED_AT.isNotNull())
+        Boolean started = dsl.select(MIGRATION_BOUNDARY.STARTED_AT.isNotNull())
                 .from(MIGRATION_BOUNDARY)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(boundaryNo)))
-                .fetchOne(MIGRATION_BOUNDARY.STARTED_AT.isNotNull()));
+                .fetchOne(MIGRATION_BOUNDARY.STARTED_AT.isNotNull());
+        assertNotNull(started,
+                () -> "no migration boundary " + boundaryNo + " for run " + runId);
+        return started;
     }
 }

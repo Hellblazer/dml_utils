@@ -4,9 +4,10 @@ A self-contained, repeatable benchmark of `dml_utils.run_migration_chunks` again
 a synthetic table. It runs the migration with 1 thread, then 2, then 3, ... up to
 a maximum you choose, several times at each value, and reports how long the
 chunk-boundary calculation and the per-chunk workload took on average, for the
-`primary_key`, `ordered_key` and `blocks` chunking strategies. The `primary_key`
-and `blocks` strategies can also be measured partition-wise against a
-range-partitioned copy of the same data.
+`primary_key`, `ordered_key` and `blocks` chunking strategies. All three can also
+be measured partition-wise: `primary_key` and `blocks` inside a range-partitioned
+copy of the bigint-keyed data, and `ordered_key` inside a hash-partitioned copy of
+the UUID-keyed ordered fixture.
 
 Everything needed to reproduce a run lives in this directory.
 
@@ -48,12 +49,14 @@ benchmark a UUIDv4 primary key with a `(created_at, id)` unique index on
 `bench_ordered_source`; `BENCH_PK_COLUMNS` does not apply to it, and
 `BENCH_CHUNK_SIZE` is in rows.
 
-Set `BENCH_PARTITION_WISE=1` to run the same `primary_key` or `blocks` sweep
-inside the leaves of `bench_partitioned_source`, a range-partitioned copy of the
-bigint-keyed source with `BENCH_PARTITIONED_LEAVES` leaves (default 4). The
-results are recorded and reported separately from the non-partitioned runs, so
-both can coexist in one CSV; see [Partition-wise
-runs](#partition-wise-runs). `ordered_key` has no partitioned variant.
+Set `BENCH_PARTITION_WISE=1` to run the configured strategy inside the leaves of
+its partitioned fixture: `bench_partitioned_source`, a range-partitioned copy of
+the bigint-keyed source with `BENCH_PARTITIONED_LEAVES` leaves (default 4), for
+`primary_key` and `blocks`; or `bench_partitioned_ordered_source`, a
+hash-partitioned copy of the UUID-keyed ordered fixture with the same leaf count,
+for `ordered_key`. The results are recorded and reported separately from the
+non-partitioned runs, so all variants can coexist in one CSV; see
+[Partition-wise runs](#partition-wise-runs).
 
 These are all the defaults, so the example works out of the box. Edit the file
 rather than overriding the environment: each script sources `config.env`, so a
@@ -114,6 +117,9 @@ benchmark/run.sh --reset
   `BENCH_THREADS_FROM`/`BENCH_THREADS_TO` to the range you still need and run
   without `--reset`; the mean then covers every run recorded for that thread
   value. Use `--reset` instead to discard everything and start clean.
+- The CSV is appended to without a lock, so run one sweep per results file at a
+  time. To sweep concurrently, give each invocation its own `BENCH_RESULTS_DIR`
+  (and therefore its own CSV), as `benchmark/smoke.sh` does.
 
 ### Step 4 — format the results
 
@@ -129,7 +135,9 @@ path. Re-run it any time to refresh the means after more runs.
 Open `results/lhorner_laptop_oct_2026/3_col_pk/report.md`. It contains:
 
 - the **configuration** that produced the results and a **dataset** section (live
-  source rows and blocks),
+  source rows and blocks, captured now — the CSV accumulates runs, so a report
+  regenerated after changing `BENCH_ROWS` or the fixtures divides older rows by
+  the current size),
 - the **hardware and PostgreSQL settings** captured on this machine,
 - a **results table per strategy, key and chunk size**, one row per thread value,
   with the number of chunks, the `rows/chunk` and `blocks/chunk` averages, the mean
@@ -172,18 +180,20 @@ partition-wise flags are never combined.
 ## Partition-wise runs
 
 A partition-wise run passes `i_partition_wise => true`, so `run_migration_chunks`
-applies the configured strategy inside each leaf of the partitioned parent and
+applies the configured strategy inside each leaf of a partitioned parent and
 renders every chunk against its leaf. Set:
 
 ```sh
 BENCH_PARTITION_WISE=1
-BENCH_CHUNK_BY=primary_key   # or blocks
+BENCH_CHUNK_BY=primary_key   # or ordered_key or blocks
 BENCH_PARTITIONED_LEAVES=4
 ```
 
-and run the usual `setup.sh` / `run.sh` / `report.sh` sequence. The harness uses
-`bench_partitioned_source` and `bench_partitioned_target` instead of the plain
-source and target, and records `partition_wise=yes` in each CSV row. A
+and run the usual `setup.sh` / `run.sh` / `report.sh` sequence. For
+`primary_key` and `blocks` the harness uses `bench_partitioned_source` and
+`bench_partitioned_target`; for `ordered_key` it uses
+`bench_partitioned_ordered_source` and `bench_partitioned_ordered_target`, so the
+two fixtures cannot be mixed. Each CSV row records `partition_wise=yes`. A
 `primary_key` run is the direct comparison for the non-partitioned
 `primary_key` run on the same synthetic data; the `blocks` run applies the ctid
 strategy to each leaf's heap, so its leaf chunks are not comparable with a
@@ -192,14 +202,19 @@ single-relation `blocks` chunk at the same numeric chunk size.
 `bench_partitioned_source` is a `RANGE (k1)` copy of the same deterministic rows,
 split into `BENCH_PARTITIONED_LEAVES` balanced ranges; every leaf has the same
 columns and primary key as the parent, so it is a valid partition-wise fixture
-for both strategies. `ordered_key` uses its own single-relation UUID fixture and
-is rejected for a partition-wise run.
+for `primary_key` and `blocks`. `bench_partitioned_ordered_source` is a
+`HASH (id)` copy of the UUIDv4-keyed ordered fixture, also split into
+`BENCH_PARTITIONED_LEAVES` leaves, with a parent `(created_at, id)` unique index
+that PostgreSQL mirrors on every leaf. Its partition key is the UUID `id`, so
+the leaves are hash buckets rather than `created_at` ranges; compare the
+partition-wise `ordered_key` rows with the non-partitioned `ordered_key` rows of
+the same key and chunk size.
 
-To put both variants in one report, run them without `--reset` in either order:
+To put several variants in one report, run them without `--reset` in any order:
 
 ```sh
-BENCH_PARTITION_WISE=0 benchmark/run.sh
-BENCH_PARTITION_WISE=1 benchmark/run.sh
+BENCH_PARTITION_WISE=0 BENCH_CHUNK_BY=ordered_key benchmark/run.sh
+BENCH_PARTITION_WISE=1 BENCH_CHUNK_BY=ordered_key benchmark/run.sh
 benchmark/report.sh
 ```
 
@@ -213,34 +228,47 @@ All parameters live in [`config.env`](config.env) and are documented there; put
 personal overrides in a gitignored `config.local.env` (copy
 `config.local.env.example`). The ones you are most likely to change:
 
-| parameter                                 | default                           | purpose                                                                             |
-|-------------------------------------------|-----------------------------------|-------------------------------------------------------------------------------------|
-| `BENCH_ROWS`                              | `1000000`                         | synthetic source rows                                                               |
-| `BENCH_PK_COLUMNS`                        | `1`                               | number of bigint primary-key columns (1 to 3)                                       |
-| `BENCH_ORDERED_SOURCE_TABLE`              | `bench_ordered_source`            | UUIDv4-keyed ordered-key source                                                     |
-| `BENCH_ORDERED_TARGET_TABLE`              | `bench_ordered_target`            | throwaway ordered-key destination                                                   |
-| `BENCH_ORDERED_INDEX`                     | `bench_ordered_created_at_id_idx` | the `(created_at, id)` unique index                                                 |
-| `BENCH_PARTITIONED_SOURCE_TABLE`          | `bench_partitioned_source`        | range-partitioned source for the partition-wise variant                             |
-| `BENCH_PARTITIONED_TARGET_TABLE`          | `bench_partitioned_target`        | throwaway partition-wise destination                                                |
-| `BENCH_PARTITIONED_LEAVES`                | `4`                               | number of range leaves in the partitioned source (at most the distinct `k1` values) |
-| `BENCH_PARTITION_WISE`                    | `0`                               | `1` runs `primary_key`/`blocks` inside the leaves                                   |
-| `BENCH_CHUNK_SIZE`                        | `1000`                            | chunk size, in the unit of `BENCH_CHUNK_BY`                                         |
-| `BENCH_CHUNK_BY`                          | `primary_key`                     | chunking strategy: `primary_key`, `ordered_key` or `blocks`                         |
-| `BENCH_THREADS_FROM` / `BENCH_THREADS_TO` | `1` / `20`                        | thread sweep                                                                        |
-| `BENCH_RUNS`                              | `10`                              | measured runs per thread value (the mean is over these)                             |
-| `BENCH_WARMUP_RUNS`                       | `1`                               | unrecorded warm-up runs per thread value                                            |
-| `BENCH_SQL`                               | INSERT into the target            | the workload run once per chunk                                                     |
-| `BENCH_ORDERED_SQL`                       | INSERT into the ordered target    | the ordered-key workload                                                            |
-| `BENCH_MAX_WORKER_PROCESSES`              | `30`                              | must cover `BENCH_THREADS_TO`                                                       |
-| `BENCH_SHARED_BUFFERS`                    | `512MB`                           | server setting for the run                                                          |
+| parameter                                 | default                                       | purpose                                                                                    |
+|-------------------------------------------|-----------------------------------------------|--------------------------------------------------------------------------------------------|
+| `BENCH_ROWS`                              | `1000000`                                     | synthetic source rows                                                                      |
+| `BENCH_PK_COLUMNS`                        | `1`                                           | number of bigint primary-key columns (1 to 3)                                              |
+| `BENCH_ORDERED_SOURCE_TABLE`              | `bench_ordered_source`                        | UUIDv4-keyed ordered-key source                                                            |
+| `BENCH_ORDERED_TARGET_TABLE`              | `bench_ordered_target`                        | throwaway ordered-key destination                                                          |
+| `BENCH_ORDERED_INDEX`                     | `bench_ordered_created_at_id_idx`             | the `(created_at, id)` unique index                                                        |
+| `BENCH_PARTITIONED_SOURCE_TABLE`          | `bench_partitioned_source`                    | range-partitioned source for partition-wise `primary_key`/`blocks`                         |
+| `BENCH_PARTITIONED_TARGET_TABLE`          | `bench_partitioned_target`                    | throwaway partition-wise destination                                                       |
+| `BENCH_PARTITIONED_ORDERED_SOURCE_TABLE`  | `bench_partitioned_ordered_source`            | hash-partitioned source for partition-wise `ordered_key`                                   |
+| `BENCH_PARTITIONED_ORDERED_TARGET_TABLE`  | `bench_partitioned_ordered_target`            | throwaway partition-wise ordered-key destination                                           |
+| `BENCH_PARTITIONED_ORDERED_INDEX`         | `bench_partitioned_ordered_created_at_id_idx` | the partition-wise `(created_at, id)` unique index                                         |
+| `BENCH_PARTITIONED_LEAVES`                | `4`                                           | leaves in both partitioned sources (the range copy needs at most the distinct `k1` values) |
+| `BENCH_PARTITION_WISE`                    | `0`                                           | `1` runs the configured strategy inside its partitioned fixture                            |
+| `BENCH_CHUNK_SIZE`                        | `1000`                                        | chunk size, in the unit of `BENCH_CHUNK_BY`                                                |
+| `BENCH_CHUNK_BY`                          | `primary_key`                                 | chunking strategy: `primary_key`, `ordered_key` or `blocks`                                |
+| `BENCH_THREADS_FROM` / `BENCH_THREADS_TO` | `1` / `20`                                    | thread sweep                                                                               |
+| `BENCH_RUNS`                              | `10`                                          | measured runs per thread value (the mean is over these)                                    |
+| `BENCH_WARMUP_RUNS`                       | `1`                                           | unrecorded warm-up runs per thread value                                                   |
+| `BENCH_SQL`                               | INSERT into the target                        | the workload run once per chunk                                                            |
+| `BENCH_ORDERED_SQL`                       | INSERT into the ordered target                | the ordered-key workload                                                                   |
+| `BENCH_MAX_WORKER_PROCESSES`              | `30`                                          | must cover `BENCH_THREADS_TO`                                                              |
+| `BENCH_SHARED_BUFFERS`                    | `512MB`                                       | server setting for the run                                                                 |
 
 `BENCH_SQL` must contain `<driving_table>` and `<chunking_clause>` exactly once;
 the driving table is aliased `t`. The default keeps the source table untouched by
 copying each chunk into `benchmark.bench_target`, which is truncated before every
-run. The same contract applies to `BENCH_ORDERED_SQL`, which copies the UUID key,
-`created_at` and payload into `bench_ordered_target` for `ordered_key`, and to
-`BENCH_PARTITIONED_SQL`, which copies the bigint key and payload into
-`bench_partitioned_target` for a partition-wise run.
+run. Any identifier used in a template is quoted, so a reserved word or a name
+that needs quoting is safe. The same contract applies to `BENCH_ORDERED_SQL`,
+which copies the UUID key, `created_at` and payload into `bench_ordered_target`
+for `ordered_key`; to `BENCH_PARTITIONED_SQL`, which copies the bigint key and
+payload into `bench_partitioned_target` for a partition-wise
+`primary_key`/`blocks` run; and to `BENCH_PARTITIONED_ORDERED_SQL`, which copies
+the UUID key, `created_at` and payload into `bench_partitioned_ordered_target` for
+a partition-wise `ordered_key` run.
+
+The derived values (`BENCH_PK_COLS_CSV`, `BENCH_PK_SELECT` and the default
+workload SQL) are built *after* `config.local.env` is sourced, so overriding
+`BENCH_PK_COLUMNS` there also changes the generated key columns and templates.
+Every other setting is validated at the same point; an invalid value fails the
+script before any DDL or measurement instead of silently changing the workload.
 
 `BENCH_CHUNK_BY` selects the strategy: `primary_key` (the default) chunks a fixed
 number of rows in primary-key order; `ordered_key` chunks a fixed number of rows
@@ -251,8 +279,8 @@ which the default INSERT-into-target workload provides. `primary_key` and
 `blocks` are not directly comparable at the same numeric chunk size: a block holds
 a variable number of rows. `primary_key` and `ordered_key` both chunk fixed rows,
 so compare those two by `rows/chunk`; each uses its own source/target shape.
-`BENCH_PARTITION_WISE=1` applies `primary_key` or `blocks` inside each leaf of
-the partitioned fixture; see [Partition-wise runs](#partition-wise-runs).
+`BENCH_PARTITION_WISE=1` applies the configured strategy inside each leaf of its
+partitioned fixture; see [Partition-wise runs](#partition-wise-runs).
 `run.sh` records the strategy, chunk unit and partition-wise flag in each CSV
 row, and `report.sh` reports them separately (one table and chart per strategy,
 key, chunk size and flag).
@@ -266,12 +294,16 @@ database:
 - **Image**: `dml-utils-postgres:17-alpine` (the custom image with the
   `dml_utils_owner` / `dml_utils_caller` roles, `plpgsql_check` and
   `pg_background`).
-- **Container / volume / network / port**: `BENCH_CONTAINER`, `BENCH_VOLUME`,
-  `BENCH_NETWORK`, `BENCH_HOST_PORT` in `config.env`.
+- **Container / volume / network**: `BENCH_CONTAINER`, `BENCH_VOLUME`,
+  `BENCH_NETWORK` in `config.env`. `BENCH_HOST_PORT` is optional (empty by
+  default): set it to publish a loopback port for inspection, at the cost of
+  preventing concurrent benchmark stacks from sharing the host.
 - **`max_worker_processes`**: set to `BENCH_MAX_WORKER_PROCESSES` (default 30).
   `run_migration_chunks` refuses a thread count above `max_worker_processes`, so
   this must be at least `BENCH_THREADS_TO` plus headroom for autovacuum and other
-  workers. Changing it needs `setup.sh --refresh`.
+  workers. Changing it needs `setup.sh --refresh`, as does rebuilding the image
+  under the same tag: `setup.sh` compares the running container's image id with
+  the current image and refuses a container built from stale code.
 - **`pg_background.max_workers`**: pg_background independently caps concurrent
   workers per session (default 16). `run.sh` raises it to the run's thread count
   in the session that calls `run_migration_chunks`, so a sweep past 16 threads
@@ -287,13 +319,20 @@ database:
   `sql/create-partitioned-source.sql` creates
   `benchmark.bench_partitioned_source` with the same key tuples and payloads as
   `bench_source`, range-partitioned on `k1` into `BENCH_PARTITIONED_LEAVES`
-  balanced leaves. Their throwaway destinations are `benchmark.bench_target`,
-  `benchmark.bench_ordered_target` and `benchmark.bench_partitioned_target`.
+  balanced leaves. `sql/create-partitioned-ordered-source.sql` creates
+  `benchmark.bench_partitioned_ordered_source` with the same deterministic
+  UUIDv4 rows and `(created_at, id)` index as the ordered fixture, hash-partitioned
+  on `id` into `BENCH_PARTITIONED_LEAVES` leaves. Their throwaway destinations are
+  `benchmark.bench_target`, `benchmark.bench_ordered_target`,
+  `benchmark.bench_partitioned_target` and
+  `benchmark.bench_partitioned_ordered_target`.
 
 All database access goes through `docker exec`, so no host `psql` is required;
-use `benchmark/psql.sh` for an interactive session. To remove the container and
-reclaim its disk space, run `benchmark/teardown.sh` (the host results are kept;
-recreate with `benchmark/setup.sh`).
+use `benchmark/psql.sh` for an interactive session. Its `-f file` reads the SQL
+file on the host and streams it into the container (the container cannot see
+host paths); `-f -` reads stdin, as does piping a file in. To remove the
+container and reclaim its disk space, run `benchmark/teardown.sh` (the host
+results are kept; recreate with `benchmark/setup.sh`).
 
 ## Smoke test
 
@@ -301,10 +340,11 @@ recreate with `benchmark/setup.sh`).
 configured benchmark database. It creates an isolated container, volume and
 network, loads 2,000 rows, runs one measured run per chunking strategy (`primary_key`, `blocks` and `ordered_key`) with
 two threads, then one
-partition-wise `primary_key` and one partition-wise `blocks` run over a
-three-leaf partitioned copy, and tears everything down again. It also runs
-`report.sh` over a mixed partitioned/non-partitioned CSV and checks that both
-groups and every thread value appear in the page.
+partition-wise run for each strategy over its three-leaf partitioned fixture, and
+tears everything down again. It also runs `report.sh` over a mixed
+partitioned/non-partitioned CSV, checks that both groups and every thread value
+appear in the page, and fails if the partition-wise `ordered_key` group is
+missing.
 Pass `--keep` to leave the isolated database running (published on port 55434)
 for inspection.
 
@@ -332,6 +372,7 @@ benchmark/
   sql/create-ordered-source.sql  UUIDv4 source with a (created_at, id) index
   sql/create-ordered-target.sql  throwaway ordered-key destination
   sql/create-partitioned-source.sql  range-partitioned source for partition-wise runs
+  sql/create-partitioned-ordered-source.sql  hash-partitioned ordered source
   results/                generated: benchmark.csv, report.md,
                           report-<strategy>[-partitioned]-<chunk_size>-<pk_columns>.svg,
                           dataset.txt, ...
@@ -349,14 +390,18 @@ benchmark/
   the block-chunking limitations in the routines README), or plain-heap leaves
   in a partition-wise run. The default INSERT-into-target workload satisfies
   this; a `BENCH_SQL` that updates the source does not.
-- The partition-wise variant uses a separate range-partitioned fixture. Compare
-  its rows with the non-partitioned rows of the same strategy, key and chunk
-  size; a partition-wise `blocks` run applies ctid ranges per leaf, so its
-  `blocks/chunk` averages cover the leaf heaps rather than one relation.
+- The partition-wise variant uses a partitioned copy of the synthetic data: the
+  range-partitioned bigint copy for `primary_key`/`blocks`, and the
+  hash-partitioned UUID copy for `ordered_key`. Compare each partition-wise row
+  with the non-partitioned row of the same strategy, key and chunk size; a
+  partition-wise `blocks` run applies ctid ranges per leaf, so its `blocks/chunk`
+  averages cover the leaf heaps rather than one relation.
 - `ordered_key` uses a separate UUIDv4 source and target, so its absolute numbers
   include that table's shape; compare it with `primary_key` by `rows/chunk`
   rather than by raw chunk size. It needs the `(created_at, id)` index to stay
-  valid for the whole run; the harness recreates it in `setup.sh`.
+  valid for the whole run; the harness recreates it in `setup.sh`. The
+  partition-wise ordered fixture hashes on `id`, so its leaves are hash buckets
+  rather than `created_at` ranges.
 - Autovacuum, checkpoints and other background activity add noise. Increase
   `BENCH_RUNS` to tighten the means; warm-ups are excluded.
 - Each thread is one `pg_background` worker, capped by `max_worker_processes`.

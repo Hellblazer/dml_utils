@@ -33,3 +33,7 @@ jobs:
       changelog-root: dml_utils/src/main/resources/db/changelog
       config-path: dml_utils/.liquibase-linter.yml
       whitelist-path: dml_utils/.liquibase-linter-whitelist.yml
+      # A fork PR's token is read-only, so the reusable workflow's SARIF upload
+      # would fail and turn the job red. The linter still runs (verify is the
+      # gate); only same-repository runs upload to code scanning.
+      upload-sarif: ${{ github.event.pull_request.head.repo.full_name == github.repository }}

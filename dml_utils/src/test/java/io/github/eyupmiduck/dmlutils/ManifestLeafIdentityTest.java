@@ -1,13 +1,10 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ManifestLeafIdentity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -26,8 +23,7 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsAndRange();
     }
 
     /**
@@ -63,17 +59,15 @@ class ManifestLeafIdentityTest extends PartitionTestBase {
     }
 
     /**
-     * A missing run or leaf ordinal raises {@code 55000}.
+     * An unknown run raises {@code P0002}; a known run without the leaf ordinal
+     * raises {@code 55000}.
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
         long runId = populatePartitionWise("manifest-identity-primary_key", TABLE, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
-        assertSqlState("55000", () -> identity(-1L, 1));
+        assertSqlState("P0002", () -> identity(-1L, 1));
         assertSqlState("55000", () -> identity(runId, 999));
     }
 
 
-    private ManifestLeafIdentity identity(long runId, int ordinal) {
-        return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);
-    }
 }

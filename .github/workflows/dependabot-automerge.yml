@@ -11,6 +11,10 @@ name: Dependabot auto-merge
 # or executes the pull request's code.
 on: pull_request_target
 
+# Even though the shared workflow only acts on Dependabot PRs, gate the job here
+# too: pull_request_target fires for every PR against the repository, and this
+# run receives the write-scoped token below, so a non-Dependabot PR must never
+# reach it.
 permissions:
   contents: write
   pull-requests: write
@@ -23,6 +27,9 @@ concurrency:
 
 jobs:
   auto-merge:
+    if: >-
+      github.actor == 'dependabot[bot]'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
     uses: eyupmiduck/workflow_library/.github/workflows/dependabot-automerge.yml@2499e14a4533396c8318abecaa35dd2477be1f41 # main
     with:
       grouped-only: true

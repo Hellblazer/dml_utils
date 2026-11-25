@@ -10,12 +10,16 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.resume_migration_run(
     i_sleep_ms dml_utils_data.non_negative_integer,
     i_boundary_key_index name,
     i_partition_wise dml_utils_data.non_null_boolean,
+    i_max_retries dml_utils_data.non_negative_integer,
+    i_retry_backoff_ms dml_utils_data.non_negative_integer,
     OUT o_effective_sql_text text,
     OUT o_effective_schema_name text,
     OUT o_effective_table_name text,
     OUT o_effective_alias text,
     OUT o_effective_threads integer,
     OUT o_effective_sleep_ms integer,
+    OUT o_effective_max_retries integer,
+    OUT o_effective_retry_backoff_ms integer,
     OUT o_chunk_by dml_utils_data.chunking_strategy,
     OUT o_partition_wise boolean
 )
@@ -42,6 +46,8 @@ BEGIN
     o_partition_wise := i_run.partition_wise;
     o_effective_threads := i_run.threads::integer;
     o_effective_sleep_ms := i_run.sleep_ms::integer;
+    o_effective_max_retries := i_run.max_retries::integer;
+    o_effective_retry_backoff_ms := i_run.retry_backoff_ms::integer;
 
     IF i_run.chunk_by IS DISTINCT FROM i_chunk_by THEN
         RAISE NOTICE 'run for label % already exists; using the stored chunk_by %',
@@ -76,14 +82,13 @@ BEGIN
                              i_table_name => o_effective_table_name,
                              i_index_name => i_run.ordered_key_index) AS a;
             ELSE
-                l_live_columns := dml_utils_lib.ordered_key_columns(
-                        i_schema_name => o_effective_schema_name,
-                        i_table_name => o_effective_table_name,
-                        i_index_name => i_run.ordered_key_index);
-                l_live_kinds := dml_utils_lib.ordered_key_kinds(
-                        i_schema_name => o_effective_schema_name,
-                        i_table_name => o_effective_table_name,
-                        i_index_name => i_run.ordered_key_index);
+                SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                       pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+                INTO l_live_columns, l_live_kinds
+                FROM dml_utils_lib.ordered_key_attributes(
+                             i_schema_name => o_effective_schema_name,
+                             i_table_name => o_effective_table_name,
+                             i_index_name => i_run.ordered_key_index) AS a;
             END IF;
 
             IF l_live_columns IS DISTINCT FROM i_run.ordered_key_columns
@@ -109,6 +114,42 @@ BEGIN
                     o_effective_schema_name, i_run.ordered_key_index, i_run.run_id, SQLERRM
                     USING ERRCODE = '55000';
         END;
+    ELSIF i_run.chunk_by = 'primary_key' THEN
+        -- The boundaries were built from the primary key the run snapshotted at
+        -- creation. Re-read the live key and fail closed if it was dropped or
+        -- recreated with different columns, order or kinds: the stored start/end
+        -- text values would otherwise be silently reinterpreted against a
+        -- different key, skipping or mis-ranging chunks. A NULL snapshot means a
+        -- hand-inserted run, which has no boundaries to protect.
+        IF i_run.primary_key_columns IS NOT NULL THEN
+            BEGIN
+                SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                       pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+                INTO l_live_columns, l_live_kinds
+                FROM dml_utils_lib.primary_key_attributes(
+                             i_schema_name => o_effective_schema_name,
+                             i_table_name => o_effective_table_name) AS a;
+
+                IF l_live_columns IS DISTINCT FROM i_run.primary_key_columns
+                    OR l_live_kinds IS DISTINCT FROM i_run.primary_key_kinds
+                THEN
+                    RAISE EXCEPTION 'the primary key of %.% no longer matches the key the run was created with',
+                        o_effective_schema_name, o_effective_table_name
+                        USING ERRCODE = '55000';
+                END IF;
+            EXCEPTION
+                WHEN undefined_table
+                    OR invalid_schema_name
+                    OR invalid_parameter_value THEN
+                    -- No primary key (or more than four columns) is the other
+                    -- way the stored key becomes unusable; report it as this
+                    -- resume's stable code with the resolver's message.
+                    RAISE EXCEPTION 'the primary key of %.% is no longer usable for run %: %',
+                        o_effective_schema_name, o_effective_table_name, i_run.run_id, SQLERRM
+                        USING ERRCODE = '55000';
+            END;
+        END IF;
+
     ELSIF i_boundary_key_index IS NOT NULL THEN
         RAISE NOTICE 'run for label % already exists; ignoring i_boundary_key_index for chunk_by %',
             i_run.label, i_run.chunk_by;
@@ -133,6 +174,14 @@ BEGIN
         RAISE NOTICE 'run for label % already exists; using the stored sleep_ms %',
             i_run.label, i_run.sleep_ms;
     END IF;
+    IF i_run.max_retries IS DISTINCT FROM i_max_retries::integer THEN
+        RAISE NOTICE 'run for label % already exists; using the stored max_retries %',
+            i_run.label, i_run.max_retries;
+    END IF;
+    IF i_run.retry_backoff_ms IS DISTINCT FROM i_retry_backoff_ms::integer THEN
+        RAISE NOTICE 'run for label % already exists; using the stored retry_backoff_ms %',
+            i_run.label, i_run.retry_backoff_ms;
+    END IF;
     IF i_run.driving_table_schema_name IS DISTINCT FROM i_driving_table_schema_name
         OR i_run.driving_table_name IS DISTINCT FROM i_driving_table_name
     THEN
@@ -151,21 +200,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resume_migration_run(
-    dml_utils_data.migration_run,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resume_migration_run IS
     'Resolves the effective inputs of a resumed run from its stored row, emits '
         'notices for differing call inputs, re-validates a stored ordered-key '
-        'descriptor (failing closed with 55000) and asserts the stored blocks '
-        'relation filepath. Returns the effective SQL/schema/table/alias/threads/'
-        'sleep/strategy/partition-wise values.';
+        'descriptor or primary-key snapshot (failing closed with 55000 when the '
+        'live key changed) and asserts the stored blocks relation filepath. Returns '
+        'the effective SQL/schema/table/alias/threads/sleep/retry-policy/strategy/'
+        'partition-wise values.';

@@ -2,7 +2,12 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.BuildChunkBoundaryLiterals;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.Test;
+
+import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -67,11 +72,29 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
     }
 
     /**
-     * The first differing column wins even when a later column also differs, and
-     * a text comparison uses the supplied collation.
+     * A NULL collation (a column not in the catalog) compares with the default
+     * collation and still reports the first differing text column.
      */
     @Test
-    void findsTheFirstDifferingColumnAndUsesTheTextCollation() {
+    void comparesTextWithTheDefaultCollationWhenNoneIsGiven() {
+        BuildChunkBoundaryLiterals result = literals(
+                new String[]{"t.a", "t.b"},
+                new String[]{"text", "bigint"},
+                new String[]{null, null},
+                new String[]{"a", "1"},
+                new String[]{"b", "2"});
+
+        assertEquals(-1, result.getOFirstDifference());
+        assertEquals(1, result.getOFirstDifferencePosition());
+    }
+
+    /**
+     * The first differing column wins even when a later column also differs. (The
+     * supplied collation is passed through to the comparison; the chosen values
+     * differ under every collation, so the order here does not depend on it.)
+     */
+    @Test
+    void findsTheFirstDifferingColumn() {
         BuildChunkBoundaryLiterals result = literals(
                 new String[]{"t.a", "t.b", "t.c"},
                 new String[]{"bigint", "text", "bigint"},
@@ -104,6 +127,9 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
         assertArrayEquals(new String[]{
                 "'00000000-0000-0000-0000-000000000001'::uuid",
                 "'2026-01-01T00:00:00Z'::timestamptz"}, result.getOStartLiterals());
+        assertArrayEquals(new String[]{
+                "'00000000-0000-0000-0000-000000000002'::uuid",
+                "'2026-01-02T00:00:00Z'::timestamptz"}, result.getOEndLiterals());
         assertEquals(-1, result.getOFirstDifference());
         assertEquals(1, result.getOFirstDifferencePosition());
     }
@@ -195,7 +221,7 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
         assertSqlState("22023", () -> literals(new String[]{"t.id"},
                 new String[]{"integer"}, new String[]{null}, new String[]{"1"},
                 new String[]{"5"}));
-        assertSqlState("22023", () -> literals(new String[]{"t.id"},
+        assertSqlState("23514", () -> literals(new String[]{"t.id"},
                 new String[]{null}, new String[]{null}, new String[]{"1"},
                 new String[]{"5"}));
     }
@@ -220,11 +246,91 @@ class BuildChunkBoundaryLiteralsTest extends PostgresTestBase {
     }
 
     /**
+     * The collation array must be aligned with the other arrays, and a collation
+     * that is not a plain or schema-qualified quoted identifier is rejected before
+     * it can reach the COLLATE clause.
+     */
+    @Test
+    void rejectsAMisalignedOrUnsafeCollation() {
+        assertSqlState("22023", () -> literals(new String[]{"t.a", "t.b"},
+                new String[]{"text", "text"}, new String[]{null},
+                new String[]{"a", "x"}, new String[]{"b", "y"}));
+        assertSqlState("22023", () -> literals(new String[]{"t.a"},
+                new String[]{"text"},
+                new String[]{"x\" < '' OR pg_sleep(10)::text < '' OR ''1"},
+                new String[]{"a"}, new String[]{"b"}));
+    }
+
+    /**
+     * A collation whose schema needs quoting is accepted: quote_ident can emit
+     * {@code "MySchema".mycoll}, and rejecting that would fail a legitimate
+     * catalog collation at render time.
+     */
+    @Test
+    void acceptsACollationQualifiedByAQuotedSchema() {
+        BuildChunkBoundaryLiterals result = literals(new String[]{"t.a"},
+                new String[]{"text"}, new String[]{"\"pg_catalog\".\"en-x-icu\""},
+                new String[]{"a"}, new String[]{"b"});
+
+        assertEquals(-1, result.getOFirstDifference());
+        assertEquals(1, result.getOFirstDifferencePosition());
+    }
+
+    /**
+     * Under a nondeterministic (case-insensitive) collation, byte-different values
+     * can compare equal. Equality and direction must both be evaluated under the
+     * column's collation, so this reports no difference instead of a bogus +1; for
+     * a composite key the comparison falls through to the next column.
+     */
+    @Test
+    void comparesEqualityUnderTheColumnCollation() throws Exception {
+        try (Connection owner = openOwnerConnection()) {
+            DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
+            ownerDsl.execute("CREATE COLLATION dml_utils_fixtures.case_insensitive"
+                    + " (provider = icu, locale = 'und-u-ks-level1', deterministic = false)");
+            try {
+                BuildChunkBoundaryLiterals single = literals(new String[]{"t.a"},
+                        new String[]{"text"},
+                        new String[]{"dml_utils_fixtures.case_insensitive"},
+                        new String[]{"A"}, new String[]{"a"});
+                assertEquals(0, single.getOFirstDifference(),
+                        "A and a are equal under a case-insensitive collation");
+                assertEquals(0, single.getOFirstDifferencePosition());
+
+                BuildChunkBoundaryLiterals composite = literals(
+                        new String[]{"t.a", "t.b"},
+                        new String[]{"text", "bigint"},
+                        new String[]{"dml_utils_fixtures.case_insensitive", null},
+                        new String[]{"A", "1"}, new String[]{"a", "5"});
+                assertEquals(-1, composite.getOFirstDifference(),
+                        "the equal text column is skipped, leaving the bigint");
+                assertEquals(2, composite.getOFirstDifferencePosition());
+            } finally {
+                ownerDsl.execute(
+                        "DROP COLLATION IF EXISTS dml_utils_fixtures.case_insensitive");
+            }
+        }
+    }
+
+    /**
+     * A bigint literal outside the type's range is a 22023, like any other
+     * invalid boundary value.
+     */
+    @Test
+    void rejectsAnOutOfRangeBigint() {
+        assertSqlState("22023", () -> literals(new String[]{"t.id"},
+                new String[]{"bigint"}, new String[]{null},
+                new String[]{"99999999999999999999"}, new String[]{"5"}));
+    }
+
+    /**
      * Non-1-D and non-1-based arrays are rejected through raw SQL.
      */
     @Test
     void rejectsNonOneDimensionalArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        // The column-name/kinds domains reject the shape; the plain value array
+        // keeps its own 22023 shape check.
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.build_chunk_boundary_literals("
                         + "ARRAY[['id']]::text[], '{bigint}'::text[], '{NULL}'::text[],"
                         + " '{1}'::text[], '{5}'::text[])"));

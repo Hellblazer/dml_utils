@@ -48,11 +48,29 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     private static void executeStatements(DSLContext context, String sql) {
-        for (String statement : sql.split(";")) {
+        for (String statement : splitStatements(sql)) {
             if (!statement.isBlank()) {
                 context.execute(statement);
             }
         }
+    }
+
+    /**
+     * Whether the throwable's cause chain contains the target, at any depth. The
+     * transactional rollback sentinel can be wrapped by jOOQ or Liquibase more
+     * than once, so a fixed-depth check would misreport it.
+     *
+     * @param error  the thrown error
+     * @param target the sentinel
+     * @return true when the chain contains the sentinel
+     */
+    private static boolean hasCause(Throwable error, Throwable target) {
+        for (Throwable current = error; current != null; current = current.getCause()) {
+            if (current == target) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -71,6 +89,11 @@ class MigrationTablesTest extends PostgresTestBase {
         assertTrue(hasColumn("dml_utils_data", "migration_run", "completed_at"), "completed_at should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_run", "cancelled_at"), "cancelled_at should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_run", "sleep_ms"), "sleep_ms should exist");
+        assertTrue(hasColumn("dml_utils_data", "migration_run", "paused_at"), "paused_at should exist");
+        assertTrue(hasColumn("dml_utils_data", "migration_run", "max_retries"),
+                "max_retries should exist");
+        assertTrue(hasColumn("dml_utils_data", "migration_run", "retry_backoff_ms"),
+                "retry_backoff_ms should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_run", "driving_table_schema_name"),
                 "driving_table_schema_name should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_run", "driving_table_name"),
@@ -84,6 +107,8 @@ class MigrationTablesTest extends PostgresTestBase {
                 "total_chunks should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_run", "total_chunks_completed"),
                 "total_chunks_completed should exist");
+        assertTrue(hasColumn("dml_utils_data", "migration_run", "total_rows_affected"),
+                "total_rows_affected should exist");
 
         assertTrue(tableExists("dml_utils_data", "migration_boundary"), "migration_boundary should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_boundary", "run_id"), "run_id should exist");
@@ -96,6 +121,8 @@ class MigrationTablesTest extends PostgresTestBase {
         assertTrue(hasColumn("dml_utils_data", "migration_boundary", "started_at"), "started_at should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_boundary", "completed_at"), "completed_at should exist");
         assertTrue(hasColumn("dml_utils_data", "migration_boundary", "cancelled_at"), "cancelled_at should exist");
+        assertTrue(hasColumn("dml_utils_data", "migration_boundary", "rows_affected"),
+                "rows_affected should exist");
 
         assertTrue(tableExists("dml_utils_data", "migration_run_leaf"),
                 "migration_run_leaf should exist");
@@ -137,6 +164,119 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
+     * The retry policy defaults to three retries with a one-second backoff,
+     * accepts zero (disabled/immediate), and rejects negative or NULL values.
+     */
+    @Test
+    void retryPolicyDefaultsAndRejectsNegativeValues() {
+        Long runId = insertRun();
+
+        assertEquals(3, dsl.select(MIGRATION_RUN.MAX_RETRIES)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.MAX_RETRIES),
+                "the default retry count is three");
+        assertEquals(1000, dsl.select(MIGRATION_RUN.RETRY_BACKOFF_MS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.RETRY_BACKOFF_MS),
+                "the default backoff is one second");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.MAX_RETRIES, 0)
+                .set(MIGRATION_RUN.RETRY_BACKOFF_MS, 0)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(0, dsl.select(MIGRATION_RUN.MAX_RETRIES)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.MAX_RETRIES));
+        assertEquals(0, dsl.select(MIGRATION_RUN.RETRY_BACKOFF_MS)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.RETRY_BACKOFF_MS));
+
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.MAX_RETRIES, -1)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.RETRY_BACKOFF_MS, -1)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.MAX_RETRIES, (Integer) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.RETRY_BACKOFF_MS, (Integer) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
+     * A boundary's row count is set only with completion, cannot change after,
+     * and a completed boundary must carry one.
+     */
+    @Test
+    void enforcesBoundaryRowsAffectedInvariants() {
+        long runId = insertRunWithBoundary();
+        OffsetDateTime start = OffsetDateTime.parse("2020-01-01T00:00:00Z");
+        OffsetDateTime end = OffsetDateTime.parse("2020-01-02T00:00:00Z");
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 5L)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.STARTED_AT, start)
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT, end)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
+
+        dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.STARTED_AT, start)
+                .set(MIGRATION_BOUNDARY.COMPLETED_AT, end)
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 5L)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(5L, dsl.select(MIGRATION_BOUNDARY.ROWS_AFFECTED)
+                .from(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_BOUNDARY.ROWS_AFFECTED));
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 6L)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
+     * The run's total rows affected starts at zero and rejects a negative value.
+     */
+    @Test
+    void runTotalRowsAffectedStartsAtZeroAndIsNonNegative() {
+        Long runId = insertRun();
+
+        assertEquals(0L, dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_ROWS_AFFECTED));
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_ROWS_AFFECTED, 5L)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(5L, dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_ROWS_AFFECTED));
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_ROWS_AFFECTED, -1L)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
      * The rollback scripts for the routines whose signatures changed drop the
      * current definitions (not a stale older signature).
      */
@@ -155,8 +295,17 @@ class MigrationTablesTest extends PostgresTestBase {
                 "db/changelog/changes/functions-rollback/dml_utils_lib/populate_migration_boundaries-rollback.sql",
                 "dml_utils_lib", "populate_migration_boundaries");
         assertRollbackDropsFunction(
+                "db/changelog/changes/functions-rollback/dml_utils_lib/create_migration_run-rollback.sql",
+                "dml_utils_lib", "create_migration_run");
+        assertRollbackDropsFunction(
+                "db/changelog/changes/functions-rollback/dml_utils_lib/resume_migration_run-rollback.sql",
+                "dml_utils_lib", "resume_migration_run");
+        assertRollbackDropsFunction(
                 "db/changelog/changes/functions-rollback/dml_utils/set_migration_run_sleep_ms-rollback.sql",
                 "dml_utils", "set_migration_run_sleep_ms");
+        assertRollbackDropsFunction(
+                "db/changelog/changes/functions-rollback/dml_utils/set_migration_run_retries-rollback.sql",
+                "dml_utils", "set_migration_run_retries");
     }
 
     private void assertRollbackDropsFunction(String resource, String schema, String name)
@@ -175,7 +324,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 });
                 fail("the rollback transaction should have been rolled back");
             } catch (RuntimeException error) {
-                if (error != rollback && error.getCause() != rollback) {
+                if (!hasCause(error, rollback)) {
                     throw error;
                 }
             }
@@ -219,7 +368,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 });
                 fail("the rollback transaction should have been rolled back");
             } catch (RuntimeException error) {
-                if (error != rollback && error.getCause() != rollback) {
+                if (!hasCause(error, rollback)) {
                     throw error;
                 }
             }
@@ -290,6 +439,204 @@ class MigrationTablesTest extends PostgresTestBase {
         // Clearing a set cancellation back to NULL is also rejected.
         assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CANCELLED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
+     * Pause is a reversible, non-terminal flag: it requires a start, cannot be
+     * rewritten once set, can be cleared to resume, and cannot be set on a
+     * terminal run.
+     */
+    @Test
+    void enforcesTheRunPauseTimeline() {
+        Long runId = insertRun();
+
+        // A pause cannot precede the run start.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // A set pause cannot be rewritten, but writing the same value is a no-op.
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-04T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        OffsetDateTime pausedAt = dsl.select(MIGRATION_RUN.PAUSED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.PAUSED_AT);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, pausedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // Clearing the flag resumes the run.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // A paused run cannot be completed or cancelled without clearing the flag
+        // in the same statement.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-05T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-06T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.parse("2020-01-06T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // Clearing the pause in the same statement as completion is allowed.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, (OffsetDateTime) null)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-06T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // A completed run cannot be paused.
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-07T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // A cancelled run cannot be paused either.
+        Long cancelled = insertRun();
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
+                .execute();
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
+                .execute());
+    }
+
+    /**
+     * A completion timestamp is set once: moving it or clearing it back to NULL
+     * would re-open a finished run, while writing the identical value is a
+     * trigger-safe no-op.
+     */
+    @Test
+    void rejectsRewritingOrClearingARunCompletion() {
+        Long runId = insertRun();
+        OffsetDateTime completedAt = OffsetDateTime.parse("2020-01-02T00:00:00Z");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.COMPLETED_AT, completedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, completedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertEquals(completedAt.toInstant(), dsl.select(MIGRATION_RUN.COMPLETED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.COMPLETED_AT).toInstant());
+    }
+
+    /**
+     * An archive timestamp is set once: clearing it would resurrect the run as
+     * active and let its label be reused by a second run.
+     */
+    @Test
+    void rejectsRewritingOrClearingARunArchive() {
+        Long runId = insertRun();
+        OffsetDateTime archivedAt = OffsetDateTime.parse("2020-01-03T00:00:00Z");
+
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, archivedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.parse("2020-01-04T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // Writing the identical value is a trigger-safe no-op, as with
+        // completed_at: the trigger compares with IS DISTINCT FROM.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, archivedAt)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertEquals(archivedAt.toInstant(), dsl.select(MIGRATION_RUN.ARCHIVED_AT)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.ARCHIVED_AT).toInstant());
+    }
+
+    /**
+     * The paused/archived rule is a table constraint, not only an update guard, so
+     * a direct INSERT cannot create a row that is terminal (the pause could never
+     * be cleared) and undeletable (the delete helper needs completed_at or
+     * cancelled_at).
+     */
+    @Test
+    void rejectsInsertingAPausedAndArchivedRun() {
+        OffsetDateTime now = OffsetDateTime.now();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
+                        MIGRATION_RUN.DRIVING_TABLE_NAME, MIGRATION_RUN.STARTED_AT,
+                        MIGRATION_RUN.PAUSED_AT, MIGRATION_RUN.ARCHIVED_AT)
+                .values(uniqueLabel("paused-archived"), "SELECT 1", 1, 1, PUBLIC_SCHEMA,
+                        "migration_tables_source", now, now, now)
+                .execute());
+    }
+
+    /**
+     * A paused run cannot also be archived: the row would be terminal (the pause
+     * could never be cleared) and the delete helper could never remove it, because
+     * it needs completed_at or cancelled_at.
+     */
+    @Test
+    void rejectsArchivingAPausedRun() {
+        Long runId = insertRun();
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.parse("2020-01-03T00:00:00Z"))
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
     }
@@ -389,6 +736,18 @@ class MigrationTablesTest extends PostgresTestBase {
                 .set(MIGRATION_RUN_LEAF.STATE, "calculated")
                 .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
                 .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 2L)
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
+                .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
+                .execute());
+
+        // The high-water key must be canonical (two populated kinds at one
+        // position is not a packed key).
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN_LEAF)
+                .set(MIGRATION_RUN_LEAF.STATE, "calculated")
+                .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
+                .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 2L)
+                .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
+                        new MigrationKeyRecord(new Long[]{5L}, new String[]{"x"}, null, null, null))
                 .where(MIGRATION_RUN_LEAF.RUN_ID.eq(key))
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute());
@@ -540,7 +899,7 @@ class MigrationTablesTest extends PostgresTestBase {
         assertSqlState("22023", () -> updateBoundary(run, 0L,
                 MIGRATION_BOUNDARY.LEAF_ORDINAL, 2));
         assertSqlState("22023", () -> updateBoundary(run, 0L,
-                MIGRATION_BOUNDARY.LEAF_ORDINAL, (Integer) null));
+                MIGRATION_BOUNDARY.LEAF_ORDINAL, null));
 
         Long single = insertRun();
         insertBoundary(single, 0L, null);
@@ -595,6 +954,7 @@ class MigrationTablesTest extends PostgresTestBase {
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, started)
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, started)
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(run))
                 .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
                 .execute();
@@ -617,7 +977,7 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     private Long insertOrderedKeyRun() {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long runId = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
                         MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
@@ -629,10 +989,12 @@ class MigrationTablesTest extends PostgresTestBase {
                         new String[]{"timestamptz", "bigint"})
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the ordered-key run insert should return its id");
+        return runId;
     }
 
     private Long insertPartitionWiseRun(ChunkingStrategy chunkBy) {
-        return dsl.insertInto(MIGRATION_RUN)
+        Long runId = dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.PARTITION_WISE,
                         MIGRATION_RUN.THREADS, MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME,
@@ -641,6 +1003,8 @@ class MigrationTablesTest extends PostgresTestBase {
                         PUBLIC_SCHEMA, "migration_tables_source")
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);
+        assertNotNull(runId, "the partition-wise run insert should return its id");
+        return runId;
     }
 
     private void insertLeaf(Long runId, int ordinal, String state, String filepath,
@@ -815,24 +1179,115 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * The ordered-key shape check is validated (changeset 012 validates the check
-     * that 011 adds NOT VALID, so a deleted 012 leaves it unvalidated) and its
-     * stored definition lists every supported kind, bytea included.
+     * The primary-key and ordered-key shape checks are validated (changesets
+     * 010, 011, 013 and 014 validate the checks that 009 and 012 add NOT VALID,
+     * so a deleted one leaves its check unvalidated) and their stored definitions
+     * allow four columns and list every supported kind, bytea included.
      */
     @Test
-    void theOrderedKeyShapeCheckIsValidatedAndListsEveryKind() {
-        var check = dsl.fetchOne("SELECT convalidated, pg_catalog.pg_get_constraintdef(oid) AS definition"
-                + " FROM pg_catalog.pg_constraint"
-                + " WHERE conname = 'migration_run_ordered_key_shape_check'"
-                + " AND conrelid = 'dml_utils_data.migration_run'::regclass");
+    void theKeyShapeChecksAreValidatedAndListEveryKind() {
+        for (String constraint : List.of("migration_run_ordered_key_shape_check",
+                "migration_run_primary_key_shape_check")) {
+            var check = dsl.fetchOne("SELECT convalidated, pg_catalog.pg_get_constraintdef(oid) AS definition"
+                    + " FROM pg_catalog.pg_constraint"
+                    + " WHERE conname = ?"
+                    + " AND conrelid = 'dml_utils_data.migration_run'::regclass", constraint);
 
-        assertTrue(check.get("convalidated", Boolean.class), "the shape check is validated");
-        String definition = check.get("definition", String.class);
-        assertTrue(definition.contains("<= 4"), "the shape check allows four columns: " + definition);
-        for (String kind : List.of("bigint", "text", "uuid", "timestamptz", "bytea")) {
-            assertTrue(definition.contains("'" + kind + "'::text"),
-                    "the shape check admits " + kind + ": " + definition);
+            assertTrue(check.get("convalidated", Boolean.class), constraint + " is validated");
+            String definition = check.get("definition", String.class);
+            assertTrue(definition.contains("<= 4"), constraint + " allows four columns: " + definition);
+            for (String kind : List.of("bigint", "text", "uuid", "timestamptz", "bytea")) {
+                assertTrue(definition.contains("'" + kind + "'::text"),
+                        constraint + " admits " + kind + ": " + definition);
+            }
         }
+    }
+
+    /**
+     * A run may record bytea as a primary-key kind, and an unknown kind is
+     * still rejected.
+     */
+    @Test
+    void allowsByteaAsAPrimaryKeyKind() {
+        dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.PRIMARY_KEY_COLUMNS, MIGRATION_RUN.PRIMARY_KEY_KINDS)
+                .values("primary-key-bytea", "SELECT 1", 1, ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        new String[]{"tenant_id", "chash"}, new String[]{"text", "bytea"})
+                .execute();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.PRIMARY_KEY_COLUMNS, MIGRATION_RUN.PRIMARY_KEY_KINDS)
+                .values("primary-key-numeric", "SELECT 1", 1, ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        new String[]{"chash"}, new String[]{"numeric"})
+                .execute());
+    }
+
+    /**
+     * A run may record bytea as an ordered-key kind, and an unknown kind is
+     * still rejected.
+     */
+    @Test
+    void allowsByteaAsAnOrderedKeyKind() {
+        dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-bytea", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key", new String[]{"tenant_id", "chash"},
+                        new String[]{"text", "bytea"})
+                .execute();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
+                        MIGRATION_RUN.ORDERED_KEY_KINDS)
+                .values("ordered-key-numeric", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        "migration_tables_source_key", new String[]{"chash"},
+                        new String[]{"numeric"})
+                .execute());
+    }
+
+    /**
+     * The primary-key shape check admits up to four key columns and rejects five,
+     * so a primary-key run over the nexus chunks key can be recorded.
+     */
+    @Test
+    void allowsAPrimaryKeyOfFourColumnsButNotFive() {
+        dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.PRIMARY_KEY_COLUMNS, MIGRATION_RUN.PRIMARY_KEY_KINDS)
+                .values("primary-key-four", "SELECT 1", 1, ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        new String[]{"tenant_id", "collection", "chash", "embedding_model"},
+                        new String[]{"text", "text", "bytea", "text"})
+                .execute();
+
+        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
+                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
+                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
+                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
+                        MIGRATION_RUN.PRIMARY_KEY_COLUMNS, MIGRATION_RUN.PRIMARY_KEY_KINDS)
+                .values("primary-key-five", "SELECT 1", 1, ChunkingStrategy.primary_key, 1,
+                        PUBLIC_SCHEMA, "migration_tables_source",
+                        new String[]{"a", "b", "c", "d", "e"},
+                        new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"})
+                .execute());
     }
 
     /**
@@ -865,37 +1320,6 @@ class MigrationTablesTest extends PostgresTestBase {
                         "migration_tables_source_key",
                         new String[]{"a", "b", "c", "d", "e"},
                         new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"})
-                .execute());
-    }
-
-    /**
-     * A run may record bytea as an ordered-key kind, and an unknown kind is
-     * still rejected.
-     */
-    @Test
-    void allowsByteaAsAnOrderedKeyKind() {
-        dsl.insertInto(MIGRATION_RUN)
-                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
-                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
-                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
-                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
-                        MIGRATION_RUN.ORDERED_KEY_KINDS)
-                .values("ordered-key-bytea", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
-                        PUBLIC_SCHEMA, "migration_tables_source",
-                        "migration_tables_source_key", new String[]{"tenant_id", "chash"},
-                        new String[]{"text", "bytea"})
-                .execute();
-
-        assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
-                .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
-                        MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
-                        MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
-                        MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
-                        MIGRATION_RUN.ORDERED_KEY_KINDS)
-                .values("ordered-key-numeric", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
-                        PUBLIC_SCHEMA, "migration_tables_source",
-                        "migration_tables_source_key", new String[]{"chash"},
-                        new String[]{"numeric"})
                 .execute());
     }
 
@@ -996,7 +1420,8 @@ class MigrationTablesTest extends PostgresTestBase {
                         MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
                         MIGRATION_RUN.ORDERED_KEY_INDEX, MIGRATION_RUN.ORDERED_KEY_COLUMNS,
                         MIGRATION_RUN.ORDERED_KEY_KINDS)
-                .values("ordered-key-run", "SELECT 1", 1, ChunkingStrategy.ordered_key, 1,
+                .values(uniqueLabel("ordered-key-run"), "SELECT 1", 1,
+                        ChunkingStrategy.ordered_key, 1,
                         PUBLIC_SCHEMA, "migration_tables_source",
                         "migration_tables_source_key", new String[]{"created_at", "id"},
                         new String[]{"timestamptz", "bigint"})
@@ -1033,6 +1458,40 @@ class MigrationTablesTest extends PostgresTestBase {
                         ChunkingStrategy.primary_key, 1,
                         PUBLIC_SCHEMA, "migration_tables_source", "migration_tables_source_key")
                 .execute());
+
+        // A NULL element is not a key column or kind: cardinality and <@ both
+        // accept it (the whitelist comparison yields NULL), so the shape check
+        // rejects it explicitly.
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        ARRAY[NULL]::name[], ARRAY['bigint']::text[])
+                """, uniqueLabel("ordered-key-null-column")));
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        ARRAY['id']::name[], ARRAY[NULL]::text[])
+                """, uniqueLabel("ordered-key-null-kind")));
+        // A multidimensional array is rejected by the shape check too, instead of
+        // array_position raising its own 2202E for the malformed descriptor.
+        assertDomainViolation(() -> dsl.execute("""
+                INSERT INTO dml_utils_data.migration_run
+                    (label, sql_text, chunk_size, chunk_by, threads,
+                     driving_table_schema_name, driving_table_name,
+                     ordered_key_index, ordered_key_columns, ordered_key_kinds)
+                VALUES (?, 'SELECT 1', 1, 'ordered_key', 1, 'public',
+                        'migration_tables_source', 'migration_tables_source_key',
+                        '{{id,id2,id3}}'::name[],
+                        ARRAY['bigint', 'bigint', 'bigint']::text[])
+                """, uniqueLabel("ordered-key-multidimensional")));
 
         assertDomainViolation(() -> dsl.insertInto(MIGRATION_RUN)
                 .columns(MIGRATION_RUN.LABEL, MIGRATION_RUN.SQL_TEXT, MIGRATION_RUN.CHUNK_SIZE,
@@ -1128,9 +1587,10 @@ class MigrationTablesTest extends PostgresTestBase {
     }
 
     /**
-     * {@code label}, {@code chunk_size} and the driving table schema/name are
-     * immutable: updating any of them is rejected, while updating a mutable
-     * column (for example {@code completed_at}) is allowed.
+     * {@code label}, {@code chunk_size}, the ordered-key/chunking strategy and
+     * the driving table schema/name/alias are immutable: updating any of them is
+     * rejected. A first write of {@code started_at} is allowed; the
+     * time-order check then sees the recorded start.
      */
     @Test
     void rejectsUpdatesToImmutableRunColumns() {
@@ -1153,6 +1613,10 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
         assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.DRIVING_TABLE_ALIAS, "other")
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CHUNK_BY, ChunkingStrategy.blocks)
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
@@ -1161,13 +1625,36 @@ class MigrationTablesTest extends PostgresTestBase {
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
 
-        // The mutable started_at/completed_at columns can still be updated, in
-        // the order the time-order check requires.
+        // started_at may be recorded once (it is NULL here), and completed_at is
+        // then set in the order the time-order check requires.
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute();
+    }
+
+    /**
+     * Once {@code started_at} is recorded it cannot be moved or cleared: the
+     * milestone ordering and the progress rates are derived from it.
+     */
+    @Test
+    void freezesStartedAtOnceSet() {
+        Long runId = insertRun();
+        OffsetDateTime started = OffsetDateTime.parse("2020-01-01T00:00:00Z");
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, started)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, started.plusSeconds(1))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, (OffsetDateTime) null)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
     }
 
     /**
@@ -1192,12 +1679,17 @@ class MigrationTablesTest extends PostgresTestBase {
                 .set(MIGRATION_BOUNDARY.RUN_ID, otherRunId)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute());
+        assertSqlState("22023", () -> dsl.update(MIGRATION_BOUNDARY)
+                .set(MIGRATION_BOUNDARY.LEAF_ORDINAL, 1)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .execute());
 
         // The first completed_at write is allowed, in the order the time-order
         // check requires; it is then frozen.
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute();
 
@@ -1237,6 +1729,7 @@ class MigrationTablesTest extends PostgresTestBase {
         long boundaryRunId = insertRunWithBoundary();
         assertDomainViolation(() -> dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(boundaryRunId))
                 .execute());
         dsl.update(MIGRATION_BOUNDARY)
@@ -1245,6 +1738,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 .execute();
         assertDomainViolation(() -> dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(boundaryRunId))
                 .execute());
     }
@@ -1265,6 +1759,37 @@ class MigrationTablesTest extends PostgresTestBase {
         assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
                         OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+    }
+
+    /**
+     * A completion cannot precede the run's boundary calculation, and a completed
+     * run must have completed every chunk.
+     */
+    @Test
+    void rejectsAnEarlyOrUnfinishedCompletion() {
+        Long runId = insertRun();
+        // The counters are set before the boundary milestone: total_chunks is
+        // immutable once the boundaries are calculated.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
+                .set(MIGRATION_RUN.TOTAL_CHUNKS, 2L)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, 1L)
+                .set(MIGRATION_RUN.BOUNDARIES_CALCULATED_AT,
+                        OffsetDateTime.parse("2020-01-03T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+
+        // After the start but before the boundary calculation.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-02T00:00:00Z"))
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute());
+
+        // Completion requires the completed counter to cover total_chunks.
+        assertDomainViolation(() -> dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.parse("2020-01-04T00:00:00Z"))
                 .where(MIGRATION_RUN.RUN_ID.eq(runId))
                 .execute());
     }
@@ -1373,6 +1898,7 @@ class MigrationTablesTest extends PostgresTestBase {
                 .set(MIGRATION_BOUNDARY.UPDATED_AT, old)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, old)
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.now())
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
                 .execute();
         dsl.update(MIGRATION_ERROR)

@@ -9,6 +9,9 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKe
 import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -60,6 +63,50 @@ class RunMigrationChunksTest extends PostgresTestBase {
     private static void assertMixedKey(MigrationKeyRecord key, long a, String b) {
         assertEquals(a, key.getBigintValues()[0].longValue(), "key part a");
         assertEquals(b, key.getTextValues()[1], "key part b");
+    }
+
+    /**
+     * The invalid run inputs, each named by the argument it violates.
+     *
+     * @return the rejected calls
+     */
+    private static java.util.stream.Stream<Arguments> invalidRunArguments() {
+        return java.util.stream.Stream.of(
+                Arguments.of("null sql text",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, null,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, "t",
+                                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000)),
+                Arguments.of("blank label",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "   ", 2, 1, "t",
+                                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000)),
+                Arguments.of("non-positive chunk size",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 0, 1, "t",
+                                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000)),
+                Arguments.of("null alias",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, null,
+                                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000)),
+                Arguments.of("non-positive threads",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 0, "t",
+                                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000)),
+                Arguments.of("non-positive poll timeout",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, "t",
+                                        ChunkingStrategy.primary_key, 0, 0, null, false, 3, 1000)),
+                Arguments.of("null initial sleep",
+                        (java.util.function.Consumer<org.jooq.Configuration>) config ->
+                                Routines.runMigrationChunks(config, TEMPLATE,
+                                        schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, "t",
+                                        ChunkingStrategy.primary_key, 1, null, null, false, 3, 1000)));
     }
 
     /**
@@ -312,6 +359,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.now())
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L)))
                 .execute();
@@ -445,6 +493,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.now())
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L)))
                 .execute();
@@ -477,6 +526,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         dsl.update(MIGRATION_BOUNDARY)
                 .set(MIGRATION_BOUNDARY.STARTED_AT, OffsetDateTime.parse("2020-01-01T00:00:00Z"))
                 .set(MIGRATION_BOUNDARY.COMPLETED_AT, OffsetDateTime.now())
+                .set(MIGRATION_BOUNDARY.ROWS_AFFECTED, 0L)
                 .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId)
                         .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(3L)))
                 .execute();
@@ -501,7 +551,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         assertSqlState("22012", () -> Routines.runMigrationChunks(
                 dsl.configuration(),
                 "UPDATE <driving_table> SET payload = (1 / 0)::text WHERE <chunking_clause>",
-                schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
+                schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
 
         long runId = runId(label);
         assertFalse(runCompleted(runId), "a failed run must not be marked complete");
@@ -648,39 +698,102 @@ class RunMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
-     * A null SQL text is rejected by the non-null text domain.
+     * A template carrying a reserved substitution character is rejected at set
+     * time, so the next run does not fail on a template the renderer cannot use;
+     * the stored SQL is unchanged.
      */
     @Test
-    void rejectsNullSqlText() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), null, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
+    void setMigrationRunSqlTextRejectsAReservedCharacter() {
+        createSource(1, 2, 3, 4);
+        String label = label("set-sql-sentinel");
+        long runId = populate(TEST_BIGINT, label, TEMPLATE, 2);
+
+        assertSqlState("22023", () -> Routines.setMigrationRunSqlText(
+                dsl.configuration(), label, TEMPLATE + (char) 1));
+
+        assertEquals(TEMPLATE, dsl.select(MIGRATION_RUN.SQL_TEXT)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.SQL_TEXT),
+                "a rejected template must not replace the stored SQL");
     }
 
     /**
-     * A blank label is rejected by the non-null text domain.
+     * {@code set_migration_run_threads} rejects a count above
+     * {@code max_worker_processes} with {@code 22023} at set time and leaves the
+     * recorded count unchanged.
      */
     @Test
-    void rejectsBlankLabel() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "   ", 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
+    void setMigrationRunThreadsRejectsMoreThanMaxWorkerProcesses() {
+        createSource(1, 2, 3, 4);
+        String label = label("threads-over-max");
+        long runId = populate(TEST_BIGINT, label, TEMPLATE, 2, 2);
+        int max = dsl.fetchOne("SELECT current_setting('max_worker_processes')::integer")
+                .get(0, Integer.class);
+
+        assertSqlState("22023", () -> Routines.setMigrationRunThreads(
+                dsl.configuration(), label, max + 1));
+
+        assertEquals(2, dsl.select(MIGRATION_RUN.THREADS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.THREADS),
+                "the rejected value is not stored");
+
+        // The ceiling itself is legal: the guard is >, not >=.
+        Routines.setMigrationRunThreads(dsl.configuration(), label, max);
+        assertEquals(max, dsl.select(MIGRATION_RUN.THREADS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.THREADS),
+                "max_worker_processes itself is accepted and stored");
     }
 
     /**
-     * A non-positive chunk size is rejected by the positive-integer domain.
+     * {@code set_migration_run_sql_text} rejects a completed, cancelled or
+     * archived run with {@code P0002} and leaves the stored SQL unchanged.
      */
     @Test
-    void rejectsNonPositiveChunkSize() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 0, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
-    }
+    void setMigrationRunSqlTextRejectsTerminalRuns() {
+        createSource(1, 2, 3, 4);
+        String adjusted =
+                "UPDATE <driving_table> SET payload = 'adjusted' WHERE <chunking_clause>";
 
-    /**
-     * A null alias is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsNullAlias() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1, null, ChunkingStrategy.primary_key, 1, 0, null, false));
+        String completed = label("set-sql-completed");
+        long completedRun = populate(TEST_BIGINT, completed, TEMPLATE, 2);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
+                .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(completedRun))
+                .execute();
+
+        String cancelled = label("set-sql-cancelled");
+        long cancelledRun = populate(TEST_BIGINT, cancelled, TEMPLATE, 2);
+        Routines.cancelMigrationRun(dsl.configuration(), cancelled);
+
+        String archived = label("set-sql-archived");
+        long archivedRun = populate(TEST_BIGINT, archived, TEMPLATE, 2);
+        // Archive without cancelling: archive_migration_run would cancel first, so
+        // completed_at/cancelled_at would reject the update and the archived_at
+        // guard would never be exercised.
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.ARCHIVED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(archivedRun))
+                .execute();
+
+        for (long runId : List.of(completedRun, cancelledRun, archivedRun)) {
+            String terminalLabel = dsl.select(MIGRATION_RUN.LABEL)
+                    .from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                    .fetchOne(MIGRATION_RUN.LABEL);
+            assertSqlState("P0002", () -> Routines.setMigrationRunSqlText(
+                    dsl.configuration(), terminalLabel, adjusted));
+            assertEquals(TEMPLATE, dsl.select(MIGRATION_RUN.SQL_TEXT)
+                            .from(MIGRATION_RUN)
+                            .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                            .fetchOne(MIGRATION_RUN.SQL_TEXT),
+                    "a rejected terminal run keeps its SQL");
+        }
     }
 
     /**
@@ -889,7 +1002,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> Routines.runMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2,
-                tooMany, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
+                tooMany, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
     }
 
     /**
@@ -1031,13 +1144,18 @@ class RunMigrationChunksTest extends PostgresTestBase {
     }
 
     /**
-     * A NULL initial sleep is rejected before a run is created.
+     * Each invalid run input is rejected by its argument domain before any run
+     * is created: a null SQL text, blank label, NULL alias, non-positive chunk
+     * size, thread count or poll timeout, and a NULL initial sleep.
+     *
+     * @param description the violated argument
+     * @param call        the rejected call
      */
-    @Test
-    void runMigrationChunksRejectsNullSleep() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT),
-                "l", 2, 1, "t", ChunkingStrategy.primary_key, 1, null, null, false));
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidRunArguments")
+    void rejectsInvalidRunArguments(String description,
+                                    java.util.function.Consumer<org.jooq.Configuration> call) {
+        assertDomainViolation(() -> call.accept(dsl.configuration()));
     }
 
     /**
@@ -1109,27 +1227,6 @@ class RunMigrationChunksTest extends PostgresTestBase {
                 dsl.configuration(), label, TEMPLATE));
     }
 
-    /**
-     * A non-positive thread count is rejected by the positive-integer domain.
-     */
-    @Test
-    void rejectsNonPositiveThreads() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 0,
-                "t", ChunkingStrategy.primary_key, 1, 0, null, false));
-    }
-
-    /**
-     * A non-positive poll timeout is rejected by the positive-integer domain:
-     * {@code pg_background_wait_any} treats a non-positive timeout as
-     * wait-forever, which the coordinator must not use.
-     */
-    @Test
-    void rejectsNonPositivePollTimeout() {
-        assertDomainViolation(() -> Routines.runMigrationChunks(
-                dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), "l", 2, 1,
-                "t", ChunkingStrategy.primary_key, 0, 0, null, false));
-    }
 
     /**
      * A larger poll timeout (fewer coordinator wake-ups) still processes every
@@ -1142,7 +1239,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
 
         Routines.runMigrationChunks(
                 dsl.configuration(), TEMPLATE, schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1,
-                "t", ChunkingStrategy.primary_key, 50, 0, null, false);
+                "t", ChunkingStrategy.primary_key, 50, 0, null, false, 3, 1000);
 
         assertEquals(4, doneCount(TEST_BIGINT), "every row should be processed");
         assertTrue(runCompleted(runId(label)), "the run should be marked complete");
@@ -1170,9 +1267,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
         // 5 would all be processed, so a count below 5 proves one was suppressed.
         assertTrue(doneCount(TEST_BIGINT) < 5,
                 "a chunk after the failure should have been suppressed");
-        assertNotNull(dsl.selectFrom(MIGRATION_ERROR)
-                        .where(MIGRATION_ERROR.RUN_ID.eq(runId))
-                        .fetchOne(),
+        assertTrue(dsl.fetchExists(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
                 "the failed chunk should be recorded");
     }
 
@@ -1276,7 +1371,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
 
     private void createSource(Table<?> table, long... ids) {
         for (long id : ids) {
-            dsl.insertInto(table, field("id", Long.class)).values(id).execute();
+            dsl.insertInto(table, table.field("id", Long.class)).values(id).execute();
         }
     }
 
@@ -1291,7 +1386,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
     private long populate(Table<?> table, String label, String template, int chunkSize, int threads,
                           int sleepMs) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema(table), name(table), label, template, chunkSize, threads, ChunkingStrategy.primary_key, "t", sleepMs, null, false);
+                dsl.configuration(), schema(table), name(table), label, template, chunkSize, threads, ChunkingStrategy.primary_key, "t", sleepMs, null, false, 3, 1000);
     }
 
     private String label(String suffix) {
@@ -1310,7 +1405,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
                               Table<?> table) {
         Routines.runMigrationChunks(
                 dsl.configuration(), template, schema(table), name(table), label, chunkSize, threads,
-                "t", ChunkingStrategy.primary_key, 1, sleepMs, null, false);
+                "t", ChunkingStrategy.primary_key, 1, sleepMs, null, false, 3, 1000);
     }
 
     private void runOrderedKey(String label, int chunkSize, int threads) {
@@ -1318,7 +1413,7 @@ class RunMigrationChunksTest extends PostgresTestBase {
                 dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
                 label, chunkSize, threads, "t", ChunkingStrategy.ordered_key, 1, 0,
-                "test_ordered_key_created_at_id_idx", false);
+                "test_ordered_key_created_at_id_idx", false, 3, 1000);
     }
 
     /**

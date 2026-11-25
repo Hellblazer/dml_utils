@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
-    i_index_oid oid,
-    i_schema_name text,
-    i_table_name text,
-    i_index_name text
+    i_index_oid dml_utils_data.non_null_oid,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_index_name dml_utils_data.non_null_text
 )
     RETURNS TABLE
             (
@@ -15,6 +15,10 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    -- Every object is schema-qualified (including the validator and column reader
+    -- this delegates to); pin the path so the catalog names cannot resolve
+    -- against a caller-schema object.
+    SET search_path = pg_catalog
 AS
 $$
 BEGIN
@@ -40,14 +44,11 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index(
-    oid,
-    text,
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.ordered_key_attributes_for_index IS
     'Validates one ordered-key index by OID (assert_ordered_key_index_usable) and '
         'returns its key columns in index order (ordered_key_column_attributes). '
         'Used for a plain table index and for each leaf''s child index of a '
-        'partition-wise parent. The caller supplies the names only for error '
-        'messages.';
+        'partition-wise parent. The caller supplies the schema/table/index names; '
+        'they are validated against the OID (42P01 when the table is missing, '
+        '42704 when the index name, OID and table disagree) as well as used in the '
+        'error messages.';

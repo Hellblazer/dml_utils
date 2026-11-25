@@ -8,7 +8,6 @@ import org.jooq.TableField;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
@@ -16,8 +15,7 @@ import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.T
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKeyText.TEST_ORDERED_KEY_TEXT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKeyTimestamptz.TEST_ORDERED_KEY_TIMESTAMPTZ;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKeyUuid.TEST_ORDERED_KEY_UUID;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Drives the ordered-key strategy end to end over the Liquibase fixtures: a
@@ -104,7 +102,7 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
      */
     @Test
     void processesAMixedCompositeKeyWithAPartialFinalChunk() {
-        seedMixed(5);
+        seedOrderedKey(5);
         String label = uniqueLabel("ordered-mixed");
 
         run(label, TEST_ORDERED_KEY, MIXED_INDEX, 2, 2, APPEND_TEMPLATE);
@@ -161,6 +159,9 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                 failingTemplate));
 
         Routines.setMigrationRunSqlText(dsl.configuration(), label, APPEND_TEMPLATE);
+        // Only the label matters on resume: the stored sql_text was just set to
+        // APPEND_TEMPLATE, and the stored chunk size, threads, strategy and key are
+        // used, so this call's chunkSize/threads/index arguments are ignored.
         run(label, TEST_ORDERED_KEY_TEXT, null, 2, 1, APPEND_TEMPLATE);
 
         assertExactlyOnce(TEST_ORDERED_KEY_TEXT, TEST_ORDERED_KEY_TEXT.PAYLOAD, 6);
@@ -168,8 +169,9 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
     }
 
     /**
-     * A cancelled run is terminal: a later call resolves the stored strategy and
-     * index but processes no chunk.
+     * A cancelled run is terminal: a later call fails closed with {@code 55000}
+     * instead of resolving the stored strategy and returning a successful no-op,
+     * and it processes no chunk.
      */
     @Test
     void doesNotProcessChunksForACancelledRun() {
@@ -179,22 +181,23 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
                 .populateMigrationBoundaries(dsl.configuration(),
                         TEST_ORDERED_KEY_UUID.getSchema().getName(),
                         TEST_ORDERED_KEY_UUID.getName(), label, APPEND_TEMPLATE,
-                        2, 1, ChunkingStrategy.ordered_key, "t", 0, UUID_INDEX, false);
+                        2, 1, ChunkingStrategy.ordered_key, "t", 0, UUID_INDEX, false, 3, 1000);
         Routines.cancelMigrationRun(dsl.configuration(), label);
 
-        run(label, TEST_ORDERED_KEY_UUID, UUID_INDEX, 2, 1, APPEND_TEMPLATE);
+        assertSqlState("55000", () -> run(label, TEST_ORDERED_KEY_UUID, UUID_INDEX, 2, 1,
+                APPEND_TEMPLATE));
 
         assertEquals(0, dsl.fetchCount(TEST_ORDERED_KEY_UUID,
                         TEST_ORDERED_KEY_UUID.PAYLOAD.eq("x")),
                 "a cancelled run must not process a chunk");
-        assertTrue(run(label).getCancelledAt() != null, "the run stays cancelled");
+        assertNotNull(run(label).getCancelledAt(), "the run stays cancelled");
     }
 
     private void run(String label, Table<?> table, String index, int chunkSize, int threads,
                      String template) {
         Routines.runMigrationChunks(dsl.configuration(), template,
                 table.getSchema().getName(), table.getName(), label, chunkSize, threads,
-                "t", ChunkingStrategy.ordered_key, 1, 0, index, false);
+                "t", ChunkingStrategy.ordered_key, 1, 0, index, false, 3, 1000);
     }
 
     private void seedUuid(int rows) {
@@ -206,17 +209,6 @@ class OrderedKeyIntegrationTest extends PostgresTestBase {
         }
     }
 
-    private void seedMixed(int rows) {
-        for (int i = 1; i <= rows; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
-    }
 
     private void assertExactlyOnce(Table<?> table, TableField<?, String> payload, int expected) {
         assertEquals(expected, dsl.fetchCount(table, payload.eq("x")),

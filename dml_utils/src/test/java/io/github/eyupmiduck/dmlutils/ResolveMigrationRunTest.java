@@ -1,14 +1,26 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigrationRun;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.exception.DataAccessException;
+import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.OffsetDateTime;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
@@ -25,6 +37,22 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
     private static final String TEMPLATE =
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
+
+    /**
+     * The index mutations a resumed ordered run must reject.
+     *
+     * @return the replacement CREATE INDEX statements
+     */
+    private static java.util.stream.Stream<Arguments> resumeIndexViolations() {
+        return java.util.stream.Stream.of(
+                Arguments.of("reordered", "CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key (id, created_at)"),
+                Arguments.of("non-unique", "CREATE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key (created_at, id)"),
+                Arguments.of("too-many-columns", "CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
+                        + " ON dml_utils_fixtures.test_ordered_key"
+                        + " (created_at, id, external_id, label, collated_label)"));
+    }
 
     /**
      * Resets the run metadata and the fixture table between tests.
@@ -134,7 +162,35 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
-                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0, null, false));
+                uniqueLabel("resolve-chunk-by-null"), 2, 1, "t", null, 0, null, false, 3, 1000));
+    }
+
+    /**
+     * A new run stores the requested retry policy, and a resumed run returns the
+     * stored policy rather than the call's inputs.
+     */
+    @Test
+    void storesRetryPolicyAndResumesWithTheStoredValues() {
+        String label = uniqueLabel("resolve-retries");
+
+        ResolveMigrationRun first = resolveWithRetries(label, 7, 250);
+        assertEquals(7, first.getOEffectiveMaxRetries(), "the new run uses the input retries");
+        assertEquals(250, first.getOEffectiveRetryBackoffMs(),
+                "the new run uses the input backoff");
+
+        ResolveMigrationRun second = resolveWithRetries(label, 9, 500);
+        assertEquals(7, second.getOEffectiveMaxRetries(), "the stored retries win on resume");
+        assertEquals(250, second.getOEffectiveRetryBackoffMs(),
+                "the stored backoff wins on resume");
+        assertEquals(7, dsl.select(MIGRATION_RUN.MAX_RETRIES)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.LABEL.eq(label))
+                .fetchOne(MIGRATION_RUN.MAX_RETRIES), "the stored retries are persisted");
+        assertEquals(250, dsl.select(MIGRATION_RUN.RETRY_BACKOFF_MS)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.LABEL.eq(label))
+                        .fetchOne(MIGRATION_RUN.RETRY_BACKOFF_MS),
+                "the stored backoff is persisted");
     }
 
     /**
@@ -154,11 +210,13 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertDomainViolation(() -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
                 uniqueLabel("resolve-sleep-null"), 2, 1, "t",
-                ChunkingStrategy.primary_key, null, null, false));
+                ChunkingStrategy.primary_key, null, null, false, 3, 1000));
     }
 
     /**
-     * A completed run is reported as already complete.
+     * A completed run is reported as already complete, and only the run id and
+     * the flag are set: the remaining outputs are NULL, as documented, because
+     * the caller stops.
      */
     @Test
     void reportsAnAlreadyCompletedRun() {
@@ -167,12 +225,69 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         ResolveMigrationRun first = resolve(label, TEMPLATE, "t", 2, 1);
 
         dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
                 .set(MIGRATION_RUN.COMPLETED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(first.getORunId()))
                 .execute();
 
         ResolveMigrationRun again = resolve(label, TEMPLATE, "t", 2, 1);
         assertTrue(again.getOAlreadyCompleted(), "a completed run should be reported complete");
+        assertEquals(first.getORunId(), again.getORunId(), "the completed run id is returned");
+        assertNull(again.getOEffectiveSqlText(), "the completed path leaves sql_text NULL");
+        assertNull(again.getOEffectiveSchemaName(), "the completed path leaves the schema NULL");
+        assertNull(again.getOEffectiveTableName(), "the completed path leaves the table NULL");
+        assertNull(again.getOEffectiveAlias(), "the completed path leaves the alias NULL");
+        assertNull(again.getOEffectiveThreads(), "the completed path leaves threads NULL");
+        assertNull(again.getOEffectiveSleepMs(), "the completed path leaves sleep NULL");
+        assertNull(again.getOEffectiveMaxRetries(), "the completed path leaves retries NULL");
+        assertNull(again.getOEffectiveRetryBackoffMs(), "the completed path leaves backoff NULL");
+        assertNull(again.getOChunkBy(), "the completed path leaves chunk_by NULL");
+        assertNull(again.getOPartitionWise(), "the completed path leaves partition_wise NULL");
+        assertNull(again.getOKeyColumns(), "the completed path leaves the key columns NULL");
+        assertNull(again.getOKeyKinds(), "the completed path leaves the key kinds NULL");
+    }
+
+    /**
+     * A cancelled unarchived run is terminal: resolving the label fails closed
+     * with {@code 55000} naming the archive action, the cancelled row keeps the
+     * label, and archiving frees it for a new run.
+     */
+    @Test
+    void rejectsACancelledUnarchivedRunUntilItIsArchived() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("resolve-cancelled");
+        ResolveMigrationRun cancelled = resolve(label, TEMPLATE, "t", 2, 1);
+        assertEquals(cancelled.getORunId(),
+                io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .cancelMigrationRun(dsl.configuration(), label),
+                "the run is cancelled");
+
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> resolve(label, TEMPLATE, "t", 2, 1));
+
+        assertEquals("55000", failure.sqlState());
+        assertTrue(failure.getMessage().contains("cancelled"),
+                () -> "the message should say the run is cancelled: " + failure.getMessage());
+        assertTrue(failure.getMessage().contains("archive_migration_run"),
+                () -> "the message should name the archive action: " + failure.getMessage());
+        assertEquals(1, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "the cancelled row still owns the label");
+        MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(cancelled.getORunId()))
+                .fetchOne();
+        assertNotNull(run.getCancelledAt(), "the run stays cancelled");
+        assertNull(run.getCompletedAt(), "a cancelled run is not completed");
+
+        assertEquals(cancelled.getORunId(),
+                io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .archiveMigrationRun(dsl.configuration(), label));
+        ResolveMigrationRun replacement = resolve(label, TEMPLATE, "t", 2, 1);
+
+        assertNotEquals(cancelled.getORunId(), replacement.getORunId(),
+                "archiving frees the label for a new run");
+        assertEquals(Boolean.FALSE, replacement.getOAlreadyCompleted());
+        assertEquals(2, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "the archived and the replacement run both exist");
     }
 
     /**
@@ -185,7 +300,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
 
         assertSqlState("42P01", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), "does_not_exist",
-                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null, false));
+                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null, false, 3, 1000));
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
                 "a failed worker transaction must not leave a run row");
@@ -264,65 +379,25 @@ class ResolveMigrationRunTest extends PostgresTestBase {
     }
 
     /**
-     * A resumed ordered run fails closed with {@code 55000} when the index still
-     * exists but its key order changed.
-     */
-    @Test
-    void resumeFailsWhenTheIndexOrderChanged() throws Exception {
-        seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-reordered");
-        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
-
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key (id, created_at)");
-            assertSqlState("55000", () -> resolveOrderedKey(label,
-                    "test_ordered_key_created_at_id_idx"));
-        } finally {
-            recreateOrderedKeyIndex();
-        }
-    }
-
-    /**
      * A resumed ordered run fails closed with {@code 55000} when the stored
-     * index is recreated as non-unique (resolver {@code 0A000}).
+     * index is recreated with a different key order, as non-unique, or with too
+     * many key columns: the stored descriptor no longer matches the index.
+     *
+     * @param caseName the mutated index shape
+     * @param indexDdl the full CREATE statement for the replacement index
+     * @throws Exception if the index cannot be replaced
      */
-    @Test
-    void resumeFailsWhenTheStoredIndexIsNoLongerUnique() throws Exception {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("resumeIndexViolations")
+    void resumeFailsWhenTheStoredIndexChanges(String caseName, String indexDdl) throws Exception {
         seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-nonunique");
+        String label = uniqueLabel("resolve-ordered-" + caseName);
         resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
 
         try (Connection connection = openOwnerConnection();
              Statement statement = connection.createStatement()) {
             statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key (created_at, id)");
-            assertSqlState("55000", () -> resolveOrderedKey(label,
-                    "test_ordered_key_created_at_id_idx"));
-        } finally {
-            recreateOrderedKeyIndex();
-        }
-    }
-
-    /**
-     * A resumed ordered run fails closed with {@code 55000} when the stored
-     * index is recreated with too many key columns (five, resolver {@code 22023}).
-     */
-    @Test
-    void resumeFailsWhenTheStoredIndexHasTooManyColumns() throws Exception {
-        seedOrderedKey();
-        String label = uniqueLabel("resolve-ordered-five-columns");
-        resolveOrderedKey(label, "test_ordered_key_created_at_id_idx");
-
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute("DROP INDEX dml_utils_fixtures.test_ordered_key_created_at_id_idx");
-            statement.execute("CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
-                    + " ON dml_utils_fixtures.test_ordered_key"
-                    + " (created_at, id, external_id, label, collated_label)");
+            statement.execute(indexDdl);
             assertSqlState("55000", () -> resolveOrderedKey(label,
                     "test_ordered_key_created_at_id_idx"));
         } finally {
@@ -349,7 +424,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                 dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
                 uniqueLabel("resolve-ordered-null"), 2, 1, "t",
-                ChunkingStrategy.ordered_key, 0, null, false));
+                ChunkingStrategy.ordered_key, 0, null, false, 3, 1000));
     }
 
     /**
@@ -360,17 +435,92 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.resolveMigrationRun(
                 dsl.configuration(), TEMPLATE, schema(), name(),
                 uniqueLabel("resolve-primary-index"), 2, 1, "t",
-                ChunkingStrategy.primary_key, 0, "test_bigint_pkey", false));
+                ChunkingStrategy.primary_key, 0, "test_bigint_pkey", false, 3, 1000));
     }
 
     /**
-     * Seeds the ordered-key fixture with five rows whose timestamps repeat, so
-     * the boundary order falls through to the id tiebreaker.
+     * Two sessions resolving the same new label settle on one run: the loser
+     * either finds the winner's committed run or retries the lookup after losing
+     * the label-index race, and never surfaces the raw 23505.
+     */
+    @Test
+    void concurrentResolvesSettleOnOneRun() throws Exception {
+        seedBigint(1, 2, 3, 4);
+        String label = uniqueLabel("resolve-race");
+
+        try (Connection winner = openTestConnection()) {
+            winner.setAutoCommit(false);
+            Long winnerId = Routines.populateMigrationBoundaries(
+                    DSL.using(winner, SQLDialect.POSTGRES).configuration(),
+                    schema(), name(), label, TEMPLATE, 2, 1, ChunkingStrategy.primary_key,
+                    "t", 0, null, false, 3, 1000);
+            assertNotNull(winnerId, "the winner creates the run");
+            long winnerRunId = winnerId;
+
+            CompletableFuture<Long> loser = CompletableFuture.supplyAsync(() -> {
+                try (Connection connection = openTestConnection()) {
+                    DSLContext context = DSL.using(connection, SQLDialect.POSTGRES);
+                    return Routines.resolveMigrationRun(context.configuration(), TEMPLATE,
+                                    schema(), name(), label, 2, 1, "t",
+                                    ChunkingStrategy.primary_key, 0, null, false, 3, 1000)
+                            .getORunId();
+                } catch (SQLException error) {
+                    throw new CompletionException(error);
+                }
+            });
+
+            awaitLoserBlockedOnTheLabelIndex();
+            winner.commit();
+
+            assertEquals(winnerRunId, loser.get(30, TimeUnit.SECONDS),
+                    "both sessions resolve to the winner's run");
+        }
+
+        assertEquals(1, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "exactly one run exists for the label");
+    }
+
+    /**
+     * Waits until the losing session's create worker is actually blocked inserting
+     * the label (a transactionid lock waiting on the winner's transaction), so the
+     * test exercises the 23505 adoption path instead of a plain resume after the
+     * winner commits. A fixed sleep could let the winner commit first on a slow
+     * agent, and the test would pass without covering the adoption.
+     *
+     * @throws InterruptedException if the wait is interrupted
+     */
+    private void awaitLoserBlockedOnTheLabelIndex() throws InterruptedException {
+        for (int attempt = 0; attempt < 200; attempt++) {
+            boolean blocked = Boolean.TRUE.equals(dsl.fetchOne("""
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM pg_catalog.pg_locks AS held
+                                 JOIN pg_catalog.pg_stat_activity AS activity
+                                      ON activity.pid = held.pid
+                        WHERE held.locktype = 'transactionid'
+                          AND NOT held.granted
+                          AND activity.query LIKE '%populate_migration_boundaries%'
+                          AND held.pid <> pg_catalog.pg_backend_pid())
+                    """).get(0, Boolean.class));
+            if (blocked) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        fail("the losing resolve never reached its blocked create");
+    }
+
+    /**
+     * Resolves an ordered-key run over the ordered-key fixture.
+     *
+     * @param label the run label
+     * @param index the ordered-key index name
+     * @return the resolved run
      */
     private ResolveMigrationRun resolveOrderedKey(String label, String index) {
         return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE,
                 TEST_ORDERED_KEY.getSchema().getName(), TEST_ORDERED_KEY.getName(),
-                label, 2, 1, "t", ChunkingStrategy.ordered_key, 0, index, false);
+                label, 2, 1, "t", ChunkingStrategy.ordered_key, 0, index, false, 3, 1000);
     }
 
     private String storedOrderedKeyIndex(ResolveMigrationRun resolved) {
@@ -394,6 +544,12 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                                                    int chunkSize, int threads, ChunkingStrategy chunkBy,
                                                    int sleepMs) {
         return Routines.resolveMigrationRun(dsl.configuration(), sqlText, schema(), name(),
-                label, chunkSize, threads, alias, chunkBy, sleepMs, null, false);
+                label, chunkSize, threads, alias, chunkBy, sleepMs, null, false, 3, 1000);
+    }
+
+    private ResolveMigrationRun resolveWithRetries(String label, int maxRetries, int retryBackoff) {
+        return Routines.resolveMigrationRun(dsl.configuration(), TEMPLATE, schema(), name(),
+                label, 2, 1, "t", ChunkingStrategy.primary_key, 0, null, false,
+                maxRetries, retryBackoff);
     }
 }

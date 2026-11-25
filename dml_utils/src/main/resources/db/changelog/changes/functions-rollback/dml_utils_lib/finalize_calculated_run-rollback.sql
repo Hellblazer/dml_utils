@@ -1,3 +1,3 @@
 DROP FUNCTION IF EXISTS dml_utils_lib.finalize_calculated_run(
-    bigint
+    dml_utils_data.non_null_bigint
 );

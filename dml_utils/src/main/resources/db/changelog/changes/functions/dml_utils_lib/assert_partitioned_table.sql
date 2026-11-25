@@ -6,6 +6,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.assert_partitioned_table(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    -- Every object is schema-qualified; pin the path so a future unqualified
+    -- reference cannot pick up a caller-schema object.
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE
@@ -17,8 +20,8 @@ BEGIN
     INTO l_relkind
     FROM pg_catalog.pg_class AS c
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-    WHERE n.nspname = i_schema_name
-      AND c.relname = i_table_name;
+    WHERE n.nspname = i_schema_name::name
+      AND c.relname = i_table_name::name;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'relation %.% does not exist', i_schema_name, i_table_name
@@ -36,10 +39,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_table(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_partitioned_table IS
     'Raises undefined_table (42P01) when the relation does not exist, or '
         'wrong_object_type (42809) when it is not a declarative partitioned '
         'table (relkind p), so a non-partitioned driving table is rejected '

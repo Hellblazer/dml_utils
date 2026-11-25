@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_calculated_run(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -36,17 +36,22 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    -- Re-check the tree before writing the terminal boundary, so a change during
-    -- the loop cannot finalize stale ranges.
-    PERFORM dml_utils_lib.assert_migration_tree_unchanged(i_run_id => i_run_id);
-
-    -- Every leaf is calculated. Write the single terminal boundary and the run
-    -- totals in their own worker transaction, so they commit autonomously. The
-    -- worker outcome must be observed: pg_background_run only returns metadata,
-    -- it does not re-raise, so a failed finalizer would otherwise be reported as
-    -- success with boundaries_calculated_at still NULL.
+    -- Every leaf is calculated. Re-check the tree and write the single terminal
+    -- boundary plus the run totals in the *same* worker transaction. That removes
+    -- the cross-transaction commit gap, but each PL/pgSQL statement still takes
+    -- its own snapshot under READ COMMITTED, so a tree change committed between
+    -- the assertion and the write remains possible; the write re-validates the
+    -- cancelled state and leaf states under the run lock, and a stale range is
+    -- rejected on the next calculation attempt. The worker outcome must be
+    -- observed: pg_background_run only returns metadata, it does not re-raise, so
+    -- a failed finalizer would otherwise be reported as success with
+    -- boundaries_calculated_at still NULL.
     l_outcome := public.pg_background_run(pg_catalog.format(
-            'SELECT dml_utils_lib.finalize_migration_boundaries(%s)', i_run_id));
+            'DO $finalizer$ BEGIN '
+                'PERFORM dml_utils_lib.assert_migration_tree_unchanged(%L); '
+                'PERFORM dml_utils_lib.finalize_migration_boundaries(%L); '
+                'END $finalizer$',
+            i_run_id, i_run_id));
 
     IF NOT l_outcome.completed OR l_outcome.has_error THEN
         RAISE EXCEPTION 'finalizing run % failed: %', i_run_id,
@@ -56,7 +61,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.finalize_calculated_run(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.finalize_calculated_run IS
     'Finalizes a partition-wise run after every leaf is calculated: re-checks '
         'the live tree against the manifest and writes the terminal boundary and '
         'totals in an autonomous worker transaction. A cancelled or already '

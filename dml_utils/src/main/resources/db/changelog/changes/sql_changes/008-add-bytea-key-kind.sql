@@ -17,3 +17,13 @@ COMMENT ON TYPE dml_utils_data.migration_key IS
         'one array element is non-NULL per index and an unused kind''s array is '
         'NULL. Index i holds the value of boundary-key column i when that column '
         'has the array''s kind.';
+
+-- terminal_leaf_for_run gains an OUT column for the new attribute, and CREATE OR
+-- REPLACE cannot change a function's result row, so a database upgraded from an
+-- earlier release must lose the old function before its changeset (which runs
+-- after this one) creates the new one. The drop leaves nothing to restore here:
+-- 009 grants the new function to the caller again, and 999 grants it on a fresh
+-- database, where this DROP finds nothing and does nothing.
+DROP FUNCTION IF EXISTS dml_utils_lib.terminal_leaf_for_run(
+    dml_utils_data.non_null_bigint
+);

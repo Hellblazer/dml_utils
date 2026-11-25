@@ -4,7 +4,6 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.jooq.DSLContext;
-import org.jooq.Record;
 import org.jooq.SQLDialect;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,18 +27,19 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class RunMigrationChunksCancellationTest extends PostgresTestBase {
 
+    private static final String FAST_TEMPLATE =
+            "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
+
     /**
      * The chunk takes a transaction-level advisory lock before it sleeps. The test
      * polls {@code pg_locks} for that lock, so it knows a worker has actually
      * claimed a boundary before cancelling; a fixed sleep could cancel the run
      * before any worker launched on a slow CI agent.
      */
-    private static final String SLOW_TEMPLATE =
-            "SELECT pg_advisory_xact_lock(1, 4242), pg_sleep(1)"
-                    + " FROM <driving_table> WHERE <chunking_clause>";
-
-    private static final String FAST_TEMPLATE =
-            "UPDATE <driving_table> SET payload = 'done' WHERE <chunking_clause>";
+    private static String slowTemplate(int lockKey) {
+        return "SELECT pg_advisory_xact_lock(" + lockKey + ", 4242), pg_sleep(1)"
+                + " FROM <driving_table> WHERE <chunking_clause>";
+    }
 
     /**
      * Clears the fixture table and the migration metadata so each test starts
@@ -60,18 +60,19 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
         seedBigint(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
         String label = uniqueLabel("cancel-in-flight");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection owner = openOwnerConnection()) {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(ownerDsl.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(ownerDsl.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 5, 2, "t",
-                        ChunkingStrategy.primary_key, 1, 0, null, false);
+                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (SQLException error) {
                 throw new CompletionException(error);
             }
         });
 
-        long runId = awaitChunkInFlight(label);
+        long runId = awaitChunkInFlight(label, lockKey);
         Long cancelled = Routines.cancelMigrationRun(dsl.configuration(), label);
         assertEquals(runId, cancelled, "the active run is cancelled");
 
@@ -102,19 +103,20 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
         seedBigint(1, 2, 3, 4, 5, 6);
         String label = uniqueLabel("cancel-caller");
 
+        int lockKey = java.util.concurrent.ThreadLocalRandom.current().nextInt(1, Integer.MAX_VALUE);
         CompletableFuture<Void> run = CompletableFuture.runAsync(() -> {
             try (Connection connection = openTestConnection()) {
                 setRole(connection, "dml_utils_caller");
                 DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
-                Routines.runMigrationChunks(caller.configuration(), SLOW_TEMPLATE,
+                Routines.runMigrationChunks(caller.configuration(), slowTemplate(lockKey),
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 2, 1, "t",
-                        ChunkingStrategy.primary_key, 1, 0, null, false);
+                        ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
             } catch (Exception error) {
                 throw new CompletionException(error);
             }
         });
 
-        long runId = awaitChunkInFlight(label);
+        long runId = awaitChunkInFlight(label, lockKey);
         try (Connection connection = openTestConnection()) {
             setRole(connection, "dml_utils_caller");
             DSLContext caller = DSL.using(connection, SQLDialect.POSTGRES);
@@ -147,7 +149,7 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
                 DSLContext ownerDsl = DSL.using(owner, SQLDialect.POSTGRES);
                 Routines.runMigrationChunks(ownerDsl.configuration(), FAST_TEMPLATE,
                         schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
-                        ChunkingStrategy.primary_key, 1, 5_000, null, false);
+                        ChunkingStrategy.primary_key, 1, 5_000, null, false, 3, 1000);
             } catch (SQLException error) {
                 throw new CompletionException(error);
             }
@@ -172,17 +174,15 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
      */
     private long awaitCompletedChunk(String label) throws InterruptedException {
         for (int attempt = 0; attempt < 200; attempt++) {
-            Record row = dsl.fetchOne(
-                    "SELECT run_id FROM dml_utils_data.migration_run"
-                            + " WHERE label = ? AND total_chunks_completed > 0",
-                    label);
-            if (row != null) {
-                return row.get(0, Long.class);
+            Long runId = dsl.fetchValue(MIGRATION_RUN.RUN_ID,
+                    MIGRATION_RUN.LABEL.eq(label)
+                            .and(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED.gt(0L)));
+            if (runId != null) {
+                return runId;
             }
             Thread.sleep(50);
         }
-        fail("the run did not complete its first chunk");
-        return -1;
+        return fail("the run did not complete its first chunk");
     }
 
     /**
@@ -193,24 +193,28 @@ class RunMigrationChunksCancellationTest extends PostgresTestBase {
      * @return the run id
      * @throws InterruptedException if the wait is interrupted
      */
-    private long awaitChunkInFlight(String label) throws InterruptedException {
+    private long awaitChunkInFlight(String label, int lockKey) throws InterruptedException {
+        // The slow template takes an advisory key unique to this invocation, so
+        // matching that key identifies this run's worker without relying on
+        // pg_stat_activity (another role's statement text is not visible).
         for (int attempt = 0; attempt < 200; attempt++) {
-            Record row = dsl.fetchOne(
-                    "SELECT r.run_id FROM dml_utils_data.migration_run AS r"
-                            + " WHERE r.label = ?"
-                            + " AND EXISTS (SELECT 1 FROM dml_utils_data.migration_boundary AS b"
-                            + " WHERE b.run_id = r.run_id)",
-                    label);
-            if (row != null
+            Long runId = dsl.fetchValue(MIGRATION_RUN.RUN_ID,
+                    MIGRATION_RUN.LABEL.eq(label).and(DSL.exists(
+                            dsl.selectOne()
+                                    .from(MIGRATION_BOUNDARY)
+                                    .where(MIGRATION_BOUNDARY.RUN_ID
+                                            .eq(MIGRATION_RUN.RUN_ID)))));
+            if (runId != null
                     && Boolean.TRUE.equals(dsl.fetchOne(
                     "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks"
-                            + " WHERE locktype = 'advisory' AND classid = 1 AND objid = 4242"
-                            + " AND pid <> pg_backend_pid())").get(0, Boolean.class))) {
-                return row.get(0, Long.class);
+                            + " WHERE locktype = 'advisory'"
+                            + " AND classid = ? AND objid = 4242"
+                            + " AND pid <> pg_backend_pid())",
+                    lockKey).get(0, Boolean.class))) {
+                return runId;
             }
             Thread.sleep(50);
         }
-        fail("no chunk worker took the advisory lock");
-        return -1;
+        return fail("no chunk worker took the advisory lock");
     }
 }

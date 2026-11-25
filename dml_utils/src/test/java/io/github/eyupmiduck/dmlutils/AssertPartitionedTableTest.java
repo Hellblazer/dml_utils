@@ -49,11 +49,21 @@ class AssertPartitionedTableTest extends PartitionTestBase {
      * tables and are rejected with wrong_object_type.
      */
     @Test
-    void rejectsRelationsThatAreNotPartitionedTables() {
+    void rejectsRelationsThatAreNotPartitionedTables() throws Exception {
         assertSqlState("42809", () -> Routines.assertPartitionedTable(
                 dsl.configuration(), PARTITION_SCHEMA, "test_bigint"));
         assertSqlState("42809", () -> Routines.assertPartitionedTable(
                 dsl.configuration(), PARTITION_SCHEMA,
                 "test_partitioned_range_ordered_key_idx"));
+
+        // A sequence is a relation in pg_class but not a table at all.
+        executeAsOwner("CREATE SEQUENCE " + PARTITION_SCHEMA + ".assert_partitioned_table_seq");
+        try {
+            assertSqlState("42809", () -> Routines.assertPartitionedTable(
+                    dsl.configuration(), PARTITION_SCHEMA, "assert_partitioned_table_seq"));
+        } finally {
+            executeAsOwner("DROP SEQUENCE IF EXISTS "
+                    + PARTITION_SCHEMA + ".assert_partitioned_table_seq");
+        }
     }
 }

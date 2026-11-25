@@ -3,13 +3,18 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.udt.records.MigrationKeyRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+import org.jooq.Field;
+import org.jooq.Record;
+import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMultiHigh.TEST_PARTITIONED_MULTI_HIGH;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMultiLowH0.TEST_PARTITIONED_MULTI_LOW_H0;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMultiLowH1.TEST_PARTITIONED_MULTI_LOW_H1;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,8 +34,7 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
-        dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+        resetRanges();
     }
 
     /**
@@ -67,20 +71,20 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
                 PARTITION_SCHEMA, "test_partitioned_multi",
                 uniqueLabel("terminal-ordered"), TEMPLATE, 2, 1,
                 ChunkingStrategy.ordered_key, "t", 0,
-                "test_partitioned_multi_ordered_key_idx", true);
+                "test_partitioned_multi_ordered_key_idx", true, 3, 1000);
 
-        for (String leaf : List.of("test_partitioned_multi_low_h0",
-                "test_partitioned_multi_low_h1", "test_partitioned_multi_high")) {
+        for (Table<?> leaf : List.of(TEST_PARTITIONED_MULTI_LOW_H0,
+                TEST_PARTITIONED_MULTI_LOW_H1, TEST_PARTITIONED_MULTI_HIGH)) {
             Long[] expected = lastKey(leaf);
             if (expected == null) {
-                assertTrue(terminalIsNull(runId, leaf),
+                assertTrue(terminalIsNull(runId, leaf.getName()),
                         "an empty leaf has no high-water key");
             } else {
-                MigrationKeyRecord actual = terminal(runId, leaf);
+                MigrationKeyRecord actual = terminal(runId, leaf.getName());
                 assertEquals(expected[0], actual.getBigintValues()[0],
-                        "id for " + leaf);
+                        "id for " + leaf.getName());
                 assertEquals(expected[1], actual.getBigintValues()[1],
-                        "bucket for " + leaf);
+                        "bucket for " + leaf.getName());
             }
         }
     }
@@ -122,7 +126,7 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range",
                 uniqueLabel("terminal-plain"), TEMPLATE, 1, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false);
+                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         assertSqlState("55000", () -> Routines.leafTerminalBoundaryId(
                 dsl.configuration(), runId, 1));
@@ -132,7 +136,7 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
         return Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range",
                 uniqueLabel("terminal-" + chunkBy), TEMPLATE, 2, 1,
-                chunkBy, "t", 0, index, true);
+                chunkBy, "t", 0, index, true, 3, 1000);
     }
 
     private MigrationKeyRecord terminal(long runId, String leafName) {
@@ -141,21 +145,23 @@ class LeafTerminalBoundaryIdTest extends PartitionTestBase {
     }
 
     private boolean terminalIsNull(long runId, String leafName) {
-        return Boolean.TRUE.equals(dsl.fetchOne(
-                        "SELECT dml_utils_lib.leaf_terminal_boundary_id(?, ?) IS NULL",
-                        runId, leafOrdinal(runId, leafName))
-                .get(0, Boolean.class));
+        return Boolean.TRUE.equals(dsl.fetchValue(Routines.leafTerminalBoundaryId(
+                runId, leafOrdinal(runId, leafName)).isNull()));
     }
 
 
-    private Long[] lastKey(String leafName) {
-        var row = dsl.fetchOne("SELECT id, bucket FROM " + PARTITION_SCHEMA + "."
-                + leafName + " ORDER BY id DESC, bucket DESC LIMIT 1");
+    private Long[] lastKey(Table<?> leaf) {
+        Field<Long> id = leaf.field("id", Long.class);
+        Field<Integer> bucket = leaf.field("bucket", Integer.class);
+        Record row = dsl.select(id, bucket)
+                .from(leaf)
+                .orderBy(id.desc(), bucket.desc())
+                .limit(1)
+                .fetchOne();
         if (row == null) {
             return null;
         }
-        return new Long[]{row.get(0, Long.class),
-                row.get(1, Integer.class).longValue()};
+        return new Long[]{row.get(id), row.get(bucket).longValue()};
     }
 
     private long leafBlocks(String leafName) {

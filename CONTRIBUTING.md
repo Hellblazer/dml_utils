@@ -107,7 +107,10 @@ Rules:
   small and focused.
 - Use modern Java 25 features where they improve readability.
 - Prefer jOOQ's type-safe DSL over hand-built SQL strings, and use generated
-  jOOQ classes where available.
+  jOOQ classes for every changelog-defined object.
+- Raw SQL is reserved for DDL, catalog introspection, session settings, locks,
+  privileges, deliberately malformed input, and SQL with no clear jOOQ
+  equivalent.
 - Do not duplicate schema definitions in Java.
 - Avoid adding dependencies or frameworks without a clear benefit.
 - Do not add comments that restate the code.
@@ -120,9 +123,21 @@ Rules:
 - Database tests extend `PostgresTestBase`, which shares one container and
   clones a template database per test class. Use the inherited `dsl`; do not
   start containers or run Liquibase inside individual tests.
+- Prefer the shared contracts from `liquibase-validation` (layout, comments,
+  audit columns, routine signatures/documentation, privileges, routine security,
+  tracking tables, round trip and re-apply) over copying their assertions. A
+  contract subclass returns the one `PostgresTestBase.PROFILE` value, so the
+  roles, image, schemas, changelog and installed ddl_utils baseline cannot
+  drift. The round-trip and re-apply contracts are live Testcontainers tests and
+  run in `verify`.
 - Every test class and test method needs Javadoc describing the behavior it
   verifies.
 - Add a regression test when fixing a bug.
+- The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
+  latest published release below the current revision and compares the upgraded
+  catalog with the current changelog. It is enabled in `verify`; disable it only
+  while a baseline is edited in place, and re-enable it after the replacement
+  release. Any later in-place schema edit repeats that cycle.
 
 ## Branches and commits
 

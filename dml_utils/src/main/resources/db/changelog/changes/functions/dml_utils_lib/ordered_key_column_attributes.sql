@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.ordered_key_column_attributes(
-    i_index_oid oid,
-    i_schema_name text,
-    i_table_name text,
-    i_index_name text
+    i_index_oid dml_utils_data.non_null_oid,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_index_name dml_utils_data.non_null_text
 )
     RETURNS TABLE
             (
@@ -67,15 +67,15 @@ BEGIN
         -- The integer family collapses to bigint, as it does for a primary
         -- key; the other supported types map one-to-one.
             l_key_kind := CASE
-                              WHEN l_key.key_column_oid IN ('smallint'::pg_catalog.regtype,
-                                                            'integer'::pg_catalog.regtype,
-                                                            'bigint'::pg_catalog.regtype)
+                              WHEN l_key.key_column_oid IN ('pg_catalog.int2'::pg_catalog.regtype,
+                                                            'pg_catalog.int4'::pg_catalog.regtype,
+                                                            'pg_catalog.int8'::pg_catalog.regtype)
                                   THEN 'bigint'
-                              WHEN l_key.key_column_oid = 'text'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.text'::pg_catalog.regtype
                                   THEN 'text'
-                              WHEN l_key.key_column_oid = 'uuid'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.uuid'::pg_catalog.regtype
                                   THEN 'uuid'
-                              WHEN l_key.key_column_oid = 'timestamptz'::pg_catalog.regtype
+                              WHEN l_key.key_column_oid = 'pg_catalog.timestamptz'::pg_catalog.regtype
                                   THEN 'timestamptz'
                               WHEN l_key.key_column_oid = 'bytea'::pg_catalog.regtype
                                   THEN 'bytea'
@@ -132,12 +132,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.ordered_key_column_attributes(
-    oid,
-    text,
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.ordered_key_column_attributes IS
     'Resolves the key columns of an index already accepted by '
         'assert_ordered_key_index_usable: each column''s type must collapse to a '
         'supported kind, be NOT NULL, use its default btree operator class and '

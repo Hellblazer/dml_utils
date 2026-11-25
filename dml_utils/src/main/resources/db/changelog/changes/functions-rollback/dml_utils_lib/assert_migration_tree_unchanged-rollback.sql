@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS dml_utils_lib.assert_migration_tree_unchanged(bigint);
+DROP FUNCTION IF EXISTS dml_utils_lib.assert_migration_tree_unchanged(dml_utils_data.non_null_bigint);

@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.finalize_migration_boundaries(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -10,14 +10,8 @@ $$
 DECLARE
     l_run          record;
     l_terminal     record;
-    l_terminal_key dml_utils_data.migration_key;
     l_total_chunks bigint;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'run id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- Serialize finalization with leaf calculation on the run row.
     SELECT run.partition_wise,
            run.boundaries_calculated_at,
@@ -51,29 +45,17 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    SELECT o_leaf_ordinal,
-           o_leaf_schema_name,
-           o_leaf_name,
-           o_bigint_values,
-           o_text_values,
-           o_uuid_values,
-           o_timestamptz_values,
-           o_bytea_values
+    SELECT o_leaf_ordinal
     INTO l_terminal
     FROM dml_utils_lib.terminal_leaf_for_run(i_run_id => i_run_id);
 
     IF l_terminal.o_leaf_ordinal IS NOT NULL THEN
-        l_terminal_key := ROW (l_terminal.o_bigint_values,
-            l_terminal.o_text_values, l_terminal.o_uuid_values,
-            l_terminal.o_timestamptz_values,
-            l_terminal.o_bytea_values)::dml_utils_data.migration_key;
-
+        -- append_terminal_boundary derives the leaf identity and the terminal key
+        -- from the manifest and records the milestone itself (the single-terminal
+        -- gate).
         l_total_chunks := dml_utils_lib.append_terminal_boundary(
                 i_run_id => i_run_id,
-                i_leaf_ordinal => l_terminal.o_leaf_ordinal,
-                i_leaf_schema_name => l_terminal.o_leaf_schema_name,
-                i_leaf_name => l_terminal.o_leaf_name,
-                i_terminal_key => l_terminal_key);
+                i_leaf_ordinal => l_terminal.o_leaf_ordinal);
     ELSE
         -- Every leaf is empty: no terminal boundary and no chunks.
         l_total_chunks := 0;
@@ -87,10 +69,14 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.finalize_migration_boundaries IS
     'Writes the single terminal boundary from the last non-empty leaf and sets '
         'boundaries_calculated_at and total_chunks, once. terminal_leaf_for_run '
-        'picks the leaf and append_terminal_boundary writes the boundary. '
-        'Idempotent (does nothing for a finalized or cancelled run) and raises '
-        '55000 while any leaf is not calculated. SECURITY DEFINER so the '
+        'picks the leaf; append_terminal_boundary writes the boundary, checks the '
+        'manifest leaf and records the milestone under the run lock. An all-empty '
+        'run (including a parent with zero leaves, whose manifest was snapshotted '
+        'but is empty) has no terminal, so this function records the milestone '
+        'itself with total_chunks 0. Idempotent (does nothing for a finalized or '
+        'cancelled run) and '
+        'raises 55000 while any leaf is not calculated. SECURITY DEFINER so the '
         'invoker-owned coordinator can write metadata and read the terminal leaf.';

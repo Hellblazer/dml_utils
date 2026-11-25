@@ -1,10 +1,10 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
-    i_run_id bigint,
-    i_leaf_ordinal integer
+    i_run_id dml_utils_data.non_null_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer
 )
     RETURNS void
     LANGUAGE plpgsql
-    STABLE
+    VOLATILE
     SECURITY INVOKER
 AS
 $$
@@ -32,13 +32,14 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged(
-    bigint,
-    integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_migration_leaf_unchanged IS
     'Raises object_not_in_prerequisite_state (55000) when a partition-wise run''s '
         'manifest leaf no longer matches the live relation: missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '
-        'plain table, or (for blocks) a rewritten heap. Uses '
+        'plain table, or (for blocks) a rewritten heap. It takes ACCESS SHARE on the '
+        'leaf (so it is VOLATILE) to keep the verified identity stable for the '
+        'caller''s transaction. Uses '
         'manifest_leaf_identity and assert_live_leaf_matches_manifest so the '
-        'stored and live views are each built in one place.';
+        'stored and live views are each built in one place. An unknown run is '
+        'undefined_object (P0002, from manifest_leaf_identity); a known run '
+        'without that leaf ordinal is 55000.';

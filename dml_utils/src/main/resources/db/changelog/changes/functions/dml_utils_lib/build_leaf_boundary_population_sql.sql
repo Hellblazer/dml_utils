@@ -1,11 +1,11 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
-    i_key_columns name[],
-    i_key_kinds text[],
-    i_run_id bigint,
-    i_chunk_size bigint,
-    i_leaf_ordinal integer
+    i_key_columns dml_utils_data.non_null_element_name_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_chunk_size dml_utils_data.positive_bigint,
+    i_leaf_ordinal dml_utils_data.positive_integer
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -17,22 +17,12 @@ DECLARE
     l_descriptor record;
 BEGIN
     -- The run id, chunk size and leaf ordinal are inlined (all integers, so no
-    -- injection surface). A NULL run id renders an empty token, a non-positive
-    -- chunk size renders a degenerate divisor and an ordinal below 1 violates
-    -- the manifest key.
-    IF i_run_id IS NULL OR i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'run id must not be NULL and chunk size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
-    IF i_leaf_ordinal IS NULL OR i_leaf_ordinal < 1 THEN
-        RAISE EXCEPTION 'leaf ordinal must be at least 1'
-            USING ERRCODE = '22023';
-    END IF;
+    -- injection surface); their parameter domains reject a NULL or non-positive
+    -- value before the body runs.
 
     SELECT o_select_list,
            o_id_list,
            o_order_by,
-           o_order_by_desc,
            o_pack_expression
     INTO l_descriptor
     FROM dml_utils_lib.boundary_key_descriptor_sql(
@@ -40,8 +30,13 @@ BEGIN
             i_key_kinds => i_key_kinds);
 
     -- One leaf's chunk starts, appended after every boundary already committed
-    -- for the run. The base number comes from the existing rows (the snapshot
-    -- before this statement), so concurrent-looking appends stay contiguous.
+    -- for the run. The base number comes from max(boundary_no) in this statement's
+    -- snapshot, which does NOT make concurrent appends contiguous: two overlapping
+    -- executions read the same base and collide on the (run_id, boundary_no)
+    -- primary key. Contiguity rests on the caller serializing leaves:
+    -- calculate_migration_run_boundaries holds the run's calculation advisory lock
+    -- and launches one leaf transaction at a time, waiting for each. A future
+    -- parallel leaf calculation would need its own serialization here.
     -- There is deliberately no per-leaf terminal: the only terminal boundary is
     -- written by finalize_migration_boundaries from the last non-empty leaf.
     RETURN pg_catalog.format(
@@ -51,7 +46,7 @@ BEGIN
         WITH numbered AS (
             SELECT
                 %1$s,
-                row_number() OVER (ORDER BY %2$s) AS rn
+                pg_catalog.row_number() OVER (ORDER BY %2$s) AS rn
             FROM %3$I.%4$I
         ),
         starts AS MATERIALIZED (
@@ -62,7 +57,7 @@ BEGIN
             WHERE (rn - 1) %% %8$s::bigint = 0
         ),
         base AS (
-            SELECT coalesce(max(boundary_no), -1) + 1 AS first_boundary_no
+            SELECT coalesce(pg_catalog.max(boundary_no), -1) + 1 AS first_boundary_no
             FROM dml_utils_data.migration_boundary
             WHERE run_id = %7$s
         )
@@ -87,15 +82,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    name[],
-    text[],
-    bigint,
-    bigint,
-    integer
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_leaf_boundary_population_sql IS
     'Returns the statement that scans one leaf in boundary-key order and inserts '
         'its chunk starts (no per-leaf terminal) after the boundaries already '
         'committed for the run, tagged with the leaf ordinal. The caller supplies '

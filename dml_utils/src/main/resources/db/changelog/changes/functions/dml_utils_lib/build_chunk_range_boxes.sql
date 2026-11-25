@@ -1,9 +1,9 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    i_column_names text[],
+    i_column_names dml_utils_data.non_null_element_text_array,
     i_start_literals text[],
     i_end_literals text[],
-    i_first_difference_position integer,
-    i_is_final boolean
+    i_first_difference_position dml_utils_data.non_negative_integer,
+    i_is_final dml_utils_data.non_null_boolean
 )
     RETURNS text[]
     LANGUAGE plpgsql
@@ -12,16 +12,46 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.build_chunk_range_boxes(
 AS
 $$
 DECLARE
-    l_column_count integer;
-    l_boxes        text[];
-    l_box          text;
+    l_column_count        integer;
+    l_difference_position integer;
+    l_boxes               text[];
+    l_box                 text;
 BEGIN
-    IF i_is_final IS NULL THEN
-        RAISE EXCEPTION 'i_is_final must not be NULL'
+    -- Every array is one-dimensional, 1-based, the same non-empty length, with
+    -- no NULL elements (a NULL name/literal would render an empty token) and a
+    -- difference position inside the key. The value arrays come from
+    -- build_chunk_boundary_literals, which already rejects NULL values, but this
+    -- helper is directly callable.
+    IF pg_catalog.array_ndims(i_column_names) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_column_names, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_ndims(i_start_literals) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_start_literals, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_ndims(i_end_literals) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_end_literals, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_length(i_column_names, 1) IS NULL
+        OR pg_catalog.array_length(i_column_names, 1) < 1
+        OR pg_catalog.array_length(i_start_literals, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_length(i_end_literals, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+        OR pg_catalog.array_position(i_column_names, NULL::text) IS NOT NULL
+        OR pg_catalog.array_position(i_start_literals, NULL::text) IS NOT NULL
+        OR pg_catalog.array_position(i_end_literals, NULL::text) IS NOT NULL
+        OR i_first_difference_position::integer > pg_catalog.array_length(i_column_names, 1)
+    THEN
+        RAISE EXCEPTION 'range-box inputs must be non-null, one-dimensional, 1-based, same-length, non-empty and NULL-free, with a difference position within the key'
+            USING ERRCODE = '22023';
+    END IF;
+    IF EXISTS (SELECT 1
+               FROM pg_catalog.unnest(i_column_names) AS c(column_name)
+               WHERE pg_catalog.btrim(c.column_name, E' \t\n\r\f\013') = '')
+    THEN
+        RAISE EXCEPTION 'range-box column names must not be blank'
             USING ERRCODE = '22023';
     END IF;
 
     l_column_count := pg_catalog.array_length(i_column_names, 1);
+    -- Copy the domain-typed argument into a plain integer: a FOR loop with a
+    -- domain bound makes plpgsql_check warn about a loop-variable type mismatch.
+    l_difference_position := i_first_difference_position;
 
     -- Emit the chunk as a disjunction of axis-aligned boxes that exactly tiles the
     -- lexicographic range [start, end). Each box is a prefix of equalities plus a
@@ -37,7 +67,7 @@ BEGIN
     -- boxes in all. A key that differs only in its last column is a single scalar
     -- range, and a key whose bounds are all equal is a single row.
     l_boxes := ARRAY []::text[];
-    IF i_first_difference_position = 0 THEN
+    IF l_difference_position = 0 THEN
         -- All columns equal: exactly one row (a final chunk only; the caller
         -- rejects it otherwise).
         l_box := '';
@@ -49,7 +79,7 @@ BEGIN
                                                     i_start_literals[l_position]);
             END LOOP;
         l_boxes := l_boxes || l_box;
-    ELSIF i_first_difference_position = l_column_count THEN
+    ELSIF l_difference_position = l_column_count THEN
         -- Only the last column differs: one box, a half-open (final: closed) scalar
         -- range after the fixed prefix.
         l_box := '';
@@ -69,16 +99,16 @@ BEGIN
     ELSE
         -- Lower tail: c_d = start_d and the suffix >= the lower suffix. One box per
         -- suffix column: c_j > start_j, and >= start_n on the last column.
-        FOR l_j IN i_first_difference_position + 1..l_column_count
+        FOR l_j IN l_difference_position::integer + 1..l_column_count
             LOOP
                 l_box := '';
-                FOR l_position IN 1..i_first_difference_position
+                FOR l_position IN 1..l_difference_position
                     LOOP
                         l_box := l_box || pg_catalog.format('%s = %s AND ',
                                                             i_column_names[l_position],
                                                             i_start_literals[l_position]);
                     END LOOP;
-                FOR l_position IN i_first_difference_position + 1..l_j - 1
+                FOR l_position IN l_difference_position + 1..l_j - 1
                     LOOP
                         l_box := l_box || pg_catalog.format('%s = %s AND ',
                                                             i_column_names[l_position],
@@ -98,35 +128,35 @@ BEGIN
 
         -- Middle: start_d < c_d < end_d, after the fixed prefix.
         l_box := '';
-        FOR l_position IN 1..i_first_difference_position - 1
+        FOR l_position IN 1..l_difference_position - 1
             LOOP
                 l_box := l_box || pg_catalog.format('%s = %s AND ',
                                                     i_column_names[l_position],
                                                     i_start_literals[l_position]);
             END LOOP;
         l_box := l_box || pg_catalog.format('%s > %s AND %s < %s',
-                                            i_column_names[i_first_difference_position],
-                                            i_start_literals[i_first_difference_position],
-                                            i_column_names[i_first_difference_position],
-                                            i_end_literals[i_first_difference_position]);
+                                            i_column_names[l_difference_position],
+                                            i_start_literals[l_difference_position],
+                                            i_column_names[l_difference_position],
+                                            i_end_literals[l_difference_position]);
         l_boxes := l_boxes || l_box;
 
         -- Upper tail: c_d = end_d and the suffix < the upper suffix. One box per
         -- suffix column: c_j < end_j, and <= end_n on the last column for the
         -- final chunk (so the captured maximum row is processed).
-        FOR l_j IN i_first_difference_position + 1..l_column_count
+        FOR l_j IN l_difference_position::integer + 1..l_column_count
             LOOP
                 l_box := '';
-                FOR l_position IN 1..i_first_difference_position - 1
+                FOR l_position IN 1..l_difference_position - 1
                     LOOP
                         l_box := l_box || pg_catalog.format('%s = %s AND ',
                                                             i_column_names[l_position],
                                                             i_start_literals[l_position]);
                     END LOOP;
                 l_box := l_box || pg_catalog.format('%s = %s AND ',
-                                                    i_column_names[i_first_difference_position],
-                                                    i_end_literals[i_first_difference_position]);
-                FOR l_position IN i_first_difference_position + 1..l_j - 1
+                                                    i_column_names[l_difference_position],
+                                                    i_end_literals[l_difference_position]);
+                FOR l_position IN l_difference_position + 1..l_j - 1
                     LOOP
                         l_box := l_box || pg_catalog.format('%s = %s AND ',
                                                             i_column_names[l_position],
@@ -150,14 +180,8 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_chunk_range_boxes(
-    text[],
-    text[],
-    text[],
-    integer,
-    boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_chunk_range_boxes IS
     'Builds the axis-aligned box disjunction that exactly tiles a lexicographic '
-        '[start, end) chunk range. i_first_difference_position is the first column '
+        '[start, end) chunk range. l_difference_position is the first column '
         'whose bounds differ (0 when all are equal); i_is_final makes the last '
         'column''s upper bound inclusive. Shared by render_prepared_chunk_sql.';

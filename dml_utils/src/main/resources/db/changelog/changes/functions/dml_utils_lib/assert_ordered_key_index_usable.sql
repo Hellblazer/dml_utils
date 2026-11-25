@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
-    i_index_oid oid,
-    i_schema_name text,
-    i_table_name text,
-    i_index_name text
+    i_index_oid dml_utils_data.non_null_oid,
+    i_schema_name dml_utils_data.non_null_text,
+    i_table_name dml_utils_data.non_null_text,
+    i_index_name dml_utils_data.non_null_text
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -114,12 +114,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable(
-    oid,
-    text,
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_ordered_key_index_usable IS
     'Validates the index-level ordered-key contract: the named table exists, the '
         'OID exists, the OID belongs to that table and is the index the name '
         'resolves to, the index is a unique valid/ready/live btree, is not partial '

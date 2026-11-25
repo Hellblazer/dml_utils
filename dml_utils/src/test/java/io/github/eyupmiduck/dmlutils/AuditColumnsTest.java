@@ -1,30 +1,25 @@
 package io.github.eyupmiduck.dmlutils;
 
-import io.github.eyupmiduck.changelogvalidator.testing.RoutineAssertions;
-import org.junit.jupiter.api.Test;
-
-import java.sql.Connection;
-import java.util.List;
+import io.github.eyupmiduck.changelogvalidator.testing.AuditColumnsContract;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 
 /**
- * Applies the shared audit-column convention to the {@code dml_utils_data}
- * tables: {@code created_at}/{@code updated_at} are {@code timestamptz NOT NULL
- * DEFAULT now()}, and an enabled {@code BEFORE UPDATE} row trigger refreshes
- * {@code updated_at}. The behavioral probe for {@code migration_run} lives in
+ * Applies the shared {@link AuditColumnsContract} to the dml_utils application
+ * schemas: every base table has {@code created_at}/{@code updated_at} as
+ * {@code timestamptz NOT NULL DEFAULT now()} and an enabled {@code BEFORE
+ * UPDATE} row trigger. The behavioral probe for {@code migration_run} lives in
  * {@link MigrationTablesTest}.
  */
-class AuditColumnsTest extends PostgresTestBase {
+class AuditColumnsTest extends AuditColumnsContract {
 
     /**
-     * Every migration table satisfies the catalog convention, so the shared
-     * check reports nothing.
+     * The dml_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
      *
-     * @throws Exception if the catalog cannot be read
+     * @return the dml_utils profile
      */
-    @Test
-    void migrationTablesFollowTheAuditColumnConvention() throws Exception {
-        try (Connection owner = openOwnerConnection()) {
-            RoutineAssertions.assertAuditColumnsFollowConvention(owner, List.of("dml_utils_data"));
-        }
+    @Override
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }

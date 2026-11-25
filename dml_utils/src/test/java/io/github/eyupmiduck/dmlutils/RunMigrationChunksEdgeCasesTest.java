@@ -61,13 +61,15 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
         try (Connection blocker = openTestConnection()) {
             blocker.setAutoCommit(false);
             DSLContext blockerDsl = DSL.using(blocker, SQLDialect.POSTGRES);
-            blockerDsl.fetchOne(
-                    "SELECT 1 FROM dml_utils_data.migration_boundary"
-                            + " WHERE run_id = ? AND boundary_no = 0 FOR UPDATE",
-                    runId);
+            blockerDsl.selectOne()
+                    .from(MIGRATION_BOUNDARY)
+                    .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                    .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                    .forUpdate()
+                    .fetchOne();
 
             Future<Void> run = pool.submit(runOnOwnConnection(label));
-            awaitWorkerBlockedOnClaim();
+            awaitWorkerBlockedOnClaim(runId);
             completeBoundary(blocker, blockerDsl, runId);
 
             run.get(30, TimeUnit.SECONDS);
@@ -92,15 +94,18 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
     @Test
     void failureRecordingFailureDoesNotReplaceTheChunkError() throws Exception {
         seedBigint(1, 2, 3);
-        installFailingErrorTrigger();
         try {
+            installFailingErrorTrigger();
+            String label = uniqueLabel("error-record-failure");
             assertSqlState("22012", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(
                     dsl.configuration(), FAILING_TEMPLATE, schema(), name(),
-                    uniqueLabel("error-record-failure"), 2, 1, "t",
-                    ChunkingStrategy.primary_key, 1, 0, null, false));
+                    label, 2, 1, "t",
+                    ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
 
-            assertEquals(0, dsl.fetchCount(MIGRATION_ERROR),
-                    "the failed recording attempt must not leave a partial error row");
+            long failedRunId = runId(label);
+            assertEquals(0, dsl.fetchCount(MIGRATION_ERROR,
+                            MIGRATION_ERROR.RUN_ID.eq(failedRunId)),
+                    "the failed recording attempt must not leave an error row for this run");
         } finally {
             dropFailingErrorTrigger();
         }
@@ -123,7 +128,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(
                 dsl.configuration(), SLOW_TEMPLATE, schema(), name(), label, 4, 2, "t",
-                ChunkingStrategy.primary_key, 1, 0, null, false));
+                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
 
         assertTrue(boundaryCompleted(runId, 0),
                 "the in-flight worker should finish and commit before the original error is re-raised");
@@ -135,7 +140,7 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
             try (Connection connection = openTestConnection()) {
                 DSLContext context = DSL.using(connection, SQLDialect.POSTGRES);
                 io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(context.configuration(), TEMPLATE, schema(), name(),
-                        label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false);
+                        label, 2, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
                 return null;
             }
         };
@@ -143,37 +148,36 @@ class RunMigrationChunksEdgeCasesTest extends PostgresTestBase {
 
     private long populate(String label) {
         return Routines.populateMigrationBoundaries(dsl.configuration(), schema(), name(), label,
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
     }
 
     private void completeBoundary(Connection blocker, DSLContext blockerDsl, long runId) throws Exception {
-        blockerDsl.execute(
-                "UPDATE dml_utils_data.migration_boundary"
-                        + " SET started_at = clock_timestamp(), completed_at = clock_timestamp()"
-                        + " WHERE run_id = ? AND boundary_no = 0",
-                runId);
-        blockerDsl.execute(
-                "UPDATE dml_utils_data.migration_run"
-                        + " SET total_chunks_completed = total_chunks_completed + 1"
-                        + " WHERE run_id = ?",
-                runId);
+        // Use the production completion routine, so this cannot drift from its
+        // counter update and started_at clamp.
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationBoundary(
+                blockerDsl.configuration(), runId, 0L, OffsetDateTime.now(), 0L);
         blocker.commit();
     }
 
-    private void awaitWorkerBlockedOnClaim() throws InterruptedException {
+    private void awaitWorkerBlockedOnClaim(long runId) throws InterruptedException {
+        String runMarker = "%dml_utils_lib.process_migration_chunk(" + runId + ",%";
         for (int attempt = 0; attempt < 200; attempt++) {
             Integer blocked = dsl.fetchOne(
                             "SELECT count(*)::int FROM pg_catalog.pg_stat_activity"
                                     + " WHERE pid <> pg_backend_pid()"
                                     + " AND wait_event_type = 'Lock'"
-                                    + " AND query LIKE '%dml_utils_lib.process_migration_chunk%'")
+                                    + " AND backend_type = 'pg_background'"
+                                    + " AND datname = pg_catalog.current_database()"
+                                    + " AND query LIKE ?",
+                            runMarker)
                     .get(0, Integer.class);
             if (blocked != null && blocked > 0) {
                 return;
             }
             Thread.sleep(50);
         }
-        fail("the launched worker did not block on the already-claimed boundary");
+        fail("the launched worker for run " + runId
+                + " did not block on the already-claimed boundary");
     }
 
     private long insertReversedRun(String label) {

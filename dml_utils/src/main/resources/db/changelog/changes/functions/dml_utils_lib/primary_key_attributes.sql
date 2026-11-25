@@ -32,8 +32,8 @@ BEGIN
              JOIN pg_catalog.pg_class AS c ON c.oid = i.indrelid
              JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
     WHERE i.indisprimary
-      AND n.nspname = i_schema_name
-      AND c.relname = i_table_name;
+      AND n.nspname = i_schema_name::name
+      AND c.relname = i_table_name::name;
 
     IF l_key_column_count IS NULL THEN
         RAISE EXCEPTION 'table %.% has no primary key', i_schema_name, i_table_name
@@ -57,14 +57,14 @@ BEGIN
                a.atttypid,
                a.atttypid::pg_catalog.regtype,
                CASE
-                   WHEN a.atttypid IN ('smallint'::pg_catalog.regtype,
-                                       'integer'::pg_catalog.regtype,
-                                       'bigint'::pg_catalog.regtype)
+                   WHEN a.atttypid IN ('pg_catalog.int2'::pg_catalog.regtype,
+                                       'pg_catalog.int4'::pg_catalog.regtype,
+                                       'pg_catalog.int8'::pg_catalog.regtype)
                        THEN 'bigint'
-                   WHEN a.atttypid = 'text'::pg_catalog.regtype THEN 'text'
-                   WHEN a.atttypid = 'uuid'::pg_catalog.regtype THEN 'uuid'
-                   WHEN a.atttypid = 'timestamptz'::pg_catalog.regtype THEN 'timestamptz'
-                   WHEN a.atttypid = 'bytea'::pg_catalog.regtype THEN 'bytea'
+                   WHEN a.atttypid = 'pg_catalog.text'::pg_catalog.regtype THEN 'text'
+                   WHEN a.atttypid = 'pg_catalog.uuid'::pg_catalog.regtype THEN 'uuid'
+                   WHEN a.atttypid = 'pg_catalog.timestamptz'::pg_catalog.regtype THEN 'timestamptz'
+                   WHEN a.atttypid = 'pg_catalog.bytea'::pg_catalog.regtype THEN 'bytea'
                    ELSE NULL
                    END AS key_kind
         FROM pg_catalog.pg_index AS i
@@ -75,8 +75,8 @@ BEGIN
                  JOIN pg_catalog.pg_attribute AS a
                       ON a.attrelid = c.oid AND a.attnum = k.attnum
         WHERE i.indisprimary
-          AND n.nspname = i_schema_name
-          AND c.relname = i_table_name
+          AND n.nspname = i_schema_name::name
+          AND c.relname = i_table_name::name
           AND k.ordinality <= i.indnkeyatts
         ORDER BY k.ordinality;
 END;

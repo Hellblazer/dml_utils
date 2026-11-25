@@ -97,7 +97,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
             String label = uniqueLabel("four-primary-" + run[0]);
 
             Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PLAIN, label,
-                    run[0], run[1], "t", ChunkingStrategy.primary_key, 1, 0, null, false);
+                    run[0], run[1], "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
             assertEveryRowDoneOnce(TEST_CHUNKS_FOUR, "chunk size " + run[0]);
             assertTrue(runCompleted(label), "the run completes at chunk size " + run[0]);
@@ -114,7 +114,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-ordered");
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PLAIN, label, 7, 2, "t",
-                ChunkingStrategy.ordered_key, 1, 0, PLAIN_ORDERED_INDEX, false);
+                ChunkingStrategy.ordered_key, 1, 0, PLAIN_ORDERED_INDEX, false, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_CHUNKS_FOUR, "ordered key");
         assertTrue(runCompleted(label), "the ordered-key run completes");
@@ -165,7 +165,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-function");
 
         Routines.runFunctionOverTable(dsl.configuration(), SCHEMA, PLAIN, "public", "mark_chunk",
-                50, 2, label, null, ChunkingStrategy.primary_key, 1, 0);
+                50, 2, label, null, ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
         assertTrue(runCompleted(label), "the run completes");
         assertEveryRowDoneOnce(TEST_CHUNKS_FOUR, "function over table");
@@ -178,7 +178,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
     @Test
     void explainsAChunkOverAFourColumnKey() {
         var plans = Routines.explainMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PLAIN, 10,
-                "t", ChunkingStrategy.primary_key, null);
+                "t", ChunkingStrategy.primary_key, null, false, null);
 
         assertEquals(List.of("boundary_population", "chunk_non_final", "chunk_final"),
                 plans.stream().map(plan -> plan.getOPlanKind()).toList());
@@ -214,7 +214,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-partition-wise");
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PARTITIONED, label, 9, 2,
-                "t", ChunkingStrategy.primary_key, 1, 0, null, true);
+                "t", ChunkingStrategy.primary_key, 1, 0, null, true, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_CHUNKS_PARTITIONED, "partition-wise primary key");
         assertTrue(runCompleted(label), "the partition-wise run completes");
@@ -238,7 +238,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-partition-wise-ordered");
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PARTITIONED, label, 9, 2,
-                "t", ChunkingStrategy.ordered_key, 1, 0, PARTITIONED_ORDERED_INDEX, true);
+                "t", ChunkingStrategy.ordered_key, 1, 0, PARTITIONED_ORDERED_INDEX, true, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_CHUNKS_PARTITIONED, "partition-wise ordered key");
         assertTrue(runCompleted(label), "the partition-wise run completes");
@@ -256,7 +256,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-resume");
 
         assertSqlState("22012", () -> Routines.runMigrationChunks(dsl.configuration(), FAIL_ON_ONE_ROW,
-                SCHEMA, PLAIN, label, 20, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false));
+                SCHEMA, PLAIN, label, 20, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000));
         long runId = runId(label);
         assertTrue(completedBoundaries(runId) >= 1, "a chunk completed before the failure");
         assertTrue(completedBoundaries(runId) < totalChunks(runId), "the run stopped part way");
@@ -266,7 +266,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
 
         Routines.setMigrationRunSqlText(dsl.configuration(), label, APPEND);
         Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PLAIN, label, 20, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null, false);
+                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_CHUNKS_FOUR, "after the resume");
         assertTrue(runCompleted(runId), "the resumed run completes");
@@ -283,7 +283,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("four-partition-wise-resume");
 
         assertSqlState("22012", () -> Routines.runMigrationChunks(dsl.configuration(), FAIL_ON_ONE_ROW,
-                SCHEMA, PARTITIONED, label, 9, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, true));
+                SCHEMA, PARTITIONED, label, 9, 1, "t", ChunkingStrategy.primary_key, 1, 0, null, true, 3, 1000));
         long runId = runId(label);
         assertTrue(completedBoundaries(runId) >= 1, "a chunk completed before the failure");
         assertFalse(runCompleted(runId), "the run is not complete");
@@ -292,7 +292,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
 
         Routines.setMigrationRunSqlText(dsl.configuration(), label, APPEND);
         Routines.runMigrationChunks(dsl.configuration(), APPEND, SCHEMA, PARTITIONED, label, 9, 1, "t",
-                ChunkingStrategy.primary_key, 1, 0, null, true);
+                ChunkingStrategy.primary_key, 1, 0, null, true, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_CHUNKS_PARTITIONED, "after the resume");
         assertTrue(runCompleted(runId), "the resumed run completes");
@@ -303,7 +303,7 @@ class FourColumnKeyTest extends ChunkRenderingTestBase {
                           String index) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), SCHEMA, table, uniqueLabel(labelPrefix), APPEND, chunkSize, 1,
-                strategy, "t", 0, index, false);
+                strategy, "t", 0, index, false, 3, 1000);
     }
 
     private List<String> leafNames(long runId) {

@@ -51,11 +51,11 @@ class DdlUtilsPreconditionTest extends PostgresTestBase {
                         "the failure names the changeset that halted: " + messages(failure));
                 assertEquals(4, count(owner, KEY_ATTRIBUTES),
                         "migration_key keeps its original attributes");
-                assertEquals(1, count(owner, trackedChangeSets("004-create-domains")),
+                assertEquals(1, count(owner, trackedChangeSets("005-create-domains")),
                         "the changesets before 008 ran");
                 assertEquals(0, count(owner, trackedChangeSets("008-add-bytea-key-kind")),
                         "008 is not recorded as run");
-                assertEquals(0, count(owner, trackedChangeSets("005-create-migration-key-check")),
+                assertEquals(0, count(owner, trackedChangeSets("006-create-migration-key-check")),
                         "nothing after 008 ran");
             }
         } finally {

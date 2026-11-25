@@ -16,6 +16,11 @@ buildNumber.properties
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
+# JDT per-project preferences and its default output folder. Eclipse writes
+# these inside each project directory (for example dml_utils/.settings/), not at
+# the repository root, so match them at any depth.
+.settings/
+bin/
 
 # IntelliJ
 .idea/
@@ -37,7 +42,9 @@ __pycache__/
 .env.*
 !.env.example
 # The committed root .env holds only non-secret dev-stack config (HOST_PORT)
-# for the shared compose.yaml; nested .env files stay ignored.
+# for the shared compose.yaml; the Secret Scan (gitleaks) workflow scans it on
+# every PR and push, so a secret added there fails CI. Nested .env files stay
+# ignored; keep secrets in the environment or a local, ignored file.
 !/.env
 *.pem
 *.key

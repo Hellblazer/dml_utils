@@ -1,8 +1,8 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_block_boundary_population_sql(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
-    i_run_id bigint,
-    i_chunk_size bigint
+    i_run_id dml_utils_data.non_null_bigint,
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -12,12 +12,8 @@ AS
 $$
 BEGIN
     -- The run id and chunk size are inlined (both bigint, so no injection
-    -- surface). A NULL run id would render an empty token and a non-positive
-    -- chunk size would render a degenerate divisor.
-    IF i_run_id IS NULL OR i_chunk_size IS NULL OR i_chunk_size <= 0 THEN
-        RAISE EXCEPTION 'run id must not be NULL and chunk size must be positive'
-            USING ERRCODE = '22023';
-    END IF;
+    -- surface); their parameter domains reject a NULL run id and a NULL or
+    -- non-positive chunk size before the body runs.
 
     -- The statement computes the main-fork block count at execution time (the
     -- count the workers see) using the server block size, so it is O(1) and does
@@ -35,7 +31,13 @@ BEGIN
         ),
         counts AS (
             SELECT block_count,
-                   (block_count + %3$s::bigint - 1) / %3$s::bigint AS n_starts
+                   -- Compute the start count without block_count + chunk_size - 1,
+                   -- which overflows bigint for a huge (positive bigint) chunk
+                   -- size and would silently produce no starts.
+                   CASE
+                       WHEN block_count = 0 THEN 0
+                       ELSE (block_count - 1) / %3$s::bigint + 1
+                       END AS n_starts
             FROM params
         ),
         starts AS (

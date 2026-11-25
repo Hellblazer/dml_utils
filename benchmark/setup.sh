@@ -6,10 +6,11 @@
 # creates the deterministic synthetic source table and the throwaway target
 # table. The bigint-keyed source is a plain heap, so it supports both the
 # primary_key and blocks chunking strategies; a second UUIDv4-keyed source with a
-# (created_at, id) unique index supports ordered_key, and a range-partitioned
-# copy of the bigint-keyed source supports the partition-wise variant. The
-# default workload (an INSERT into the target) leaves the source read-only, which
-# blocks requires.
+# (created_at, id) unique index supports ordered_key. A range-partitioned copy of
+# the bigint-keyed source supports partition-wise primary_key/blocks, and a
+# hash-partitioned copy of the UUIDv4 source supports partition-wise ordered_key.
+# The default workload (an INSERT into the target) leaves the source read-only,
+# which blocks requires.
 # Safe to re-run; pass --refresh to drop the container and its data volume first
 # (required after changing the server settings or the image).
 #
@@ -26,6 +27,11 @@ repo_root="$(cd "$here/.." && pwd)"
 if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]; then
     . "$here/config.local.env"
 fi
+
+# Derive and validate the effective configuration only now: doing it in config.env
+# would ignore a config.local.env override (for example BENCH_PK_COLUMNS=3).
+bench_derive
+bench_validate || exit 2
 
 usage() {
     echo "usage: $0 [--refresh]" >&2
@@ -69,26 +75,82 @@ docker network inspect "$BENCH_NETWORK" >/dev/null 2>&1 \
 
 if [ "$refresh" = 1 ]; then
     echo "removing container $BENCH_CONTAINER and volume $BENCH_VOLUME" >&2
-    docker rm -f "$BENCH_CONTAINER" >/dev/null 2>&1 || true
-    docker volume rm "$BENCH_VOLUME" >/dev/null 2>&1 || true
+    # Only "not present" is acceptable here: a volume still in use by another
+    # container would otherwise be kept silently and the "refreshed" database
+    # would mount the old data.
+    if docker container inspect "$BENCH_CONTAINER" >/dev/null 2>&1; then
+        docker rm -f "$BENCH_CONTAINER" >/dev/null
+    fi
+    if docker volume inspect "$BENCH_VOLUME" >/dev/null 2>&1; then
+        docker volume rm "$BENCH_VOLUME" >/dev/null
+    fi
 fi
 
 if ! docker inspect "$BENCH_CONTAINER" >/dev/null 2>&1; then
     echo "starting $BENCH_CONTAINER ($BENCH_IMAGE) ..." >&2
     # The trailing `postgres -c ...` overrides the image CMD, so the server runs
     # with the settings a reproducible sweep needs.
+    # Publish a host port only when one was configured for inspection. The
+    # scripts talk through docker exec, and a published port makes concurrent
+    # benchmark/smoke stacks collide on the fixed port.
+    port_arg=""
+    if [ -n "${BENCH_HOST_PORT:-}" ]; then
+        port_arg="-p 127.0.0.1:${BENCH_HOST_PORT}:5432"
+    fi
     docker run -d --name "$BENCH_CONTAINER" --network "$BENCH_NETWORK" \
         -e POSTGRES_DB="$BENCH_DB" \
         -e POSTGRES_USER="$BENCH_DB_USER" \
         -e POSTGRES_PASSWORD="$BENCH_DB_USER" \
-        -p "127.0.0.1:${BENCH_HOST_PORT}:5432" \
+        $port_arg \
         -v "${BENCH_VOLUME}:/var/lib/postgresql/data" \
         "$BENCH_IMAGE" \
         postgres -c max_worker_processes="$BENCH_MAX_WORKER_PROCESSES" \
         -c shared_buffers="$BENCH_SHARED_BUFFERS" \
         -c max_connections="$BENCH_MAX_CONNECTIONS" >/dev/null
 else
-    docker start "$BENCH_CONTAINER" >/dev/null 2>&1 || true
+    # The container is reused only when it matches the effective config. Image,
+    # server settings, volume, network and published port are applied only in the
+    # docker run branch; comparing them here stops a changed config from
+    # benchmarking the old server (and silently attributing results to it).
+    config_mismatch=""
+    actual_image="$(docker inspect -f '{{.Config.Image}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_image" = "$BENCH_IMAGE" ] || config_mismatch="image"
+    # The tag can be reused by a rebuild: the running container keeps the old
+    # image id, so comparing the tag alone would silently benchmark stale code.
+    image_id="$(docker image inspect -f '{{.Id}}' "$BENCH_IMAGE" 2>/dev/null || true)"
+    container_image_id="$(docker inspect -f '{{.Image}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$container_image_id" = "$image_id" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }image was rebuilt"
+    expected_cmd="postgres -c max_worker_processes=$BENCH_MAX_WORKER_PROCESSES -c shared_buffers=$BENCH_SHARED_BUFFERS -c max_connections=$BENCH_MAX_CONNECTIONS"
+    actual_cmd="$(docker inspect -f '{{join .Config.Cmd " "}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_cmd" = "$expected_cmd" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }server settings"
+    actual_mounts="$(docker inspect -f '{{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    case "$actual_mounts" in
+        *"$BENCH_VOLUME:/var/lib/postgresql/data "*) ;;
+        *) config_mismatch="${config_mismatch:+$config_mismatch, }volume" ;;
+    esac
+    actual_network="$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$BENCH_CONTAINER" 2>/dev/null || true)"
+    [ "$actual_network" = "$BENCH_NETWORK" ] \
+        || config_mismatch="${config_mismatch:+$config_mismatch, }network"
+    actual_port="$(docker port "$BENCH_CONTAINER" 5432 2>/dev/null || true)"
+    if [ -n "$BENCH_HOST_PORT" ]; then
+        [ "$actual_port" = "127.0.0.1:$BENCH_HOST_PORT" ] \
+            || config_mismatch="${config_mismatch:+$config_mismatch, }published port"
+    else
+        [ -z "$actual_port" ] \
+            || config_mismatch="${config_mismatch:+$config_mismatch, }published port"
+    fi
+    if [ -n "$config_mismatch" ]; then
+        echo "container $BENCH_CONTAINER does not match the current config ($config_mismatch); run setup.sh --refresh" >&2
+        exit 2
+    fi
+    if ! docker start "$BENCH_CONTAINER" >/dev/null 2>&1 \
+        || [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" != "true" ]; then
+        echo "could not start the existing container $BENCH_CONTAINER" >&2
+        docker logs "$BENCH_CONTAINER" >&2 || true
+        exit 1
+    fi
 fi
 
 # Talk to the container through docker exec, so no host client is needed.
@@ -133,59 +195,59 @@ done
 # Install ddl_utils first: dml_utils assumes it is present in the same database,
 # and dml_utils_data migrations call its DDL helpers. The versioned ddl_utils
 # Maven artifact is unpacked into the build output at initialize.
-module_dir="$repo_root/$(basename "$repo_root")"
+module_dir="$repo_root/dml_utils"
 ddl_utils_changelog_dir="$module_dir/target/classes/db/changelog-install/ddl-utils/db/changelog"
 if [ ! -f "$ddl_utils_changelog_dir/db.changelog-master.xml" ]; then
     echo "unpacking the ddl_utils changelog ..." >&2
-    (cd "$repo_root" && ./mvnw -q -pl "$(basename "$repo_root")" -am initialize)
+    (cd "$repo_root" && ./mvnw -q -pl dml_utils -am initialize)
 fi
 [ -f "$ddl_utils_changelog_dir/db.changelog-master.xml" ] || {
-    echo "ddl_utils changelog is missing; run ./mvnw -pl $(basename "$repo_root") -am initialize" >&2
+    echo "ddl_utils changelog is missing; run ./mvnw -pl dml_utils -am initialize" >&2
     exit 1
 }
-if ! psql_run -At -c "SELECT 1 FROM pg_catalog.pg_proc p
-        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'ddl_utils' AND p.proname = 'add_column'" \
-        | grep -q 1; then
-    echo "installing ddl_utils ..." >&2
-    psql_run -q -v ON_ERROR_STOP=1 -c \
-        "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ddl_utils_caller') THEN CREATE ROLE ddl_utils_caller; END IF; END \$\$;"
-    psql_run -q -v ON_ERROR_STOP=1 -c "GRANT ddl_utils_caller TO $BENCH_OWNER_USER"
-    docker run --rm --network "$BENCH_NETWORK" \
-        -v "$ddl_utils_changelog_dir:/liquibase/ddl-utils-changelog" \
-        "$BENCH_LIQUIBASE_IMAGE" sh -c \
-        "lpm add postgresql --global && liquibase \
-            --url=jdbc:postgresql://${BENCH_CONTAINER}:5432/${BENCH_DB} \
-            --username=${BENCH_OWNER_USER} \
-            --password=${BENCH_OWNER_PASSWORD} \
-            --changelog-file=ddl-utils-changelog/db.changelog-master.xml \
-            --liquibase-schema-name=liquibase \
-            --database-changelog-table-name=ddl_utils_databasechangelog \
-            --database-changelog-lock-table-name=ddl_utils_databasechangeloglock \
-            update"
-fi
+# The caller role and its membership are prerequisites for every ddl_utils
+# helper, and both statements are idempotent, so run them on every invocation. A
+# marker check used to skip them, which silently accepted a database whose
+# membership had been lost (for example after BENCH_OWNER_USER changed).
+psql_run -q -v ON_ERROR_STOP=1 -c \
+    "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'ddl_utils_caller') THEN CREATE ROLE ddl_utils_caller; END IF; END \$\$;"
+psql_run -q -v ON_ERROR_STOP=1 -c "GRANT ddl_utils_caller TO $BENCH_OWNER_USER"
 
-# Apply the dml_utils changelog once (the routines are what we benchmark). The
-# marker is the routine under test, so a re-run skips the driver download.
-if ! psql_run -At -c "SELECT 1 FROM pg_catalog.pg_proc p
-        JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'dml_utils' AND p.proname = 'run_migration_chunks'" \
-        | grep -q 1; then
-    echo "applying the changelog ..." >&2
-    changelog_dir="$repo_root/$(basename "$repo_root")/src/main/resources/db/changelog"
-    docker run --rm --network "$BENCH_NETWORK" \
-        -v "$changelog_dir:/liquibase/changelog" \
-        "$BENCH_LIQUIBASE_IMAGE" sh -c \
-        "lpm add postgresql --global && liquibase \
-            --url=jdbc:postgresql://${BENCH_CONTAINER}:5432/${BENCH_DB} \
-            --username=${BENCH_OWNER_USER} \
-            --password=${BENCH_OWNER_PASSWORD} \
-            --changelog-file=changelog/db.changelog-master.xml \
-            --liquibase-schema-name=liquibase \
-            --database-changelog-table-name=${BENCH_DB}_databasechangelog \
-            --database-changelog-lock-table-name=${BENCH_DB}_databasechangeloglock \
-            update"
-fi
+# Install ddl_utils first: dml_utils assumes it is present in the same database,
+# and dml_utils_data migrations call its DDL helpers. Liquibase skips changesets
+# it has already applied, so run update unconditionally: a single routine's
+# presence does not prove the changelog finished, and a stale schema would
+# otherwise be benchmarked silently.
+echo "installing ddl_utils ..." >&2
+docker run --rm --network "$BENCH_NETWORK" \
+    -e LIQUIBASE_COMMAND_PASSWORD="$BENCH_OWNER_PASSWORD" \
+    -v "$ddl_utils_changelog_dir:/liquibase/ddl-utils-changelog" \
+    "$BENCH_LIQUIBASE_IMAGE" sh -c \
+    "lpm add postgresql --global && liquibase \
+        --url=jdbc:postgresql://${BENCH_CONTAINER}:5432/${BENCH_DB} \
+        --username=${BENCH_OWNER_USER} \
+        --changelog-file=ddl-utils-changelog/db.changelog-master.xml \
+        --liquibase-schema-name=liquibase \
+        --database-changelog-table-name=ddl_utils_databasechangelog \
+        --database-changelog-lock-table-name=ddl_utils_databasechangeloglock \
+        update"
+
+# Apply the dml_utils changelog (the routines are what we benchmark), also
+# unconditionally: Liquibase skips applied changesets and picks up new ones.
+echo "applying the changelog ..." >&2
+changelog_dir="$repo_root/dml_utils/src/main/resources/db/changelog"
+docker run --rm --network "$BENCH_NETWORK" \
+    -e LIQUIBASE_COMMAND_PASSWORD="$BENCH_OWNER_PASSWORD" \
+    -v "$changelog_dir:/liquibase/changelog" \
+    "$BENCH_LIQUIBASE_IMAGE" sh -c \
+    "lpm add postgresql --global && liquibase \
+        --url=jdbc:postgresql://${BENCH_CONTAINER}:5432/${BENCH_DB} \
+        --username=${BENCH_OWNER_USER} \
+        --changelog-file=changelog/db.changelog-master.xml \
+        --liquibase-schema-name=liquibase \
+        --database-changelog-table-name=${BENCH_DB}_databasechangelog \
+        --database-changelog-lock-table-name=${BENCH_DB}_databasechangeloglock \
+        update"
 
 # Build the primary-key SQL fragments from BENCH_PK_COLUMNS, the number of key
 # columns (1 to 3; all bigint, named k1..kN). The row number g maps to a unique
@@ -235,31 +297,89 @@ esac
     echo "BENCH_MAX_WORKER_PROCESSES ($BENCH_MAX_WORKER_PROCESSES) must be at least BENCH_THREADS_TO ($BENCH_THREADS_TO)" >&2
     exit 2
 }
-case "$BENCH_SCHEMA" in
+# PostgreSQL folds an unquoted schema name to lower case; the SQL below quotes
+# the exact configured name, so compare the folded value.
+_bench_schema_lower="$(printf '%s' "$BENCH_SCHEMA" | tr 'A-Z' 'a-z')"
+case "$_bench_schema_lower" in
     ''|public|pg_catalog|information_schema)
         echo "refusing to create benchmark fixtures in schema '$BENCH_SCHEMA'" >&2
         exit 2
         ;;
 esac
-# A target that collides with any source would make create-target.sql drop the
-# freshly populated source and turn the benchmark into a self-insert.
-_sources=" $BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE "
-for _target in "$BENCH_TARGET_TABLE" "$BENCH_ORDERED_TARGET_TABLE" \
-    "$BENCH_PARTITIONED_TARGET_TABLE"; do
-    case "$_sources" in
-        *" $_target "*)
-            echo "benchmark target '$_target' collides with a source table" >&2
-            exit 2
+unset _bench_schema_lower
+# Every fixture name must be distinct: a target that collides with a source
+# would make create-target.sql drop the freshly populated source and turn the
+# benchmark into a self-insert, and two sources or two targets with one name
+# would silently replace each other as the scripts run.
+_fixture_names="$BENCH_SOURCE_TABLE $BENCH_ORDERED_SOURCE_TABLE $BENCH_PARTITIONED_SOURCE_TABLE $BENCH_PARTITIONED_ORDERED_SOURCE_TABLE $BENCH_TARGET_TABLE $BENCH_ORDERED_TARGET_TABLE $BENCH_PARTITIONED_TARGET_TABLE $BENCH_PARTITIONED_ORDERED_TARGET_TABLE"
+_duplicates="$(printf '%s\n' $_fixture_names | sort | uniq -d)"
+if [ -n "$_duplicates" ]; then
+    echo "benchmark fixture names must be distinct; duplicated: $(printf '%s' "$_duplicates" | tr '\n' ' ')" >&2
+    exit 2
+fi
+# The partitioned scripts also create <source>_p0..<source>_pN-1 leaves; any
+# fixture with one of those names would be dropped or would block the leaf
+# creation, depending on the order.
+for _name in $_fixture_names; do
+    case "$_name" in
+        "$BENCH_PARTITIONED_SOURCE_TABLE"_p*|"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE"_p*)
+            _leaf_suffix="${_name##*_p}"
+            case "$_leaf_suffix" in
+                ''|*[!0-9]*) ;;
+                *)
+                    echo "benchmark fixture '$_name' collides with a generated partition leaf" >&2
+                    exit 2
+                    ;;
+            esac
             ;;
     esac
 done
-unset _sources _target
+unset _fixture_names _duplicates _name _leaf_suffix _e _j
 pk_count="$BENCH_PK_COLUMNS"
-pk_mod="$(awk -v n="$BENCH_ROWS" -v p="$pk_count" 'BEGIN { m = 1; while (m ^ p < n) m++; print m }')"
-if [ "$BENCH_PARTITIONED_LEAVES" -gt "$pk_mod" ]; then
-    echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) must not exceed the distinct k1 values ($pk_mod) produced for $BENCH_ROWS rows" >&2
+# m such that m^pk_count >= rows, by bisection: a linear scan is O(rows) for a
+# one-column key (the default). The power is clamped because mid^pk_count can
+# exceed the 64-bit range for a large midpoint.
+pk_lo=1
+pk_hi="$BENCH_ROWS"
+while [ "$pk_lo" -lt "$pk_hi" ]; do
+    pk_mid=$(( (pk_lo + pk_hi) / 2 ))
+    pk_power=1
+    _i=0
+    while [ "$_i" -lt "$pk_count" ]; do
+        # Check before multiplying: pk_mid^pk_count can exceed the 64-bit range
+        # and wrap to a small/negative value, which would accept the wrong half.
+        if [ "$pk_power" -gt $(( BENCH_ROWS / pk_mid )) ]; then
+            pk_power="$BENCH_ROWS"
+            break
+        fi
+        pk_power=$((pk_power * pk_mid))
+        _i=$((_i + 1))
+    done
+    if [ "$pk_power" -ge "$BENCH_ROWS" ]; then
+        pk_hi="$pk_mid"
+    else
+        pk_lo=$((pk_mid + 1))
+    fi
+done
+pk_mod="$pk_lo"
+# The first key column repeats every m^(p-1) rows, so the number of distinct k1
+# values is ceil(rows / m^(p-1)) -- not m, which setup used to compare against.
+k1_div=1
+_i=1
+while [ "$_i" -lt "$pk_count" ]; do
+    k1_div=$((k1_div * pk_mod))
+    _i=$((_i + 1))
+done
+k1_values=$(( (BENCH_ROWS + k1_div - 1) / k1_div ))
+# The leaves are cut from 1..k1_values (the largest k1 the generator produces),
+# so one leaf per distinct value is the most that can be non-empty. Passing
+# pk_mod (the modulus, an upper bound) would cut leaves over values no row
+# reaches and make the last leaves empty for a multi-column key.
+if [ "$BENCH_PARTITIONED_LEAVES" -gt "$k1_values" ]; then
+    echo "BENCH_PARTITIONED_LEAVES ($BENCH_PARTITIONED_LEAVES) exceeds the $k1_values distinct k1 values for $BENCH_ROWS rows" >&2
     exit 2
 fi
+unset _i
 pk_def=""
 pk_key=""
 pk_exprs=""
@@ -269,7 +389,13 @@ while [ "$pk_i" -lt "$pk_count" ]; do
     pk_name="k$pk_i"
     pk_def="${pk_def:+$pk_def, }$pk_name bigint"
     pk_key="${pk_key:+$pk_key, }$pk_name"
-    pk_div="$(awk -v m="$pk_mod" -v e="$((pk_count - pk_i))" 'BEGIN { print m ^ e }')"
+    pk_div=1
+    _e=$((pk_count - pk_i))
+    _j=0
+    while [ "$_j" -lt "$_e" ]; do
+        pk_div=$((pk_div * pk_mod))
+        _j=$((_j + 1))
+    done
     pk_exprs="${pk_exprs:+$pk_exprs, }((g - 1) / $pk_div) % $pk_mod + 1"
 done
 
@@ -314,13 +440,29 @@ psql_stdin -v ON_ERROR_STOP=1 \
     -v pk_key="$pk_key" \
     -v pk_exprs="$pk_exprs" \
     -v leaves="$BENCH_PARTITIONED_LEAVES" \
-    -v k1_max="$pk_mod" \
+    -v k1_max="$k1_values" \
     -f - < "$here/sql/create-partitioned-source.sql"
 psql_stdin -v ON_ERROR_STOP=1 \
     -v schema="$BENCH_SCHEMA" \
     -v target_table="$BENCH_PARTITIONED_TARGET_TABLE" \
     -v pk_def="$pk_def" \
     -f - < "$here/sql/create-target.sql"
+
+# The partition-wise ordered_key variant: a hash-partitioned copy of the
+# UUIDv4-keyed ordered fixture with BENCH_PARTITIONED_LEAVES leaves and its own
+# (created_at, id) unique index, plus its throwaway target.
+echo "creating partition-wise ordered-key benchmark tables ($BENCH_ROWS source rows, $BENCH_PARTITIONED_LEAVES leaves) ..." >&2
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v source_table="$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE" \
+    -v rows="$BENCH_ROWS" \
+    -v index="$BENCH_PARTITIONED_ORDERED_INDEX" \
+    -v leaves="$BENCH_PARTITIONED_LEAVES" \
+    -f - < "$here/sql/create-partitioned-ordered-source.sql"
+psql_stdin -v ON_ERROR_STOP=1 \
+    -v schema="$BENCH_SCHEMA" \
+    -v target_table="$BENCH_PARTITIONED_ORDERED_TARGET_TABLE" \
+    -f - < "$here/sql/create-ordered-target.sql"
 
 # dml_utils_lib.populate_migration_boundaries is SECURITY DEFINER: it writes the
 # run metadata as the owner, and its boundary query scans the driving table in
@@ -334,12 +476,14 @@ psql_stdin -q -v ON_ERROR_STOP=1 \
     -v source_table="$BENCH_SOURCE_TABLE" \
     -v ordered_source="$BENCH_ORDERED_SOURCE_TABLE" \
     -v partitioned_source="$BENCH_PARTITIONED_SOURCE_TABLE" \
+    -v partitioned_ordered_source="$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE" \
     -v owner="$BENCH_OWNER_USER" \
     -f - <<'SQL'
 GRANT USAGE ON SCHEMA :"schema" TO :"owner";
 GRANT SELECT ON :"schema".:"source_table" TO :"owner";
 GRANT SELECT ON :"schema".:"ordered_source" TO :"owner";
 GRANT SELECT ON :"schema".:"partitioned_source" TO :"owner";
+GRANT SELECT ON :"schema".:"partitioned_ordered_source" TO :"owner";
 SQL
 
 # A partition-wise boundary scan reads each leaf, and the definer needs SELECT on
@@ -347,12 +491,14 @@ SQL
 psql_stdin -q -v ON_ERROR_STOP=1 \
     -v schema="$BENCH_SCHEMA" \
     -v partitioned_source="$BENCH_PARTITIONED_SOURCE_TABLE" \
+    -v partitioned_ordered_source="$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE" \
     -v owner="$BENCH_OWNER_USER" \
     -f - <<'SQL'
 SELECT pg_catalog.format('GRANT SELECT ON %I.%I TO %I',
                          n.nspname, c.relname, :'owner')
-FROM pg_catalog.pg_partition_tree(
-             (:'schema' || '.' || :'partitioned_source')::regclass) AS leaf
+FROM (VALUES (pg_catalog.format('%I.%I', :'schema', :'partitioned_source')),
+             (pg_catalog.format('%I.%I', :'schema', :'partitioned_ordered_source'))) AS parents(rel)
+         CROSS JOIN LATERAL pg_catalog.pg_partition_tree(parents.rel::regclass) AS leaf
          JOIN pg_catalog.pg_class c ON c.oid = leaf.relid
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE leaf.isleaf

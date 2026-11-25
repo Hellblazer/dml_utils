@@ -9,7 +9,9 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.create_migration_run(
     i_driving_table_alias dml_utils_data.non_null_text,
     i_sleep_ms dml_utils_data.non_negative_integer,
     i_boundary_key_index name,
-    i_partition_wise dml_utils_data.non_null_boolean
+    i_partition_wise dml_utils_data.non_null_boolean,
+    i_max_retries dml_utils_data.non_negative_integer DEFAULT 3,
+    i_retry_backoff_ms dml_utils_data.non_negative_integer DEFAULT 1000
 )
     RETURNS bigint
     LANGUAGE plpgsql
@@ -30,7 +32,21 @@ BEGIN
     -- Populate the boundaries in a worker so the run and its boundaries commit
     -- autonomously and become visible to the processing workers.
     l_handle := public.pg_background_launch(pg_catalog.format(
-            'SELECT dml_utils_lib.populate_migration_boundaries(%L, %L, %L, %L, %s, %s, %L, %L, %s, %L, %L) AS run_id',
+            'SELECT dml_utils_lib.populate_migration_boundaries(
+    %L,
+    %L,
+    %L,
+    %L,
+    %s,
+    %s,
+    %L,
+    %L,
+    %s,
+    %L,
+    %L,
+    %s,
+    %s
+    ) AS run_id',
             i_schema_name,
             i_table_name,
             i_label,
@@ -41,33 +57,76 @@ BEGIN
             i_driving_table_alias,
             i_sleep_ms,
             i_boundary_key_index,
-            i_partition_wise::boolean));
-    PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
+            i_partition_wise::boolean,
+            i_max_retries,
+            i_retry_backoff_ms));
+    BEGIN
+        PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
+    EXCEPTION
+        -- QUERY_CANCELED (57014: statement_timeout or a cancel request) is not
+        -- caught by WHEN OTHERS, so name it explicitly.
+        WHEN QUERY_CANCELED OR OTHERS THEN
+            -- The waiter was aborted (statement_timeout, query cancel) while the
+            -- worker may still be running. pg_background has no abort callback,
+            -- so cancel the worker before re-raising: otherwise it can still
+            -- commit the run row after the caller's statement failed, leaving an
+            -- orphan run that holds the label. Best-effort both ways — the worker
+            -- may already have committed, and the handler must not mask the
+            -- original error — then detach so the handle is not leaked.
+            BEGIN
+                PERFORM public.pg_background_cancel(
+                        l_handle.pid, l_handle.cookie, 1000);
+            EXCEPTION
+                -- A re-delivered cancel must not replace the cleanup.
+                WHEN QUERY_CANCELED OR OTHERS THEN
+                    NULL;
+            END;
+            BEGIN
+                PERFORM public.pg_background_detach(
+                        l_handle.pid, l_handle.cookie);
+            EXCEPTION
+                WHEN QUERY_CANCELED OR OTHERS THEN
+                    NULL;
+            END;
+            RAISE;
+    END;
 
     -- result() is one-time consumption and auto-detaches; it re-raises the
-    -- worker's SQLSTATE (for example 23505 on a concurrent same-label run).
-    SELECT run_id
-    INTO l_worker_run_id
-    FROM public.pg_background_result(l_handle.pid, l_handle.cookie) AS (run_id bigint);
+    -- worker's SQLSTATE (for example 23505 on a concurrent same-label run). The
+    -- worker has finished, so only the handle can leak here.
+    BEGIN
+        SELECT run_id
+        INTO l_worker_run_id
+        FROM public.pg_background_result(l_handle.pid, l_handle.cookie) AS (run_id bigint);
+    EXCEPTION
+        -- A cancel (statement_timeout or a cancel request) is not caught by
+        -- WHEN OTHERS, so name it explicitly: without this branch a cancel
+        -- during the result read would skip the detach and leak the handle.
+        WHEN QUERY_CANCELED OR OTHERS THEN
+            BEGIN
+                PERFORM public.pg_background_detach(
+                        l_handle.pid, l_handle.cookie);
+            EXCEPTION
+                -- A re-delivered cancel must not replace the cleanup or the
+                -- original error re-raised below.
+                WHEN QUERY_CANCELED OR OTHERS THEN
+                    NULL;
+            END;
+            RAISE;
+    END;
 
     RETURN l_worker_run_id;
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.create_migration_run(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.positive_integer,
-    dml_utils_data.positive_integer,
-    dml_utils_data.chunking_strategy,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_negative_integer,
-    name,
-    dml_utils_data.non_null_boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.create_migration_run IS
     'Creates a new run by calling populate_migration_boundaries in a pg_background '
         'worker, so the run and its boundaries commit autonomously, and returns '
         'the run id. Re-raises the worker''s SQLSTATE (for example a concurrent '
-        'same-label 23505).';
+        'same-label 23505). If the wait itself is aborted (QUERY_CANCELED, which '
+        'WHEN OTHERS does not catch, or another error), the worker is cancelled '
+        'and the handle detached best-effort before the original error is '
+        're-raised, so the worker does not commit a run the caller never '
+        'received (a worker that already committed cannot be recalled). A cancel '
+        'during the result read is caught the same way and detaches the '
+        'finished worker''s handle before the cancel is re-raised.';

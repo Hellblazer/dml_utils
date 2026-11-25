@@ -20,6 +20,11 @@ if [ -f "$here/config.local.env" ] && [ "${BENCH_IGNORE_LOCAL_CONFIG:-0}" != 1 ]
     . "$here/config.local.env"
 fi
 
+# Derive and validate the effective configuration only now: doing it in config.env
+# would ignore a config.local.env override (for example BENCH_PK_COLUMNS=3).
+bench_derive
+bench_validate || exit 2
+
 results_dir="$here/$BENCH_RESULTS_DIR"
 csv="$results_dir/$BENCH_CSV"
 report="$results_dir/$BENCH_REPORT"
@@ -28,6 +33,19 @@ if [ ! -f "$csv" ]; then
     echo "no results at $csv; run benchmark/run.sh first" >&2
     exit 1
 fi
+
+# The report reads the CSV positionally, so a header that is not the shape this
+# version writes would silently shift every field. Accept the current 11-column
+# header and the older 10-column one (no partition_wise), and reject anything
+# else instead of producing a plausible-looking wrong report.
+csv_header="$(head -n 1 "$csv")"
+case ",$csv_header," in
+    ,strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,partition_wise,|,strategy,chunk_unit,chunk_size,threads,run,chunks,range_seconds,chunk_seconds,total_seconds,pk_columns,) ;;
+    *)
+        echo "unexpected CSV header in $csv; regenerate it with benchmark/run.sh --reset" >&2
+        exit 2
+        ;;
+esac
 
 mkdir -p "$results_dir"
 
@@ -56,7 +74,8 @@ hardware_file="$results_dir/hardware.txt"
 settings_file="$results_dir/postgres-settings.txt"
 if command -v docker >/dev/null 2>&1 \
     && [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" = "true" ]; then
-    docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -P pager=off -c "
+    settings_err="$results_dir/.settings.err"
+    if ! docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -P pager=off -c "
         SELECT name, setting, coalesce(unit, '') AS unit
         FROM pg_settings
         WHERE name IN ('server_version', 'max_worker_processes', 'shared_buffers',
@@ -64,7 +83,11 @@ if command -v docker >/dev/null 2>&1 \
                        'effective_cache_size', 'wal_level', 'fsync',
                        'synchronous_commit', 'full_page_writes', 'autovacuum',
                        'checkpoint_timeout', 'random_page_cost', 'seq_page_cost')
-        ORDER BY name" > "$settings_file" 2>&1 || true
+        ORDER BY name" > "$settings_file" 2>"$settings_err"; then
+        echo "(settings capture failed; settings unavailable)" > "$settings_file"
+        cat "$settings_err" >&2 || true
+    fi
+    rm -f "$settings_err"
 else
     echo "(benchmark container not running; settings unavailable)" > "$settings_file"
 fi
@@ -74,25 +97,44 @@ fi
 dataset_file="$results_dir/dataset.txt"
 if command -v docker >/dev/null 2>&1 \
     && [ "$(docker inspect -f '{{.State.Running}}' "$BENCH_CONTAINER" 2>/dev/null)" = "true" ]; then
-    docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -At -F' | ' -c "
-        SELECT 'rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}
+    q_source="\"$BENCH_SCHEMA\".\"$BENCH_SOURCE_TABLE\""
+    q_ordered="\"$BENCH_SCHEMA\".\"$BENCH_ORDERED_SOURCE_TABLE\""
+    q_partitioned="\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_SOURCE_TABLE\""
+    q_partitioned_ordered="\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE\""
+    reg_source="'\"$BENCH_SCHEMA\".\"$BENCH_SOURCE_TABLE\"'::regclass"
+    reg_partitioned="'\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_SOURCE_TABLE\"'::regclass"
+    reg_partitioned_ordered="'\"$BENCH_SCHEMA\".\"$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE\"'::regclass"
+    dataset_err="$results_dir/.dataset.err"
+    if ! docker exec "$BENCH_CONTAINER" psql -U "$BENCH_DB_USER" -d "$BENCH_DB" -At -F' | ' -c "
+        SELECT 'rows', count(*)::text FROM $q_source
         UNION ALL
-        SELECT 'blocks', (pg_relation_size('${BENCH_SCHEMA}.${BENCH_SOURCE_TABLE}'::regclass)
+        SELECT 'blocks', (pg_relation_size($reg_source)
                           / current_setting('block_size')::bigint)::text
         UNION ALL
-        SELECT 'ordered_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_ORDERED_SOURCE_TABLE}
+        SELECT 'ordered_rows', count(*)::text FROM $q_ordered
         UNION ALL
-        SELECT 'partitioned_rows', count(*)::text FROM ${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}
+        SELECT 'partitioned_rows', count(*)::text FROM $q_partitioned
+        UNION ALL
+        SELECT 'partitioned_ordered_rows', count(*)::text FROM $q_partitioned_ordered
         UNION ALL
         SELECT 'partitioned_blocks',
                ((SELECT coalesce(sum(pg_relation_size(leaf.relid)), 0)::bigint
-                 FROM pg_partition_tree('${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}'::regclass) AS leaf
+                 FROM pg_partition_tree($reg_partitioned) AS leaf
+                 WHERE leaf.isleaf) / current_setting('block_size')::bigint)::text
+        UNION ALL
+        SELECT 'partitioned_ordered_blocks',
+               ((SELECT coalesce(sum(pg_relation_size(leaf.relid)), 0)::bigint
+                 FROM pg_partition_tree($reg_partitioned_ordered) AS leaf
                  WHERE leaf.isleaf) / current_setting('block_size')::bigint)::text
         UNION ALL
         SELECT 'partitioned_leaves', count(*)::text
-        FROM pg_partition_tree('${BENCH_SCHEMA}.${BENCH_PARTITIONED_SOURCE_TABLE}'::regclass)
+        FROM pg_partition_tree($reg_partitioned)
         WHERE isleaf
-        ORDER BY 1" > "$dataset_file" 2>&1 || true
+        ORDER BY 1" > "$dataset_file" 2>"$dataset_err"; then
+        echo "(dataset capture failed; dataset unavailable)" > "$dataset_file"
+        cat "$dataset_err" >&2 || true
+    fi
+    rm -f "$dataset_err"
 else
     echo "(benchmark container not running; dataset unavailable)" > "$dataset_file"
 fi
@@ -106,20 +148,26 @@ ordered_rows="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "ordered_rows") { gsub
     "$dataset_file" 2>/dev/null || true)"
 partitioned_rows="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "partitioned_rows") { gsub(/ /, "", $2); print $2 } }' \
     "$dataset_file" 2>/dev/null || true)"
+partitioned_ordered_rows="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "partitioned_ordered_rows") { gsub(/ /, "", $2); print $2 } }' \
+    "$dataset_file" 2>/dev/null || true)"
 partitioned_blocks="$(awk -F'|' '{ gsub(/ /, "", $1); if ($1 == "partitioned_blocks") { gsub(/ /, "", $2); print $2 } }' \
     "$dataset_file" 2>/dev/null || true)"
 
 # --- Per-strategy charts ----------------------------------------------------
 # One group per (strategy, chunk size, key columns, partition-wise). Older CSVs
 # have no partition_wise column, so an absent value counts as "no".
-groups="$(awk -F, 'NR > 1 && $1 != "" { pw = ($11 == "yes") ? "yes" : "no"; print $1 "/" $3 "/" $10 "/" pw }' "$csv" | sort -u)"
-for g in $groups; do
-    s="${g%%/*}"
-    rest="${g#*/}"
-    cs="${rest%%/*}"
-    rest="${rest#*/}"
-    pk="${rest%%/*}"
-    pw="${rest#*/}"
+# Tab-separated, so a field cannot be split or glob-expanded. The CSV is an
+# input file that can be edited or come from an older version, so validate the
+# extracted fields before they become a filename.
+groups="$(awk -F, 'NR > 1 && $1 != "" { pw = ($11 == "yes") ? "yes" : "no"; print $1 "\t" $3 "\t" $10 "\t" pw }' "$csv" | sort -u)"
+printf '%s\n' "$groups" | while IFS="$(printf '\t')" read -r s cs pk pw; do
+    [ -n "$s" ] && [ -n "$cs" ] && [ -n "$pk" ] && [ -n "$pw" ] || continue
+    case "$s$cs$pk$pw" in
+        *[!A-Za-z0-9_+-]*)
+            echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
+            continue
+            ;;
+    esac
     suffix=""
     if [ "$pw" = yes ]; then
         suffix="-partitioned"
@@ -129,6 +177,10 @@ for g in $groups; do
 done
 
 # --- Report -----------------------------------------------------------------
+# Generate into a temporary file and move it into place, so a failure part-way
+# through generation leaves the previous report intact instead of truncating it.
+report_tmp="$report.tmp.$$"
+trap 'rm -f "$report_tmp"' EXIT
 {
     echo "# Chunked migration thread-scaling benchmark"
     echo
@@ -152,6 +204,9 @@ done
     echo "| ordered key index | \`$BENCH_ORDERED_INDEX\` |"
     echo "| partitioned source table | \`$BENCH_SCHEMA.$BENCH_PARTITIONED_SOURCE_TABLE\` |"
     echo "| partitioned target table | \`$BENCH_SCHEMA.$BENCH_PARTITIONED_TARGET_TABLE\` |"
+    echo "| partitioned ordered source table | \`$BENCH_SCHEMA.$BENCH_PARTITIONED_ORDERED_SOURCE_TABLE\` |"
+    echo "| partitioned ordered target table | \`$BENCH_SCHEMA.$BENCH_PARTITIONED_ORDERED_TARGET_TABLE\` |"
+    echo "| partitioned ordered key index | \`$BENCH_PARTITIONED_ORDERED_INDEX\` |"
     echo "| partitioned leaves | $BENCH_PARTITIONED_LEAVES |"
     echo "| rows | $BENCH_ROWS |"
     echo "| chunk_by (current config) | \`$BENCH_CHUNK_BY\` |"
@@ -182,6 +237,12 @@ done
     echo "$BENCH_PARTITIONED_SQL"
     echo '```'
     echo
+    echo "Partition-wise ordered-key workload SQL (the same copy into its own target):"
+    echo
+    echo '```sql'
+    echo "$BENCH_PARTITIONED_ORDERED_SQL"
+    echo '```'
+    echo
     echo "## Hardware and software"
     echo
     echo '```'
@@ -199,13 +260,14 @@ done
     if [ -z "$groups" ]; then
         echo "_no results yet_"
     fi
-    for g in $groups; do
-        s="${g%%/*}"
-        rest="${g#*/}"
-        cs="${rest%%/*}"
-        rest="${rest#*/}"
-        pk="${rest%%/*}"
-        pw="${rest#*/}"
+    while IFS="$(printf '\t')" read -r s cs pk pw; do
+        [ -n "$s" ] && [ -n "$cs" ] && [ -n "$pk" ] && [ -n "$pw" ] || continue
+        case "$s$cs$pk$pw" in
+            *[!A-Za-z0-9_+-]*)
+                echo "skipping malformed result group: $s/$cs/$pk/$pw" >&2
+                continue
+                ;;
+        esac
         unit="$(awk -F, -v s="$s" -v c="$cs" -v key="$pk" -v pw="$pw" '
             NR > 1 && $1 == s && $3 == c && $10 == key {
                 row_pw = ($11 == "yes") ? "yes" : "no"
@@ -223,7 +285,8 @@ done
         echo "| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
         awk -F, -v s="$s" -v c="$cs" -v key="$pk" -v pw="$pw" \
             -v src_rows="$src_rows" -v src_blocks="$src_blocks" -v ordered_rows="$ordered_rows" \
-            -v partitioned_rows="$partitioned_rows" -v partitioned_blocks="$partitioned_blocks" '
+            -v partitioned_rows="$partitioned_rows" -v partitioned_blocks="$partitioned_blocks" \
+            -v partitioned_ordered_rows="$partitioned_ordered_rows" '
             NR == 1 { next }
             $1 != s || $3 != c || $10 != key { next }
             {
@@ -248,7 +311,8 @@ done
                 for (i = 1; i <= cnt; i++) {
                     t = order[i]
                     mc = ch[t] / n[t]
-                    rows_for_chunk = (pw == "yes") ? partitioned_rows \
+                    rows_for_chunk = (pw == "yes") \
+                        ? ((s == "ordered_key") ? partitioned_ordered_rows : partitioned_rows) \
                         : ((s == "ordered_key") ? ordered_rows : src_rows)
                     blocks_for_chunk = (pw == "yes") ? partitioned_blocks : src_blocks
                     rpc = (rows_for_chunk + 0 > 0 && mc > 0) ? sprintf("%.0f", rows_for_chunk / mc) : "-"
@@ -262,7 +326,9 @@ done
         echo
         echo "![run_migration_chunks ($s$pw_label, key $pk, chunk_size $cs): mean total time vs threads](report-${s}${suffix}-${cs}-${pk}.svg)"
         echo
-    done
+    done <<EOF
+$groups
+EOF
     echo "## How the times are measured"
     echo
     echo "- **range calc** = \`boundaries_calculated_at - started_at\`: the"
@@ -278,6 +344,11 @@ done
     echo "  Dataset section) divided by the mean chunk count. A block holds a variable"
     echo "  number of rows, so for \`blocks\` these are averages and the final chunk is"
     echo "  usually smaller than the rest."
+    echo "- The live counts and the Configuration block describe the dataset/config as"
+    echo "  they are now, while the CSV accumulates runs across invocations. A"
+    echo "  historical row keeps its recorded timings but is divided by the current"
+    echo "  size, so re-run the sweep after changing BENCH_ROWS or the fixtures rather"
+    echo "  than appending to an old CSV."
     echo "- Warm-up runs are not recorded. The mean is over the measured runs only, and"
     echo "  the CSV accumulates across invocations, so the mean covers every run recorded"
     echo "  for that strategy and thread value."
@@ -293,17 +364,24 @@ done
     echo "- \`primary_key\` and \`blocks\` are not directly comparable at the same numeric"
     echo "  chunk size: \`primary_key\` chunks a fixed number of rows, \`blocks\` a fixed"
     echo "  number of heap blocks, and a block holds a variable number of rows."
-    echo "- The partition-wise variant uses a range-partitioned copy of the same"
-    echo "  synthetic data, so compare each partition-wise row with the non-partitioned"
-    echo "  row of the same strategy, key and chunk size. Partition-aware plans prune to"
-    echo "  the leaf, but a run pays one boundary calculation and transaction per leaf."
+    echo "- The partition-wise variant uses a partitioned copy of the same synthetic"
+    echo "  data: the range-partitioned bigint copy for \`primary_key\`/\`blocks\`, so"
+    echo "  compare each partition-wise row with the non-partitioned row of the same"
+    echo "  strategy, key and chunk size. \`ordered_key\` uses the hash-partitioned UUID"
+    echo "  copy. Partition-aware plans prune to the leaf, but a run pays one boundary"
+    echo "  calculation and transaction per leaf."
     echo "- \`ordered_key\` chunks a fixed number of rows like \`primary_key\`, so compare"
     echo "  those two by \`rows/chunk\`; it uses its own UUID-keyed source and target, so"
-    echo "  its absolute times also include that table's shape."
+    echo "  its absolute times also include that table's shape. The partition-wise"
+    echo "  ordered run hashes on the UUID key, so its leaves do not partition by"
+    echo "  \`created_at\`."
     echo "- Autovacuum, checkpoints and other background activity can add noise; run more"
     echo "  measured runs (increase \`BENCH_RUNS\`) to tighten the mean."
     echo "- Each thread is one \`pg_background\` worker; the count is capped by"
     echo "  \`max_worker_processes\`, which is why the benchmark uses its own container."
-} > "$report"
+} > "$report_tmp"
+
+mv "$report_tmp" "$report"
+trap - EXIT
 
 echo "wrote $report" >&2

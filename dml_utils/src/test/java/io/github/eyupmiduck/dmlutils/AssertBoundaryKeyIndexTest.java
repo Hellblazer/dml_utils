@@ -48,5 +48,7 @@ class AssertBoundaryKeyIndexTest extends PostgresTestBase {
     void rejectsABlankIndexName() {
         assertSqlState("22023", () -> Routines.assertBoundaryKeyIndex(
                 dsl.configuration(), ChunkingStrategy.ordered_key, "   "));
+        assertSqlState("22023", () -> Routines.assertBoundaryKeyIndex(
+                dsl.configuration(), ChunkingStrategy.ordered_key, "\t\n"));
     }
 }

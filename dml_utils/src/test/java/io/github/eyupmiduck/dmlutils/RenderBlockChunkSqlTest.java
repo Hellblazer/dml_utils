@@ -32,13 +32,20 @@ class RenderBlockChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadRanges() {
-        assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", null, 10L));
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 10L));
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 10L, 5L));
+        assertEquals("SELECT 1 FROM public.some_table t WHERE "
+                        + "((t.ctid) >= ('(0,0)'::tid) AND (t.ctid) < ('(4294967295,0)'::tid))",
+                Routines.renderBlockChunkSql(dsl.configuration(), TEMPLATE,
+                        PUBLIC_SCHEMA, "some_table", "t", 0L, 4294967295L),
+                "the highest representable tid block must still be accepted");
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", 0L, 4294967296L));
+        assertDomainViolation(() -> Routines.renderBlockChunkSql(dsl.configuration(),
                 TEMPLATE, PUBLIC_SCHEMA, "some_table", "t", -1L, 5L));
     }
 
@@ -49,6 +56,25 @@ class RenderBlockChunkSqlTest extends PostgresTestBase {
     void rejectsABadTemplate() {
         assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
                 "SELECT 1", PUBLIC_SCHEMA, "some_table", "t", 0L, 10L));
+    }
+
+    /**
+     * A reserved substitution character in the template or in a quoted identifier
+     * is rejected with {@code 22023}, so the sentinel substitution stays
+     * unambiguous. Only the template and the formatted identifiers can introduce
+     * one; the generated clause is built from integers.
+     */
+    @Test
+    void rejectsReservedSubstitutionCharacters() {
+        for (String sentinel : new String[]{"" + (char) 1, "" + (char) 2}) {
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    "SELECT 1 FROM <driving_table> WHERE <chunking_clause> /*" + sentinel + "*/",
+                    PUBLIC_SCHEMA, "some_table", "t", 0L, 10L));
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    TEMPLATE, PUBLIC_SCHEMA, "some" + sentinel + "_table", "t", 0L, 10L));
+            assertSqlState("22023", () -> Routines.renderBlockChunkSql(dsl.configuration(),
+                    TEMPLATE, PUBLIC_SCHEMA, "some_table", "t" + sentinel, 0L, 10L));
+        }
     }
 
     /**

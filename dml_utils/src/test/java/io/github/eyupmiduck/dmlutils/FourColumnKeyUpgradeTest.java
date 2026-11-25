@@ -12,6 +12,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -19,31 +20,39 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies that changesets {@code 011-allow-four-column-ordered-key} and
- * {@code 012-validate-four-column-ordered-key-check} apply on an installed
- * database: one that has already run every earlier changeset, including 009 and
- * 010, and so holds the ordered-key shape check that allows three columns. The
- * state is reached by applying the whole changelog, then putting back the old
- * check and forgetting 011 and 012, which is the state an install of the
- * previous revision is in. {@link LiquibaseUpgradeTest} covers the upgrade from
- * the last published release.
+ * Verifies that changesets {@code 012-allow-four-column-keys},
+ * {@code 013-validate-four-column-ordered-key-check} and
+ * {@code 014-validate-four-column-primary-key-check} apply on an installed
+ * database: one that has already run every earlier changeset, including 009 to
+ * 011, and so holds the primary-key and ordered-key shape checks that allow three
+ * columns. The state is reached by applying the whole changelog, then putting
+ * back the old checks and forgetting 012 to 014, which is the state an install of
+ * the previous revision is in. {@link BaselineUpgradeTest} covers the upgrade
+ * from the last published release.
  */
 class FourColumnKeyUpgradeTest extends PostgresTestBase {
 
-    private static final String CHECK_CONSTRAINT = "migration_run_ordered_key_shape_check";
+    private static final String ORDERED_CHECK = "migration_run_ordered_key_shape_check";
+    private static final String PRIMARY_CHECK = "migration_run_primary_key_shape_check";
 
-    private static final String THREE_COLUMN_CHECK =
-            "ordered_key_columns IS NULL"
-                    + " OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3"
-                    + " AND pg_catalog.cardinality(ordered_key_kinds)"
-                    + "     = pg_catalog.cardinality(ordered_key_columns)"
-                    + " AND ordered_key_kinds <@ ARRAY ['bigint', 'text', 'uuid', 'timestamptz', 'bytea']::text[])";
+    private static final List<String> FOUR_COLUMN_CHANGESETS = List.of(
+            "012-allow-four-column-keys",
+            "013-validate-four-column-ordered-key-check",
+            "014-validate-four-column-primary-key-check");
+
+    private static String threeColumnCheck(String prefix) {
+        return prefix + "_columns IS NULL"
+                + " OR (pg_catalog.cardinality(" + prefix + "_columns) BETWEEN 1 AND 3"
+                + " AND pg_catalog.cardinality(" + prefix + "_kinds)"
+                + "     = pg_catalog.cardinality(" + prefix + "_columns)"
+                + " AND " + prefix + "_kinds <@ ARRAY ['bigint', 'text', 'uuid', 'timestamptz', 'bytea']::text[])";
+    }
 
     /**
-     * On a database that holds the three-column check, a four-column ordered key
-     * is refused; after the changelog is applied again, 011 and 012 run, the new
-     * check is validated and admits four columns but not five, and no other
-     * changeset runs a second time.
+     * On a database that holds the three-column checks, a four-column primary key
+     * and ordered key are refused; after the changelog is applied again, 012 to
+     * 014 run, the new checks are validated and admit four columns but not five,
+     * and no other changeset runs a second time.
      */
     @Test
     void appliesTheFourColumnChangesetsToAnInstalledDatabase() throws Exception {
@@ -56,30 +65,39 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
                 long changesetsBefore = count(owner, "SELECT count(*) FROM " + tracking());
                 restoreThreeColumnState(owner);
 
-                assertEquals(1, count(owner, checkDefinitionContains("<= 3")),
-                        "the installed check allows three columns");
-                SQLException refused = assertThrows(SQLException.class,
-                        () -> insertRun(owner, 4, "installed-four"));
-                assertEquals("23514", refused.getSQLState(), "check_violation: " + refused.getMessage());
+                for (String check : List.of(ORDERED_CHECK, PRIMARY_CHECK)) {
+                    assertEquals(1, count(owner, checkDefinitionContains(check, "<= 3")),
+                            "the installed " + check + " allows three columns");
+                }
+                for (boolean primary : new boolean[]{false, true}) {
+                    SQLException refused = assertThrows(SQLException.class,
+                            () -> insertRun(owner, 4, "installed-four-" + primary, primary));
+                    assertEquals("23514", refused.getSQLState(),
+                            "check_violation: " + refused.getMessage());
+                }
 
                 applyChangelog(owner);
 
-                assertEquals(2, count(owner, "SELECT count(*) FROM " + tracking() + " WHERE id IN"
-                                + " ('011-allow-four-column-ordered-key',"
-                                + "  '012-validate-four-column-ordered-key-check')"),
-                        "011 and 012 are recorded");
+                assertEquals(3, count(owner, "SELECT count(*) FROM " + tracking() + " WHERE id IN "
+                                + changesetIds()),
+                        "012 to 014 are recorded");
                 assertEquals(changesetsBefore, count(owner, "SELECT count(*) FROM " + tracking()),
                         "the second application records exactly the changesets the first one did");
-                assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
-                                + " WHERE conname = '" + CHECK_CONSTRAINT + "' AND convalidated"),
-                        "the new check is validated");
-                assertEquals(1, count(owner, checkDefinitionContains("<= 4")),
-                        "the new check allows four columns");
+                for (String check : List.of(ORDERED_CHECK, PRIMARY_CHECK)) {
+                    assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
+                                    + " WHERE conname = '" + check + "' AND convalidated"),
+                            "the new " + check + " is validated");
+                    assertEquals(1, count(owner, checkDefinitionContains(check, "<= 4")),
+                            "the new " + check + " allows four columns");
+                }
 
-                insertRun(owner, 4, "upgraded-four");
-                SQLException five = assertThrows(SQLException.class,
-                        () -> insertRun(owner, 5, "upgraded-five"));
-                assertEquals("23514", five.getSQLState(), "five columns stay refused: " + five.getMessage());
+                for (boolean primary : new boolean[]{false, true}) {
+                    insertRun(owner, 4, "upgraded-four-" + primary, primary);
+                    SQLException five = assertThrows(SQLException.class,
+                            () -> insertRun(owner, 5, "upgraded-five-" + primary, primary));
+                    assertEquals("23514", five.getSQLState(),
+                            "five columns stay refused: " + five.getMessage());
+                }
             }
         } finally {
             dropDatabase(database);
@@ -87,12 +105,13 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
     }
 
     /**
-     * A database that has applied 011 but not yet 012 holds the new check NOT VALID:
-     * it is already enforced for new rows (four columns pass, five are refused)
-     * and a run row recorded in that window validates when 012 runs.
+     * A database that has applied 012 but not yet 013 and 014 holds the new checks
+     * NOT VALID: they are already enforced for new rows (four columns pass, five
+     * are refused) and a run row recorded in that window validates when 013 and
+     * 014 run.
      */
     @Test
-    void validatesARowRecordedBetweenTheTwoChangesets() throws Exception {
+    void validatesARowRecordedBetweenTheChangesets() throws Exception {
         String database = "four_col_window_" + UUID.randomUUID().toString().replace('-', '_');
         createDatabase(database);
         try {
@@ -104,34 +123,41 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
                 applyNextChangesets(owner, 1);
 
                 assertEquals(1, count(owner, "SELECT count(*) FROM " + tracking()
-                                + " WHERE id = '011-allow-four-column-ordered-key'"),
-                        "011 is recorded");
+                                + " WHERE id = '012-allow-four-column-keys'"),
+                        "012 is recorded");
                 assertEquals(0, count(owner, "SELECT count(*) FROM " + tracking()
-                                + " WHERE id = '012-validate-four-column-ordered-key-check'"),
-                        "012 has not run");
-                assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
-                                + " WHERE conname = '" + CHECK_CONSTRAINT + "' AND NOT convalidated"),
-                        "the new check is NOT VALID until 012");
-                assertEquals(1, count(owner, checkDefinitionContains("<= 4")),
-                        "the new check allows four columns");
-                SQLException five = assertThrows(SQLException.class,
-                        () -> insertRun(owner, 5, "window-five"));
-                assertEquals("23514", five.getSQLState(),
-                        "five columns are refused while the check is NOT VALID: " + five.getMessage());
-
-                insertRun(owner, 3, "window-three");
+                                + " WHERE id IN ('013-validate-four-column-ordered-key-check',"
+                                + " '014-validate-four-column-primary-key-check')"),
+                        "013 and 014 have not run");
+                for (String check : List.of(ORDERED_CHECK, PRIMARY_CHECK)) {
+                    assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
+                                    + " WHERE conname = '" + check + "' AND NOT convalidated"),
+                            "the new " + check + " is NOT VALID until its validating changeset");
+                    assertEquals(1, count(owner, checkDefinitionContains(check, "<= 4")),
+                            "the new " + check + " allows four columns");
+                }
+                for (boolean primary : new boolean[]{false, true}) {
+                    SQLException five = assertThrows(SQLException.class,
+                            () -> insertRun(owner, 5, "window-five-" + primary, primary));
+                    assertEquals("23514", five.getSQLState(),
+                            "five columns are refused while the check is NOT VALID: " + five.getMessage());
+                    insertRun(owner, 3, "window-three-" + primary, primary);
+                }
 
                 applyChangelog(owner);
 
-                assertEquals(1, count(owner, "SELECT count(*) FROM " + tracking()
-                                + " WHERE id = '012-validate-four-column-ordered-key-check'"),
-                        "012 is recorded");
-                assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
-                                + " WHERE conname = '" + CHECK_CONSTRAINT + "' AND convalidated"),
-                        "the check validates with the three-column row in place");
-                assertEquals(1, count(owner, "SELECT count(*) FROM dml_utils_data.migration_run"
-                                + " WHERE label = 'window-three'"),
-                        "the row recorded in the window is kept");
+                assertEquals(2, count(owner, "SELECT count(*) FROM " + tracking()
+                                + " WHERE id IN ('013-validate-four-column-ordered-key-check',"
+                                + " '014-validate-four-column-primary-key-check')"),
+                        "013 and 014 are recorded");
+                for (String check : List.of(ORDERED_CHECK, PRIMARY_CHECK)) {
+                    assertEquals(1, count(owner, "SELECT count(*) FROM pg_catalog.pg_constraint"
+                                    + " WHERE conname = '" + check + "' AND convalidated"),
+                            check + " validates with the three-column row in place");
+                }
+                assertEquals(2, count(owner, "SELECT count(*) FROM dml_utils_data.migration_run"
+                                + " WHERE label LIKE 'window-three-%'"),
+                        "the rows recorded in the window are kept");
             }
         } finally {
             dropDatabase(database);
@@ -142,44 +168,61 @@ class FourColumnKeyUpgradeTest extends PostgresTestBase {
         return LIQUIBASE_SCHEMA + "." + DATABASE_CHANGELOG_TABLE;
     }
 
-    private static String checkDefinitionContains(String text) {
-        return "SELECT count(*) FROM pg_catalog.pg_constraint WHERE conname = '" + CHECK_CONSTRAINT
+    private static String changesetIds() {
+        return FOUR_COLUMN_CHANGESETS.stream()
+                .map(id -> "'" + id + "'")
+                .collect(java.util.stream.Collectors.joining(", ", "(", ")"));
+    }
+
+    private static String checkDefinitionContains(String check, String text) {
+        return "SELECT count(*) FROM pg_catalog.pg_constraint WHERE conname = '" + check
                 + "' AND conrelid = 'dml_utils_data.migration_run'::regclass"
                 + " AND pg_catalog.pg_get_constraintdef(oid) LIKE '%" + text + "%'";
     }
 
     /**
-     * Puts the database back in the state before 011: the three-column check, and
-     * no record that 011 and 012 ran.
+     * Puts the database back in the state before 012: the three-column checks, and
+     * no record that 012 to 014 ran.
      */
     private static void restoreThreeColumnState(Connection owner) throws SQLException {
         try (Statement statement = owner.createStatement()) {
-            statement.execute("ALTER TABLE dml_utils_data.migration_run DROP CONSTRAINT " + CHECK_CONSTRAINT);
-            statement.execute("ALTER TABLE dml_utils_data.migration_run ADD CONSTRAINT " + CHECK_CONSTRAINT
-                    + " CHECK (" + THREE_COLUMN_CHECK + ")");
-            statement.execute("DELETE FROM " + tracking() + " WHERE id IN"
-                    + " ('011-allow-four-column-ordered-key',"
-                    + "  '012-validate-four-column-ordered-key-check')");
+            for (String[] check : new String[][]{{ORDERED_CHECK, "ordered_key"},
+                    {PRIMARY_CHECK, "primary_key"}}) {
+                statement.execute("ALTER TABLE dml_utils_data.migration_run DROP CONSTRAINT " + check[0]);
+                statement.execute("ALTER TABLE dml_utils_data.migration_run ADD CONSTRAINT " + check[0]
+                        + " CHECK (" + threeColumnCheck(check[1]) + ")");
+            }
+            statement.execute("DELETE FROM " + tracking() + " WHERE id IN " + changesetIds());
         }
     }
 
     /**
-     * Inserts an ordered-key run whose key has the given number of text columns,
-     * in its own statement so a refusal leaves no partial state.
+     * Inserts a run whose key has the given number of text columns, in its own
+     * statement so a refusal leaves no partial state.
+     *
+     * @param primary {@code true} for a primary-key run, {@code false} for an
+     *                ordered-key run
      */
-    private static void insertRun(Connection owner, int columns, String label) throws SQLException {
+    private static void insertRun(Connection owner, int columns, String label, boolean primary)
+            throws SQLException {
         StringBuilder names = new StringBuilder();
         StringBuilder kinds = new StringBuilder();
         for (int i = 1; i <= columns; i++) {
             names.append(i > 1 ? "," : "").append("'k").append(i).append("'");
             kinds.append(i > 1 ? "," : "").append("'text'");
         }
+        String strategy = primary ? "primary_key" : "ordered_key";
+        String keyColumns = primary
+                ? "primary_key_columns, primary_key_kinds"
+                : "ordered_key_index, ordered_key_columns, ordered_key_kinds";
+        String keyValues = (primary ? "" : "'src_idx', ")
+                + "ARRAY[" + names + "]::name[], ARRAY[" + kinds + "]::text[]";
         try (Statement statement = owner.createStatement()) {
             statement.execute("INSERT INTO dml_utils_data.migration_run (label, sql_text, chunk_size,"
                     + " chunk_by, threads, driving_table_schema_name, driving_table_name,"
-                    + " ordered_key_index, ordered_key_columns, ordered_key_kinds)"
-                    + " VALUES ('" + label + "', 'SELECT 1', 1, 'ordered_key', 1, 'public', 'src', 'src_idx',"
-                    + " ARRAY[" + names + "]::name[], ARRAY[" + kinds + "]::text[])");
+                    + " " + keyColumns + ")"
+                    + " VALUES ('" + label + "', 'SELECT 1', 1, '" + strategy + "', 1, 'public', 'src',"
+                    + " " + keyValues + ")");
         }
     }
 

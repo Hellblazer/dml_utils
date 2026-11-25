@@ -4,6 +4,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigrationCreationKey;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -14,7 +15,6 @@ import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.Migration
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -27,13 +27,28 @@ class RunCreationHelpersTest extends PartitionTestBase {
     private static final String TEMPLATE = "SELECT 1";
 
     /**
+     * Restores the fixture privileges even if a test's own finally could not run
+     * (for example a failed REVOKE test), so one failure cannot break the rest of
+     * the class.
+     *
+     * @throws Exception if the grant cannot be restored
+     */
+    @AfterEach
+    void restoreFixturePrivileges() throws Exception {
+        executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
+                + TEST_BIGINT.getSchema().getName() + "." + TEST_BIGINT.getName()
+                + " TO " + TEST_USER + ", dml_utils_caller");
+        executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
+                + PARTITION_SCHEMA + ".test_partitioned_range_low"
+                + " TO " + TEST_USER + ", dml_utils_caller");
+    }
+
+    /**
      * Clears fixtures and metadata between tests.
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsBigintAndRange();
     }
 
     /**
@@ -84,6 +99,17 @@ class RunCreationHelpersTest extends PartitionTestBase {
         assertEquals("test_ordered_key_created_at_id_idx", ordered.getOOrderedKeyIndex());
         assertArrayEquals(ordered.getOKeyColumns(), ordered.getOOrderedKeyColumns());
         assertArrayEquals(ordered.getOKeyKinds(), ordered.getOOrderedKeyKinds());
+    }
+
+    /**
+     * A NULL strategy is rejected instead of falling through to the primary-key
+     * branch: the plain enum has no domain, so the body must guard it.
+     */
+    @Test
+    void rejectsANullStrategy() {
+        assertSqlState("22023", () -> Routines.resolveMigrationCreationKey(
+                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT),
+                null, null, false));
     }
 
     /**
@@ -200,6 +226,48 @@ class RunCreationHelpersTest extends PartitionTestBase {
         // raw duplicate key from the boundary INSERT.
         assertSqlState("55000", () -> Routines.populateSingleRelationBoundaries(
                 dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+    }
+
+    /**
+     * A direct call cannot populate a run with a different relation, strategy,
+     * chunk size or key than the run stores.
+     */
+    @Test
+    void rejectsAMismatchedSingleRelationDescriptor() {
+        long runId = insertRunRow(ChunkingStrategy.primary_key, false, 2);
+
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.ordered_key, new String[]{"id"}, new String[]{"bigint"}, 2));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 3));
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, schema(TEST_BIGINT), name(TEST_BIGINT),
+                ChunkingStrategy.primary_key, new String[]{"id", "id2"},
+                new String[]{"bigint", "bigint"}, 2));
+
+        // The matching descriptor still works.
+        Routines.populateSingleRelationBoundaries(dsl.configuration(), runId,
+                schema(TEST_BIGINT), name(TEST_BIGINT), ChunkingStrategy.primary_key,
+                new String[]{"id"}, new String[]{"bigint"}, 2);
+    }
+
+    /**
+     * A direct call cannot populate a partition-wise run at the parent level: its
+     * boundaries are calculated and committed one leaf at a time, so a
+     * parent-level population would freeze the milestone and skip every leaf.
+     */
+    @Test
+    void rejectsAPartitionWiseRun() {
+        long runId = insertRunRow(ChunkingStrategy.primary_key, true, 2);
+
+        assertSqlState("22023", () -> Routines.populateSingleRelationBoundaries(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_range",
                 ChunkingStrategy.primary_key, new String[]{"id"}, new String[]{"bigint"}, 2));
     }
 

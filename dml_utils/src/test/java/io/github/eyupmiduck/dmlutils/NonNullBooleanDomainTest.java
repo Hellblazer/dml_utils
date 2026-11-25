@@ -42,6 +42,6 @@ class NonNullBooleanDomainTest extends PostgresTestBase {
         assertDomainViolation(() -> Routines.populateMigrationBoundaries(
                 dsl.configuration(), "dml_utils_fixtures", "test_bigint",
                 uniqueLabel("null-partition-wise"), "SELECT 1", 1, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, null));
+                ChunkingStrategy.primary_key, "t", 0, null, null, 3, 1000));
     }
 }

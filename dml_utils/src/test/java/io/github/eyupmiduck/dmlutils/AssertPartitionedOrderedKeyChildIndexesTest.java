@@ -37,12 +37,27 @@ class AssertPartitionedOrderedKeyChildIndexesTest extends PartitionTestBase {
      * child index for every leaf.
      */
     @Test
-    void rejectsMissingOrMismatchedParentIndexes() {
+    void rejectsMissingOrMismatchedParentIndexes() throws Exception {
         assertSqlState("42704", () -> Routines.assertPartitionedOrderedKeyChildIndexes(
                 dsl.configuration(), relationOid(SCHEMA + "." + "test_partitioned_range_ordered_key_idx"),
                 SCHEMA, "test_partitioned_multi", "test_partitioned_multi_ordered_key_idx"));
         assertSqlState("42704", () -> Routines.assertPartitionedOrderedKeyChildIndexes(
                 dsl.configuration(), 0L,
                 SCHEMA, "test_partitioned_range", "test_partitioned_range_ordered_key_idx"));
+
+        // A stale OID: the index existed when the OID was captured but has been
+        // dropped, so the parent cannot be resolved.
+        executeAsOwner("CREATE UNIQUE INDEX assert_child_index_stale_idx ON "
+                + SCHEMA + ".test_partitioned_range (id)");
+        long staleOid;
+        try {
+            staleOid = relationOid(SCHEMA + ".assert_child_index_stale_idx");
+        } finally {
+            executeAsOwner("DROP INDEX IF EXISTS " + SCHEMA
+                    + ".assert_child_index_stale_idx");
+        }
+        assertSqlState("42704", () -> Routines.assertPartitionedOrderedKeyChildIndexes(
+                dsl.configuration(), staleOid, SCHEMA, "test_partitioned_range",
+                "assert_child_index_stale_idx"));
     }
 }

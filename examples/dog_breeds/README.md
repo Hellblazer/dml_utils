@@ -7,7 +7,7 @@ small `dogs` table keyed by breed.
 
 `dog_breeds.sql`:
 
-1. Creates `public.dogs` (one row per dog breed) and an `status` column to
+1. Creates `dog_breeds.dogs` (one row per dog breed) and a `status` column to
    backfill.
 2. Seeds it with famous breeds.
 3. Prints the plans the run would use via `dml_utils.explain_migration_chunks`

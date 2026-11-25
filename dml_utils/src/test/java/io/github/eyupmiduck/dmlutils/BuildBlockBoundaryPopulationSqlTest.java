@@ -7,13 +7,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
-import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.build_block_boundary_population_sql}: executing
@@ -28,8 +26,7 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
     }
 
     /**
@@ -60,6 +57,29 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A chunk size near the bigint maximum would overflow the old
+     * {@code block_count + chunk_size - 1} start-count expression; the safe form
+     * still yields one start plus the terminal boundary.
+     */
+    @Test
+    void aHugeChunkSizeDoesNotOverflowTheStartCount() {
+        seedBigint(1, 2, 3, 4, 5);
+        long blockCount = blockCount();
+        long runId = insertBlockRun();
+
+        dsl.execute(Routines.buildBlockBoundaryPopulationSql(dsl.configuration(),
+                schema(), name(), runId, Long.MAX_VALUE));
+
+        List<MigrationBoundaryRecord> boundaries = dsl.selectFrom(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
+                .fetch();
+        assertEquals(2, boundaries.size(), "one start plus the terminal");
+        assertEquals(0L, boundaries.get(0).getBoundaryId().getBigintValues()[0]);
+        assertEquals(blockCount, boundaries.get(1).getBoundaryId().getBigintValues()[0]);
+    }
+
+    /**
      * A table with no blocks yields no boundaries.
      */
     @Test
@@ -80,12 +100,15 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void insertsMultipleChunksWithAPartialFinalChunk() {
-        dsl.execute("INSERT INTO dml_utils_fixtures.test_bigint (id, payload)"
+        dsl.execute("INSERT INTO " + schema(TEST_BIGINT) + "." + name(TEST_BIGINT)
+                + " (id, payload)"
                 + " SELECT g, repeat('x', 200) FROM generate_series(1, 1000) g");
         long blockCount = blockCount();
         long chunkSize = 10L;
         long nStarts = (blockCount + chunkSize - 1) / chunkSize;
         assertTrue(blockCount > chunkSize, "the seeded table should span several chunks");
+        assertNotEquals(0, blockCount % chunkSize,
+                "the block count must not be a multiple of the chunk size, so the final chunk is short");
 
         long runId = insertBlockRun();
         dsl.execute(Routines.buildBlockBoundaryPopulationSql(dsl.configuration(),
@@ -114,11 +137,11 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadInputs() {
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), null, 1L));
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), 1L, 0L));
-        assertSqlState("22023", () -> Routines.buildBlockBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockBoundaryPopulationSql(
                 dsl.configuration(), schema(), name(), 1L, -1L));
     }
 
@@ -136,7 +159,7 @@ class BuildBlockBoundaryPopulationSqlTest extends PostgresTestBase {
                         MIGRATION_RUN.CHUNK_BY, MIGRATION_RUN.THREADS,
                         MIGRATION_RUN.DRIVING_TABLE_SCHEMA_NAME, MIGRATION_RUN.DRIVING_TABLE_NAME,
                         MIGRATION_RUN.DRIVING_TABLE_RELATION_FILEPATH)
-                .values("block-boundary-test-" + UUID.randomUUID(), "SELECT 1", 1,
+                .values(uniqueLabel("block-boundary-test"), "SELECT 1", 1,
                         ChunkingStrategy.blocks, 1, schema(), name(), filepath)
                 .returningResult(MIGRATION_RUN.RUN_ID)
                 .fetchOne(MIGRATION_RUN.RUN_ID);

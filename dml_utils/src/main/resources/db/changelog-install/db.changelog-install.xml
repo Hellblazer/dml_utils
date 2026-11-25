@@ -18,22 +18,8 @@
          dml_utils_owner (not superuser) and creates the role as admin before
          applying this changelog, so the guard makes this a no-op there. -->
     <changeSet id="install-create-ddl-utils-caller" author="lee.horner" dbms="postgresql">
-        <sql splitStatements="false">
-            DO
-            $$
-                BEGIN
-                    IF (SELECT rolsuper
-                        FROM pg_catalog.pg_roles
-                        WHERE rolname = current_user)
-                        AND NOT EXISTS (SELECT
-                                        FROM pg_catalog.pg_roles
-                                        WHERE rolname = 'ddl_utils_caller')
-                    THEN
-                        EXECUTE 'CREATE ROLE ddl_utils_caller';
-                    END IF;
-                END
-            $$;
-        </sql>
+        <sqlFile path="sql/install-create-ddl-utils-caller.sql"
+                 relativeToChangelogFile="true" splitStatements="false"/>
     </changeSet>
 
     <include file="ddl-utils/db/changelog/db.changelog-master.xml" relativeToChangelogFile="true"/>

@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -29,8 +28,44 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
+        resetRunsAndBigint();
+    }
+
+    /**
+     * Every argument that would render an unusable statement is rejected by its
+     * domain at the call: a NULL run id, a non-positive chunk size, and each blank
+     * identifier or fragment (schema, table, select list, id list, pack expression
+     * and both order-by forms).
+     */
+    @Test
+    void rejectsInvalidRunInputs() {
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", null, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 0L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), " \t", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", " \t", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", " \t",
+                name(TEST_BIGINT), "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                " \t", "id1", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), " \t", PACK, "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", " \t", "id1 DESC", 42L, 2L));
+        assertDomainViolation(() -> Routines.formatBoundaryPopulationSql(
+                dsl.configuration(), "id AS id1", "id", schema(TEST_BIGINT),
+                name(TEST_BIGINT), "id1", PACK, " \t", 42L, 2L));
     }
 
     /**
@@ -46,10 +81,13 @@ class FormatBoundaryPopulationSqlTest extends PostgresTestBase {
         assertTrue(sql.contains("INSERT INTO dml_utils_data.migration_boundary"));
         assertTrue(sql.contains("dml_utils_fixtures.test_bigint"));
         assertTrue(sql.contains("id AS id1"));
-        assertTrue(sql.contains("row_number() OVER (ORDER BY id)"));
+        assertTrue(sql.contains("pg_catalog.row_number() OVER (ORDER BY id)"));
         assertTrue(sql.contains("id1 DESC"));
         assertTrue(sql.contains(PACK));
-        assertTrue(sql.contains("42"));
+        assertTrue(sql.matches("(?s).*SELECT\\s+42,.*"),
+                "both inserts select the run id 42");
+        assertEquals(2, sql.split("SELECT\\s+42,", -1).length - 1,
+                "the run id is substituted in both the starts and the terminal insert");
     }
 
     /**
