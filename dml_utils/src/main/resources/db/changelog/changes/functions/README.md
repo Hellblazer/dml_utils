@@ -52,7 +52,7 @@ A run chunks the driving table one of three ways, recorded in the run's `chunk_b
   The boundaries are primary-key values, so they are stable and a run is
   resumable.
 - **`ordered_key`**: fixed-row chunks from the order of a caller-selected unique
-  btree index (`i_boundary_key_index`). The index must cover one to three
+  btree index (`i_boundary_key_index`). The index must cover one to four
   `NOT NULL` columns of type `bigint`, `text`, `uuid`, `timestamptz` or `bytea`, use the
   type's default btree opclass and the column's collation, and be ascending with
   `NULLS LAST`. The resolved descriptor is stored with the run, so resume and
@@ -993,11 +993,11 @@ RETURNS TABLE
 
 `STABLE`, `SECURITY INVOKER`. The single catalog reader for a table's primary
 key: `primary_key_columns` and `primary_key_kinds` delegate to it, so the key
-order and the one-to-three-column validation live in one place. Each row is one
+order and the one-to-four-column validation live in one place. Each row is one
 key column in key order, with its ordinal position, name, type oid, type and
 collapsed boundary kind (`bigint`/`text`/`uuid`/`timestamptz`/`bytea`, or NULL for an
 unsupported type). Raises `invalid_parameter_value` (`22023`) when the table has
-no primary key or more than 3 key columns.
+no primary key or more than 4 key columns.
 
 ### `dml_utils_lib.assert_primary_key_arity_matches(i_schema_name, i_table_name, i_column_count)`
 
@@ -1027,7 +1027,7 @@ RETURNS name[]
 
 `STABLE`, `SECURITY INVOKER`. Returns the table's primary-key columns in key
 order (from the index, so a key declared `(b, a)` returns `{b, a}`).
-`primary_key_attributes` validates the schema/table and the one-to-three-column
+`primary_key_attributes` validates the schema/table and the one-to-four-column
 limit (`22023`); `assert_primary_key_arity_matches` checks the array against the
 key's declared arity and reports a catalog inconsistency as `55000`.
 
@@ -1043,7 +1043,7 @@ RETURNS text[]
 column, in key order: `bigint` for `smallint`/`integer`/`bigint`, `text` for a
 `text` key, `uuid` for a `uuid` key, `timestamptz` for a `timestamptz` key and
 `bytea` for a `bytea` key.
-`primary_key_attributes` validates the schema/table and the one-to-three-column
+`primary_key_attributes` validates the schema/table and the one-to-four-column
 limit; an unsupported column type is `invalid_parameter_value` (`22023`), and
 `assert_primary_key_arity_matches` reports a catalog inconsistency between the
 kinds read and the declared arity as `object_not_in_prerequisite_state` (`55000`).
@@ -1071,9 +1071,9 @@ type and collapsed boundary kind (`bigint`, `text`, `uuid`, `timestamptz` or `by
 | Missing schema / table                                                                                                                                      | `3F000` / `42P01` |
 | Non-plain (partitioned) table, non-btree, non-unique, partial, expression, DESC / NULLS FIRST, non-default opclass, collation mismatch, nullable key column | `0A000`           |
 | Index not valid/ready/live                                                                                                                                  | `55000`           |
-| Wrong arity (more than three key columns) or unsupported key type                                                                                           | `22023`           |
+| Wrong arity (more than four key columns) or unsupported key type                                                                                           | `22023`           |
 
-The index must be a valid, live, unique btree index on one to three simple
+The index must be a valid, live, unique btree index on one to four simple
 `NOT NULL` columns using the type's default btree operator class and the
 column's own collation. An exclusion-constraint index is rejected by the
 non-btree check, because PostgreSQL backs exclusion constraints only with
@@ -1152,7 +1152,7 @@ RETURNS TABLE
 `STABLE`, `SECURITY INVOKER`, with a pinned `search_path`. The shared ordered-key
 shape validator: it takes an
 index OID and returns its key columns after applying the same checks as
-`ordered_key_attributes` (btree, unique, valid, non-partial, 1–3 simple
+`ordered_key_attributes` (btree, unique, valid, non-partial, 1–4 simple
 ascending `NOT NULL` columns with default opclass and the column collation). The
 caller's schema/table/index names are validated against the OID (`42P01` when the
 table is missing, `42704` when the index name, OID and table disagree) as well as
@@ -1245,7 +1245,7 @@ RETURNS boolean
 ```
 
 `IMMUTABLE`, `SECURITY INVOKER`. True when the key is a canonical boundary key:
-its arity is one to three, every present array shares that arity, exactly one
+its arity is one to four, every present array shares that arity, exactly one
 array holds a non-NULL element at each index, and no present array is empty or
 all-NULL. The `migration_boundary_key_check` constraint calls it.
 
@@ -1437,7 +1437,7 @@ lexicographic key range `[start, end)`. Let `d` be the first key column whose
 start and end differ; the boxes are the lower tail (`c_d = start_d` and the
 suffix `>=` the lower suffix), the middle (`start_d < c_d < end_d`) and the upper
 tail (`c_d = end_d` and the suffix `<` the upper suffix), i.e. `2*(n-d)+1` boxes
-for an `n`-column key (a three-column key uses 5, 3 or 1 boxes). The final
+for an `n`-column key (a four-column key uses 7, 5, 3 or 1 boxes). The final
 chunk's last upper bound is `<=` so the captured maximum row is included; a key
 that differs only in its last column is a single scalar range and a key whose
 bounds are all equal is a single row. Each box is a prefix of equalities plus a
@@ -1594,10 +1594,10 @@ boundary every `i_chunk_size` heap blocks plus a one-past-end terminal boundary
 and records the driving table's physical filepath. Both timestamps are written in
 this worker's transaction, so they commit with the run and persist across a
 failed processing attempt. For `primary_key` the source table must exist and have
-a primary key of one to three columns, each of a supported type (`smallint`,
+a primary key of one to four columns, each of a supported type (`smallint`,
 `integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea`); the columns are identified from the
 catalog in key order, not assumed to be `id`. For `ordered_key` the named index
-must be a valid unique btree index on one to three `NOT NULL` columns of a
+must be a valid unique btree index on one to four `NOT NULL` columns of a
 supported type (`bigint`, `text`, `uuid`, `timestamptz` or `bytea`), with the type's
 default opclass and the column's collation; `i_boundary_key_index` is required for
 `ordered_key` and rejected for the other strategies (`22023`). For `blocks` the
@@ -1607,7 +1607,7 @@ the value of key column i in the array matching that column's kind, and
 exactly one array element is non-NULL per index. The `migration_boundary_key_check`
 constraint enforces that: each present array must have a non-NULL element (so an
 all-NULL or empty array is rejected), present arrays must share one length of one
-to three, and exactly one of the five arrays holds a non-NULL value at each
+to four, and exactly one of the five arrays holds a non-NULL value at each
 index. Raises `23505` when
 an active (not archived) run already exists for the label. The
 `migration_boundary` rows are inserted with their own `started_at` and
@@ -1830,7 +1830,7 @@ RETURNS TABLE
 
 `STABLE`, `SECURITY INVOKER`. The argument domains enforce one dimension, a lower
 bound of 1 and no NULL elements (`23514`); the body checks the matching lengths,
-one-to-three arity and known kinds (`22023`). Returns the SQL
+one-to-four arity and known kinds (`22023`). Returns the SQL
 fragments that read, order and pack it: the `idN`-aliased select list, the `idN`
 list, the ascending and descending `ORDER BY`, and the `migration_key` row
 expression. The two `ORDER BY` fragments have different consumption contexts:
@@ -2128,7 +2128,7 @@ RETURNS text
 ```
 
 `STABLE`, `SECURITY INVOKER`. Builds the `migration_key` row expression for a
-one-to-three-column boundary key, placing each kind's `idN` term in its
+one-to-four-column boundary key, placing each kind's `idN` term in its
 position-aligned array. Unsupported or NULL kinds and a malformed array raise
 `22023`. Shared by `boundary_key_descriptor_sql`.
 
@@ -2174,7 +2174,7 @@ RETURNS void
 
 `STABLE`, `SECURITY INVOKER`. Validates the index-level ordered-key contract: the
 OID exists and belongs to the named table, is a unique valid/ready/live btree,
-is not partial or expression-based, has one to three key columns and is
+is not partial or expression-based, has one to four key columns and is
 ascending with NULLS LAST. A missing or mismatched OID is `42704`, an unsafe
 shape is `0A000`/`22023`, and an unusable index is `55000`.
 

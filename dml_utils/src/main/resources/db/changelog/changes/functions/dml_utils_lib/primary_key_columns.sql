@@ -12,7 +12,7 @@ DECLARE
     l_primary_key_columns name[];
 BEGIN
     -- primary_key_attributes is the single catalog reader: it validates the
-    -- schema and table and the one-to-three-column limit, and returns the key
+    -- schema and table and the one-to-four-column limit, and returns the key
     -- columns in key order.
     SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality)
     INTO l_primary_key_columns
@@ -34,7 +34,7 @@ $$;
 
 COMMENT ON FUNCTION dml_utils_lib.primary_key_columns IS
     'Returns the primary-key columns in key order. primary_key_attributes '
-        'validates the schema/table and the one-to-three-column limit '
+        'validates the schema/table and the one-to-four-column limit '
         '(invalid_parameter_value 22023), and a catalog inconsistency between the '
         'columns read and the declared arity is object_not_in_prerequisite_state '
         '(55000).';

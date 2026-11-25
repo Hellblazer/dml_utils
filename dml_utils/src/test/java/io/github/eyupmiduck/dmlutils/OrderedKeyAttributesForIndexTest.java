@@ -77,6 +77,23 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
     }
 
     /**
+     * The four-column (timestamptz, bigint, uuid, text) key, the supported
+     * maximum, resolves in index order with each column's collapsed kind.
+     */
+    @Test
+    void resolvesAFourColumnKeyInIndexOrder() {
+        List<OrderedKeyAttributesForIndexRecord> rows =
+                attributes(TABLE, "test_ordered_key_four_idx");
+
+        assertEquals(List.of("created_at", "id", "external_id", "label"),
+                rows.stream().map(OrderedKeyAttributesForIndexRecord::getColumnName).toList());
+        assertEquals(List.of("timestamptz", "bigint", "uuid", "text"),
+                rows.stream().map(OrderedKeyAttributesForIndexRecord::getKeyKind).toList());
+        assertEquals(List.of(1, 2, 3, 4),
+                rows.stream().map(OrderedKeyAttributesForIndexRecord::getOrdinality).toList());
+    }
+
+    /**
      * INCLUDE columns are not key columns and are ignored.
      */
     @Test
@@ -93,7 +110,7 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
      * Every unsafe index shape is rejected with its documented SQLSTATE: a
      * non-btree, non-unique, expression, partial, DESC, NULLS FIRST, nullable,
      * non-default opclass or collation-mismatched index is {@code 0A000}, while a
-     * numeric key and an index with more than three key columns are {@code 22023}.
+     * numeric key and an index with more than four key columns are {@code 22023}.
      */
     @Test
     void rejectsEveryUnsafeIndexShape() {
@@ -107,7 +124,7 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
         assertRejected("0A000", "test_ordered_key_opclass_idx");
         assertRejected("0A000", "test_ordered_key_collation_idx");
         assertRejected("22023", "test_ordered_key_numeric_idx");
-        assertRejected("22023", "test_ordered_key_four_idx");
+        assertRejected("22023", "test_ordered_key_five_idx");
     }
 
 

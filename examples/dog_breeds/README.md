@@ -44,7 +44,7 @@ psql -h localhost -p 5433 -U postgres -d dml_utils -f examples/dog_breeds/dog_br
 
 ## Notes
 
-- The driving table must have a primary key of one to three columns, each of a
+- The driving table must have a primary key of one to four columns, each of a
   supported type (`smallint`, `integer`, `bigint`, `text`, `uuid`, `timestamptz`
   or `bytea`). This
   example uses a single `text` key (the breed name); change the primary key in

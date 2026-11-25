@@ -101,7 +101,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     /**
      * The validation branches that direct callers can reach are rejected with
      * {@code 22023}: empty arrays, a non-1 lower bound, multidimensional arrays,
-     * a NULL or empty column name, a NULL kind, and a key longer than three
+     * a NULL or empty column name, a NULL kind, and a key longer than four
      * columns.
      */
     @Test
@@ -112,8 +112,8 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         assertBuildRejectedAs("23514", "ARRAY[NULL]::name[]", "ARRAY['bigint']::text[]");
         assertBuildRejected("ARRAY['']::name[]", "ARRAY['bigint']::text[]");
         assertBuildRejectedAs("23514", "ARRAY['id']::name[]", "ARRAY[NULL]::text[]");
-        assertBuildRejected("ARRAY['a','b','c','d']::name[]",
-                "ARRAY['bigint','bigint','bigint','bigint']::text[]");
+        assertBuildRejected("ARRAY['a','b','c','d','e']::name[]",
+                "ARRAY['bigint','bigint','bigint','bigint','bigint']::text[]");
     }
 
     /**

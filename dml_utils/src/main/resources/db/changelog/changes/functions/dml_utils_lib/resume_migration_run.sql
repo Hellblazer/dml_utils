@@ -141,7 +141,7 @@ BEGIN
                 WHEN undefined_table
                     OR invalid_schema_name
                     OR invalid_parameter_value THEN
-                    -- No primary key (or more than three columns) is the other
+                    -- No primary key (or more than four columns) is the other
                     -- way the stored key becomes unusable; report it as this
                     -- resume's stable code with the resolver's message.
                     RAISE EXCEPTION 'the primary key of %.% is no longer usable for run %: %',

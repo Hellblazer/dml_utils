@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  * Verifies {@code dml_utils_lib.primary_key_attributes}: it returns the primary
  * key columns in key order with, per column, the ordinality, name and collapsed
  * boundary kind, and rejects a missing schema/table, a table without a primary
- * key and a key of more than three columns.
+ * key and a key of more than four columns.
  */
 class PrimaryKeyAttributesTest extends PostgresTestBase {
 
@@ -40,6 +40,40 @@ class PrimaryKeyAttributesTest extends PostgresTestBase {
         assertAttribute(rows.get(0), 1, "b", "bigint");
         assertAttribute(rows.get(1), 2, "a", "text");
         assertAttribute(rows.get(2), 3, "c", "uuid");
+    }
+
+    /**
+     * A four-column key of every non-bytea kind is returned in key order (not
+     * physical column order), the supported maximum.
+     */
+    @Test
+    void returnsAFourColumnKeyInKeyOrderWithKinds() {
+        List<PrimaryKeyAttributesRecord> rows = Routines.primaryKeyAttributes(
+                dsl.configuration(), FIXTURE_SCHEMA, "test_composite_four");
+
+        assertEquals(4, rows.size());
+        assertAttribute(rows.get(0), 1, "b", "bigint");
+        assertAttribute(rows.get(1), 2, "a", "text");
+        assertAttribute(rows.get(2), 3, "d", "timestamptz");
+        assertAttribute(rows.get(3), 4, "c", "uuid");
+    }
+
+    /**
+     * The nexus chunks key (text, text, bytea, text) keeps the bytea column in
+     * the third position, on a plain table and on a two-level partitioned parent.
+     */
+    @Test
+    void mapsAFourColumnKeyWithByteaThird() {
+        for (String table : List.of("test_chunks_four", "test_chunks_partitioned")) {
+            List<PrimaryKeyAttributesRecord> rows = Routines.primaryKeyAttributes(
+                    dsl.configuration(), FIXTURE_SCHEMA, table);
+
+            assertEquals(4, rows.size(), table);
+            assertAttribute(rows.get(0), 1, "tenant_id", "text");
+            assertAttribute(rows.get(1), 2, "collection", "text");
+            assertAttribute(rows.get(2), 3, "chash", "bytea");
+            assertAttribute(rows.get(3), 4, "embedding_model", "text");
+        }
     }
 
     /**
@@ -126,13 +160,13 @@ class PrimaryKeyAttributesTest extends PostgresTestBase {
     }
 
     /**
-     * A table without a primary key and a primary key of more than three columns
+     * A table without a primary key and a primary key of more than four columns
      * are rejected with {@code 22023}.
      *
      * @param table the fixture table
      */
     @ParameterizedTest(name = "{0}")
-    @ValueSource(strings = {"test_no_pk", "test_composite_four"})
+    @ValueSource(strings = {"test_no_pk", "test_composite_five"})
     void rejectsAMissingOrOversizedPrimaryKey(String table) {
         assertSqlState("22023", () -> Routines.primaryKeyAttributes(
                 dsl.configuration(), FIXTURE_SCHEMA, table));

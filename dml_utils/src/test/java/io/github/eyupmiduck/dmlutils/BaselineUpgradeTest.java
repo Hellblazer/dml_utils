@@ -129,6 +129,8 @@ class BaselineUpgradeTest extends UpgradeContract {
                     "the upgraded " + constraint + " is validated");
             assertTrue(check.get("definition", String.class).contains("'bytea'::text"),
                     "the upgraded " + constraint + " admits bytea");
+            assertTrue(check.get("definition", String.class).contains("<= 4"),
+                    "the upgraded " + constraint + " admits four columns");
         }
         assertEquals(5, upgradeDsl().fetchOne(
                         "SELECT count(*) FROM pg_catalog.pg_attribute"

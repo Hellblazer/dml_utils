@@ -21,7 +21,7 @@ SELECT dml_utils.archive_migration_run(i_label => 'dogs-review-function');
 
 -- 1. A driving table with a supported primary key, in its own schema so the
 --    example can never clobber a real table. Here the breed name (text) is the
---    key; a composite key of up to three columns works the same way. The
+--    key; a composite key of up to four columns works the same way. The
 --    function below must take the primary-key column types in key order.
 --    Drop the function first: a SQL function depends on the table it updates,
 --    so the table cannot be dropped while the function still exists.

@@ -18,7 +18,7 @@ SELECT dml_utils.archive_migration_run(i_label => 'dogs-status-backfill');
 
 -- 1. A driving table with a supported primary key, in its own schema so the
 --    example can never clobber a real public.dogs table. Here the breed name
---    (text) is the key; a composite key of up to three columns works the same
+--    (text) is the key; a composite key of up to four columns works the same
 --    way.
 CREATE SCHEMA IF NOT EXISTS dog_breeds;
 COMMENT ON SCHEMA dog_breeds IS

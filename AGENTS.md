@@ -390,7 +390,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
       one populated array" rule is a table check constraint (`migration_boundary_key_check`). It packs a boundary's
       primary-key value
       as position-aligned arrays, one per key kind, so a primary key of one to
-      three columns is supported.
+      four columns is supported.
 
 ## Testing
 

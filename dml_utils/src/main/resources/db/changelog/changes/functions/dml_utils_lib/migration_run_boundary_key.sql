@@ -50,11 +50,11 @@ BEGIN
     -- when it started. The same descriptor must drive every leaf; a missing one
     -- is corrupt state, not something to recompute from a leaf.
     IF l_chunk_by = 'ordered_key' THEN
-        -- The table constraints already require a 1..3 column, matching-length,
+        -- The table constraints already require a 1..4 column, matching-length,
         -- NULL-free descriptor; check it again so a directly mutated row cannot
         -- return a short or mismatched key.
         IF l_ordered_key_columns IS NULL OR l_ordered_key_kinds IS NULL
-            OR pg_catalog.cardinality(l_ordered_key_columns) NOT BETWEEN 1 AND 3
+            OR pg_catalog.cardinality(l_ordered_key_columns) NOT BETWEEN 1 AND 4
             OR pg_catalog.cardinality(l_ordered_key_kinds)
                <> pg_catalog.cardinality(l_ordered_key_columns)
         THEN

@@ -145,7 +145,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
                     ChunkingStrategy.ordered_key, index));
         }
         for (String index : List.of(
-                "test_ordered_key_four_idx",
+                "test_ordered_key_five_idx",
                 "test_ordered_key_numeric_idx")) {
             assertSqlState("22023", () -> populate(TEST_ORDERED_KEY,
                     ChunkingStrategy.ordered_key, index));

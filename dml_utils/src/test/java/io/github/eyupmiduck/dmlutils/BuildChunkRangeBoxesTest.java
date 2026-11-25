@@ -122,6 +122,27 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * A four-column key that differs at the first column renders the three lower
+     * tail boxes, the middle box and the three upper tail boxes: 2 * (4 - 1) + 1
+     * boxes in all.
+     */
+    @Test
+    void rendersTheSevenBoxesForAFirstColumnDifferenceOfAFourColumnKey() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b > '2'",
+                        "t.a = '1' AND t.b = '2' AND t.c > '3'",
+                        "t.a = '1' AND t.b = '2' AND t.c = '3' AND t.d >= '4'",
+                        "t.a > '1' AND t.a < '5'",
+                        "t.a = '5' AND t.b < '6'",
+                        "t.a = '5' AND t.b = '6' AND t.c < '7'",
+                        "t.a = '5' AND t.b = '6' AND t.c = '7' AND t.d <= '8'"},
+                boxes(new String[]{"t.a", "t.b", "t.c", "t.d"},
+                        new String[]{"'1'", "'2'", "'3'", "'4'"},
+                        new String[]{"'5'", "'6'", "'7'", "'8'"},
+                        1, true));
+    }
+
+    /**
      * The same three-box shape with the final flag set only makes the upper
      * tail's last-column bound inclusive (the middle box stays a strict open
      * range), so the last chunk includes its end key.
@@ -155,6 +176,20 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
                 new String[]{"'5'"}, 1, false));
         assertSqlState("22023", () -> boxes(new String[0], new String[0],
                 new String[0], 0, false));
+    }
+
+    /**
+     * A four-column key that differs only at the last column is one scalar range
+     * after a three-column equality prefix.
+     */
+    @Test
+    void rendersALastColumnDifferenceOfAFourColumnKey() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b = '2' AND t.c = '3' AND t.d >= '4' AND t.d < '9'"},
+                boxes(new String[]{"t.a", "t.b", "t.c", "t.d"},
+                        new String[]{"'1'", "'2'", "'3'", "'4'"},
+                        new String[]{"'1'", "'2'", "'3'", "'9'"},
+                        4, false));
     }
 
     /**

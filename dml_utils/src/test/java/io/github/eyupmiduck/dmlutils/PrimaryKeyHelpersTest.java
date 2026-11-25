@@ -36,12 +36,12 @@ class PrimaryKeyHelpersTest extends PostgresTestBase {
 
     /**
      * Both helpers take the unsupported-key rejection from the one reader, so a
-     * table without a primary key or with more than three key columns is
+     * table without a primary key or with more than four key columns is
      * {@code 22023} for either of them.
      */
     @Test
     void delegatesTheUnsupportedKeyRejectionToOneReader() {
-        for (String table : List.of("test_no_pk", "test_composite_four")) {
+        for (String table : List.of("test_no_pk", "test_composite_five")) {
             assertSqlState("22023", () -> Routines.primaryKeyColumns(
                     dsl.configuration(), FIXTURE_SCHEMA, table));
             assertSqlState("22023", () -> Routines.primaryKeyKinds(

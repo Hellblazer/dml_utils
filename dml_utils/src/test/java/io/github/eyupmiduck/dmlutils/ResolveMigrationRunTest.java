@@ -51,7 +51,7 @@ class ResolveMigrationRunTest extends PostgresTestBase {
                         + " ON dml_utils_fixtures.test_ordered_key (created_at, id)"),
                 Arguments.of("too-many-columns", "CREATE UNIQUE INDEX test_ordered_key_created_at_id_idx"
                         + " ON dml_utils_fixtures.test_ordered_key"
-                        + " (created_at, id, external_id, label)"));
+                        + " (created_at, id, external_id, label, collated_label)"));
     }
 
     /**

@@ -9,20 +9,21 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_is_canonical(
     SET search_path = pg_catalog
 AS
 $$
-    -- A canonical boundary key has an arity of one to three, every present array
+    -- A canonical boundary key has an arity of one to four, every present array
 -- shares that arity, is one-dimensional and 1-based, exactly one array holds a
 -- non-NULL element at each index (so each position names one key column), and no
 -- present array is empty or all-NULL. The arity is the greatest present array
 -- length: greatest/least ignore NULLs, so absent kinds do not participate, and
 -- coalescing to 0 makes an all-absent key false rather than NULL (a CHECK would
--- accept NULL).
+-- accept NULL). The arity bound and the unrolled [1]..[4] clauses below change
+-- together.
 WITH arity AS (SELECT coalesce(
                               greatest(pg_catalog.array_length((i_key).bigint_values, 1),
                                        pg_catalog.array_length((i_key).text_values, 1),
                                        pg_catalog.array_length((i_key).uuid_values, 1),
                                        pg_catalog.array_length((i_key).timestamptz_values, 1),
                                        pg_catalog.array_length((i_key).bytea_values, 1)), 0) AS n)
-SELECT arity.n BETWEEN 1 AND 3
+SELECT arity.n BETWEEN 1 AND 4
            -- Every present array is one-dimensional with a lower bound of 1.
            -- One-subscript indexing below (and in migration_key_values) assumes
            -- both; a non-1-based or multidimensional array would otherwise be
@@ -74,6 +75,12 @@ SELECT arity.n BETWEEN 1 AND 3
                                    (i_key).uuid_values[3],
                                    (i_key).timestamptz_values[3],
                                    (i_key).bytea_values[3]) = 1)
+           AND (arity.n < 4
+        OR pg_catalog.num_nonnulls((i_key).bigint_values[4],
+                                   (i_key).text_values[4],
+                                   (i_key).uuid_values[4],
+                                   (i_key).timestamptz_values[4],
+                                   (i_key).bytea_values[4]) = 1)
            -- A present array must hold at least one real value: array_length counts an
            -- all-NULL array as populated and reports an empty array as NULL, so both
            -- would otherwise slip through, yet neither carries a key value. CASE, not
@@ -118,6 +125,6 @@ FROM arity;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.migration_key_is_canonical IS
-    'True when a migration_key is a canonical boundary key: arity one to three, '
+    'True when a migration_key is a canonical boundary key: arity one to four, '
         'present arrays of equal length, exactly one array element non-NULL per '
         'index, and no empty or all-NULL present array.';

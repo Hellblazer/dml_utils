@@ -4,28 +4,13 @@
         xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
         xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
 
-    <!-- The ordered-key and primary-key shape checks on migration_run, in the
-         form the baseline created them and as widened for bytea. Changesets 009
-         to 011 and 009's rollback expand these into their SQL files, so each
-         expression is written once and cannot drift between them. Quotes are
-         doubled because the expression is passed to the ddl_utils helpers as a
-         string literal. -->
-    <property name="ordered_key_shape_check_expression"
-              value="ordered_key_columns IS NULL
-        OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
-        AND pg_catalog.cardinality(ordered_key_kinds)
-                = pg_catalog.cardinality(ordered_key_columns)
-        AND CASE
-                WHEN pg_catalog.array_ndims(ordered_key_columns) = 1
-                    THEN pg_catalog.array_position(ordered_key_columns, NULL::name) IS NULL
-                ELSE FALSE
-                END
-        AND CASE
-                WHEN pg_catalog.array_ndims(ordered_key_kinds) = 1
-                    THEN pg_catalog.array_position(ordered_key_kinds, NULL::text) IS NULL
-                ELSE FALSE
-                END
-        AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
+    <!-- The ordered-key and primary-key shape checks on migration_run in each
+         form they have had: as the baseline created them (up to three columns,
+         four kinds), widened for bytea, and widened to four columns. Changesets
+         009 to 014 and their rollbacks expand these into their SQL files, so each
+         expression is written once and cannot drift between them. Each keeps its
+         name and value once a changeset has used it. Quotes are doubled because
+         the expression is passed to the ddl_utils helpers as a string literal. -->
     <property name="ordered_key_shape_check_expression_before_bytea"
               value="ordered_key_columns IS NULL
         OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
@@ -42,22 +27,38 @@
                 ELSE FALSE
                 END
         AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'']::text[])"/>
-    <property name="primary_key_shape_check_expression"
-              value="primary_key_columns IS NULL
-        OR (pg_catalog.cardinality(primary_key_columns) BETWEEN 1 AND 3
-        AND pg_catalog.cardinality(primary_key_kinds)
-                = pg_catalog.cardinality(primary_key_columns)
+    <property name="ordered_key_shape_check_expression"
+              value="ordered_key_columns IS NULL
+        OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 3
+        AND pg_catalog.cardinality(ordered_key_kinds)
+                = pg_catalog.cardinality(ordered_key_columns)
         AND CASE
-                WHEN pg_catalog.array_ndims(primary_key_columns) = 1
-                    THEN pg_catalog.array_position(primary_key_columns, NULL::name) IS NULL
+                WHEN pg_catalog.array_ndims(ordered_key_columns) = 1
+                    THEN pg_catalog.array_position(ordered_key_columns, NULL::name) IS NULL
                 ELSE FALSE
                 END
         AND CASE
-                WHEN pg_catalog.array_ndims(primary_key_kinds) = 1
-                    THEN pg_catalog.array_position(primary_key_kinds, NULL::text) IS NULL
+                WHEN pg_catalog.array_ndims(ordered_key_kinds) = 1
+                    THEN pg_catalog.array_position(ordered_key_kinds, NULL::text) IS NULL
                 ELSE FALSE
                 END
-        AND primary_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
+        AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
+    <property name="ordered_key_shape_check_expression_four_columns"
+              value="ordered_key_columns IS NULL
+        OR (pg_catalog.cardinality(ordered_key_columns) BETWEEN 1 AND 4
+        AND pg_catalog.cardinality(ordered_key_kinds)
+                = pg_catalog.cardinality(ordered_key_columns)
+        AND CASE
+                WHEN pg_catalog.array_ndims(ordered_key_columns) = 1
+                    THEN pg_catalog.array_position(ordered_key_columns, NULL::name) IS NULL
+                ELSE FALSE
+                END
+        AND CASE
+                WHEN pg_catalog.array_ndims(ordered_key_kinds) = 1
+                    THEN pg_catalog.array_position(ordered_key_kinds, NULL::text) IS NULL
+                ELSE FALSE
+                END
+        AND ordered_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
     <property name="primary_key_shape_check_expression_before_bytea"
               value="primary_key_columns IS NULL
         OR (pg_catalog.cardinality(primary_key_columns) BETWEEN 1 AND 3
@@ -74,6 +75,38 @@
                 ELSE FALSE
                 END
         AND primary_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'']::text[])"/>
+    <property name="primary_key_shape_check_expression"
+              value="primary_key_columns IS NULL
+        OR (pg_catalog.cardinality(primary_key_columns) BETWEEN 1 AND 3
+        AND pg_catalog.cardinality(primary_key_kinds)
+                = pg_catalog.cardinality(primary_key_columns)
+        AND CASE
+                WHEN pg_catalog.array_ndims(primary_key_columns) = 1
+                    THEN pg_catalog.array_position(primary_key_columns, NULL::name) IS NULL
+                ELSE FALSE
+                END
+        AND CASE
+                WHEN pg_catalog.array_ndims(primary_key_kinds) = 1
+                    THEN pg_catalog.array_position(primary_key_kinds, NULL::text) IS NULL
+                ELSE FALSE
+                END
+        AND primary_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
+    <property name="primary_key_shape_check_expression_four_columns"
+              value="primary_key_columns IS NULL
+        OR (pg_catalog.cardinality(primary_key_columns) BETWEEN 1 AND 4
+        AND pg_catalog.cardinality(primary_key_kinds)
+                = pg_catalog.cardinality(primary_key_columns)
+        AND CASE
+                WHEN pg_catalog.array_ndims(primary_key_columns) = 1
+                    THEN pg_catalog.array_position(primary_key_columns, NULL::name) IS NULL
+                ELSE FALSE
+                END
+        AND CASE
+                WHEN pg_catalog.array_ndims(primary_key_kinds) = 1
+                    THEN pg_catalog.array_position(primary_key_kinds, NULL::text) IS NULL
+                ELSE FALSE
+                END
+        AND primary_key_kinds &lt;@ ARRAY [''bigint'', ''text'', ''uuid'', ''timestamptz'', ''bytea'']::text[])"/>
 
     <!-- The trigger changesets use CREATE OR REPLACE TRIGGER (PostgreSQL 14+).
          Check the server version once, before any changeset in this changelog
@@ -254,6 +287,46 @@
                  relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="rollback/011-validate-primary-key-shape-check-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Lets a run record a primary key or an ordered key of four columns, the
+         shape of the nexus chunks key (tenant, collection, hash, embedding
+         model). Like 009 it replaces two checks on migration_run through the
+         ddl_utils helpers, so it runs after the functions and triggers includes
+         and adds the new checks NOT VALID; the next two changesets validate
+         them. The routines and the boundary-key check in 006 take a four-column
+         key by then, and the key type needs no change: its arrays are as long as
+         the key. -->
+    <changeSet id="012-allow-four-column-keys" author="hellblazer" dbms="postgresql">
+        <sqlFile path="sql_changes/012-allow-four-column-keys.sql" relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/012-allow-four-column-keys-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Validates the ordered-key check the previous changeset added NOT VALID,
+         outside a transaction for the same reason as 010. -->
+    <changeSet id="013-validate-four-column-ordered-key-check" author="hellblazer"
+               dbms="postgresql" runInTransaction="false">
+        <sqlFile path="sql_changes/013-validate-four-column-ordered-key-check.sql"
+                 relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/013-validate-four-column-ordered-key-check-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Validates the primary-key check 012 added NOT VALID, for the same
+         reason. -->
+    <changeSet id="014-validate-four-column-primary-key-check" author="hellblazer"
+               dbms="postgresql" runInTransaction="false">
+        <sqlFile path="sql_changes/014-validate-four-column-primary-key-check.sql"
+                 relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="rollback/014-validate-four-column-primary-key-check-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>

@@ -92,6 +92,25 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     }
 
     /**
+     * A four-column key, the supported maximum and the nexus chunks shape (text,
+     * text, bytea, text), keeps each bound's values at their key positions, with
+     * the bytea column third as bare hex.
+     */
+    @Test
+    void flattensBothBoundsForAFourColumnKey() {
+        MigrationKeyPairValues values = Routines.migrationKeyPairValues(
+                dsl.configuration(),
+                new MigrationKeyRecord(null, new String[]{"t0", "a", null, "m1"}, null, null,
+                        new byte[][]{null, null, new byte[]{0x00, (byte) 0xff}, null}),
+                new MigrationKeyRecord(null, new String[]{"t1", "b", null, "m2"}, null, null,
+                        new byte[][]{null, null, new byte[]{(byte) 0xab}, null}),
+                new String[]{"text", "text", "bytea", "text"});
+
+        assertArrayEquals(new String[]{"t0", "a", "00ff", "m1"}, values.getOStartValues());
+        assertArrayEquals(new String[]{"t1", "b", "ab", "m2"}, values.getOEndValues());
+    }
+
+    /**
      * A timestamptz key yields the start and end values as text that casts back
      * to the original instants.
      */
@@ -158,6 +177,9 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
                 dsl.configuration(), key, key, new String[]{"numeric"}));
         assertSqlState("22023", () -> Routines.migrationKeyPairValues(
                 dsl.configuration(), key, key, new String[]{}));
+        assertSqlState("22023", () -> Routines.migrationKeyPairValues(
+                dsl.configuration(), key, key,
+                new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"}));
         assertSqlState("22023", () -> Routines.migrationKeyPairValues(
                 dsl.configuration(), key, key, null));
     }

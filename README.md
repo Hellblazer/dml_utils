@@ -13,7 +13,7 @@ processed in parallel by more than one worker, a run can be paused and resumed
 without losing progress, and each completed chunk records the rows it changed so
 progress and an ETA are queryable.
 
-It works on a table with a **primary key of up to three columns**, each of type
+It works on a table with a **primary key of up to four columns**, each of type
 `smallint`, `integer`, `bigint`, `text`, `uuid`, `timestamptz` or `bytea` (the
 column names need not be `id`); the chunks are primary-key ranges, so the
 planner can use the primary-key index.
@@ -108,7 +108,7 @@ exactly once:
   except the last, which uses `<=` so the captured maximum row is included.
 
 For the default `primary_key` strategy, the driving table must have a **primary
-key of up to three columns**, each of type `smallint`, `integer`, `bigint`, `text`,
+key of up to four columns**, each of type `smallint`, `integer`, `bigint`, `text`,
 `uuid`, `timestamptz` or `bytea`; the column names are read from the catalog, so
 they need not be `id`.
 The predicate compares the key tuple to explicitly cast literals (`(t.id) >= ('1'::bigint)`, or
@@ -164,7 +164,7 @@ The index must be:
 - a valid, live, unique btree index on a plain table, or for a partition-wise run
   the matching unique btree index on the partitioned parent (every leaf's child
   index is validated);
-- one to three **simple** key columns — no expressions, no partial index, no
+- one to four **simple** key columns — no expressions, no partial index, no
   exclusion constraint — and every key column must be `NOT NULL`;
 - ascending with `NULLS LAST`, using the type's default btree operator class and
   the column's own collation;
@@ -727,9 +727,19 @@ between runs a routine that builds the old, narrower key, and fails with
 release stay readable, so a run that was stopped or failed before the upgrade
 resumes under its label afterwards.
 
+Changesets `012` to `014` raise the primary-key and ordered-key limit from three
+columns to four. `012` replaces the `migration_run_primary_key_shape_check` and
+`migration_run_ordered_key_shape_check` checks through the ddl_utils helpers,
+adding the new checks `NOT VALID`, and `013` and `014` validate them outside a
+transaction. The boundary key type needs no change, because its arrays are as
+long as the key. They need the same ddl_utils as `009` to `011`, and run after
+the routines have been replaced.
+
 Rolling back past `008` discards the stored bytea arrays, and rolling back past
 `009` leaves `NOT VALID` checks that reject updates to a run whose primary or
-ordered key includes bytea; the rollback files say what to archive first.
+ordered key includes bytea; rolling back past `012` does the same for a run whose
+primary or ordered key has four columns. The rollback files say what to archive
+first.
 
 ## Building and testing
 
