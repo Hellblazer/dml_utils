@@ -64,7 +64,7 @@
         <maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>
         <!-- The published ddl_utils release whose changelog the test/codegen
              install path unpacks. Production installs ddl_utils separately. -->
-        <ddl-utils.version>1.9.1</ddl-utils.version>
+        <ddl-utils.version>1.10.0</ddl-utils.version>
         <skip.sqlfluff>false</skip.sqlfluff>
         <sqlfluff.executable>sqlfluff</sqlfluff.executable>
         <skip.liquibase-linter>false</skip.liquibase-linter>
