@@ -441,6 +441,11 @@ class RunMigrationChunksCommittingTest extends CommittingRunTestBase {
                 + " RETURNS void LANGUAGE plpgsql AS $$ BEGIN"
                 + " CALL dml_utils.run_migration_chunks_committing(" + bigint(label, 2).arguments() + ");"
                 + " END; $$");
+        // The owner's default ACL withholds EXECUTE on a new function from every other
+        // role (004-default-privileges), so grant it to the test role: without it the
+        // call stops at 42501 before the procedure is reached.
+        executeAsOwner("GRANT EXECUTE ON FUNCTION dml_utils_fixtures.call_committing_from_function()"
+                + " TO " + TEST_USER);
         try (Connection connection = openTestConnection();
              Statement statement = connection.createStatement()) {
             SQLException failure = assertThrows(SQLException.class,
