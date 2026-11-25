@@ -168,7 +168,7 @@ class MigrationMaintenanceTest extends PostgresTestBase {
         dsl.insertInto(MIGRATION_BOUNDARY)
                 .columns(MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 99L, new MigrationKeyRecord(new Long[]{99L}, null, null, null))
+                .values(runId, 99L, new MigrationKeyRecord(new Long[]{99L}, null, null, null, null))
                 .execute();
 
         assertEquals(0, Routines.deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),

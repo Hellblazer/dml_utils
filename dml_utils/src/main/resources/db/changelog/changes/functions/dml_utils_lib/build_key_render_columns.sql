@@ -50,7 +50,7 @@ BEGIN
             l_kind := i_key_kinds[l_position];
 
             -- The argument domain rejects a NULL element.
-            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;

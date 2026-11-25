@@ -42,7 +42,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.primary_key_kinds IS
-    'Returns the boundary key kind (bigint, text, uuid or timestamptz) of each '
+    'Returns the boundary key kind (bigint, text, uuid, timestamptz or bytea) of each '
         'primary-key column in key order. primary_key_attributes validates the '
         'schema/table and the one-to-three-column limit; an unsupported column '
         'type is invalid_parameter_value (22023) and a catalog inconsistency '

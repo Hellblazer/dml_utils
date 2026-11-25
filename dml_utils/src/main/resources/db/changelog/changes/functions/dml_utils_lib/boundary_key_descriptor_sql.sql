@@ -121,6 +121,6 @@ COMMENT ON FUNCTION dml_utils_lib.boundary_key_descriptor_sql IS
         'boundary_key_pack_expression). o_pack_expression is a SELECT-list '
         'expression, not a standalone predicate: evaluate it in a SELECT over '
         'o_select_list (for example `SELECT <pack> AS key FROM (SELECT <select '
-        'list> ...) AS row`) and read its four arrays from that key. Shared by the '
+        'list> ...) AS row`) and read its five arrays from that key. Shared by the '
         'single-relation and per-leaf boundary builders so both render the same key '
         'logic.';

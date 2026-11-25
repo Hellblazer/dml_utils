@@ -12,6 +12,7 @@ DECLARE
     l_text_terms        text[];
     l_uuid_terms        text[];
     l_timestamptz_terms text[];
+    l_bytea_terms       text[];
     l_kind              text;
 BEGIN
     IF pg_catalog.array_ndims(i_key_kinds) IS DISTINCT FROM 1
@@ -26,6 +27,7 @@ BEGIN
     l_text_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_uuid_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     l_timestamptz_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
+    l_bytea_terms := pg_catalog.array_fill('NULL'::text, ARRAY [pg_catalog.array_length(i_key_kinds, 1)]);
     FOR l_position IN 1..pg_catalog.array_length(i_key_kinds, 1)
         LOOP
             l_kind := i_key_kinds[l_position];
@@ -37,7 +39,7 @@ BEGIN
                 RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
                     USING ERRCODE = '22023';
             END IF;
-            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
@@ -48,13 +50,15 @@ BEGIN
                 l_text_terms[l_position] := pg_catalog.format('id%s::text', l_position);
             ELSIF l_kind = 'uuid' THEN
                 l_uuid_terms[l_position] := pg_catalog.format('id%s::uuid', l_position);
-            ELSE
+            ELSIF l_kind = 'timestamptz' THEN
                 l_timestamptz_terms[l_position] := pg_catalog.format('id%s::timestamptz', l_position);
+            ELSE
+                l_bytea_terms[l_position] := pg_catalog.format('id%s::bytea', l_position);
             END IF;
         END LOOP;
 
     RETURN pg_catalog.format(
-            'ROW(%s, %s, %s, %s)::dml_utils_data.migration_key',
+            'ROW(%s, %s, %s, %s, %s)::dml_utils_data.migration_key',
             CASE
                 WHEN 'bigint' = ANY (i_key_kinds)
                     THEN pg_catalog.format('ARRAY[%s]::bigint[]',
@@ -78,6 +82,12 @@ BEGIN
                     THEN pg_catalog.format('ARRAY[%s]::timestamptz[]',
                                            pg_catalog.array_to_string(l_timestamptz_terms, ', '))
                 ELSE 'NULL::timestamptz[]'
+                END,
+            CASE
+                WHEN 'bytea' = ANY (i_key_kinds)
+                    THEN pg_catalog.format('ARRAY[%s]::bytea[]',
+                                           pg_catalog.array_to_string(l_bytea_terms, ', '))
+                ELSE 'NULL::bytea[]'
                 END);
 END;
 $$;

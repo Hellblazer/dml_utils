@@ -115,7 +115,7 @@ class MigrationBoundaryStartedAtGuardTest extends PostgresTestBase {
         dsl.insertInto(MIGRATION_BOUNDARY,
                         MIGRATION_BOUNDARY.RUN_ID, MIGRATION_BOUNDARY.BOUNDARY_NO,
                         MIGRATION_BOUNDARY.BOUNDARY_ID)
-                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, null, null, null))
+                .values(runId, 0L, new MigrationKeyRecord(new Long[]{1L}, null, null, null, null))
                 .execute();
     }
 }

@@ -26,6 +26,8 @@ DECLARE
     l_end_uuid            uuid;
     l_start_timestamptz   timestamptz;
     l_end_timestamptz     timestamptz;
+    l_start_bytea         bytea;
+    l_end_bytea           bytea;
 BEGIN
     -- The column names, kinds and both boundary arrays are indexed from 1 below,
     -- so they must be one-dimensional with a lower bound of 1 and the same
@@ -80,7 +82,7 @@ BEGIN
             END IF;
 
             -- The argument domain rejects a NULL element.
-            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
@@ -99,7 +101,8 @@ BEGIN
             -- emitted into the chunk SQL and only fail when a worker parses it;
             -- validate by casting here (and keep the typed value for the range check
             -- below), so the failure is not deferred. text accepts any value, so only
-            -- bigint, uuid and timestamptz need a cast. Catch the invalid-text and
+            -- bigint, uuid, timestamptz and bytea need a cast (a bytea value is its
+            -- hex digits, decoded here). Catch the invalid-text and
             -- invalid-datetime conditions (22023 / 22P02 / 22007 / 22008 / 22009); an
             -- unexpected error is re-raised with its SQLSTATE.
             BEGIN
@@ -127,6 +130,17 @@ BEGIN
                                                   WHEN l_start_timestamptz < l_end_timestamptz THEN -1
                                                   ELSE 1
                             END;
+                        o_first_difference_position := l_position;
+                    END IF;
+                ELSIF l_kind = 'bytea' THEN
+                    -- The value is hex digits; decode raises 22023 for a non-hex
+                    -- digit or an odd length. bytea sorts by unsigned byte order
+                    -- (byteacmp), the order of the key's btree and of the
+                    -- predicate, so no collation applies.
+                    l_start_bytea := pg_catalog.decode(i_start_values[l_position], 'hex');
+                    l_end_bytea := pg_catalog.decode(i_end_values[l_position], 'hex');
+                    IF o_first_difference = 0 AND l_start_bytea IS DISTINCT FROM l_end_bytea THEN
+                        o_first_difference := CASE WHEN l_start_bytea < l_end_bytea THEN -1 ELSE 1 END;
                         o_first_difference_position := l_position;
                     END IF;
                 ELSE
@@ -178,12 +192,24 @@ BEGIN
                         USING ERRCODE = '22023';
             END;
 
-            o_start_literals := o_start_literals || pg_catalog.format('%L::%s',
-                                                                      i_start_values[l_position],
+            -- A bytea literal is rendered through decode of the normalized hex
+            -- digits, never as a quoted '\x...' string: decode takes a plain hex
+            -- literal, so the SQL does not depend on standard_conforming_strings
+            -- or bytea_output, and it is a constant the planner folds, so the key's
+            -- index serves the predicate.
+            IF l_kind = 'bytea' THEN
+                o_start_literals := o_start_literals || pg_catalog.format('pg_catalog.decode(%L, ''hex'')',
+                                                                          pg_catalog.encode(l_start_bytea, 'hex'));
+                o_end_literals := o_end_literals || pg_catalog.format('pg_catalog.decode(%L, ''hex'')',
+                                                                      pg_catalog.encode(l_end_bytea, 'hex'));
+            ELSE
+                o_start_literals := o_start_literals || pg_catalog.format('%L::%s',
+                                                                          i_start_values[l_position],
+                                                                          l_kind);
+                o_end_literals := o_end_literals || pg_catalog.format('%L::%s',
+                                                                      i_end_values[l_position],
                                                                       l_kind);
-            o_end_literals := o_end_literals || pg_catalog.format('%L::%s',
-                                                                  i_end_values[l_position],
-                                                                  l_kind);
+            END IF;
         END LOOP;
 END;
 $$;

@@ -23,8 +23,8 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void flattensBothBoundsForABigintKey() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L}, null, null, null),
-                new MigrationKeyRecord(new Long[]{10L}, null, null, null),
+                new MigrationKeyRecord(new Long[]{1L}, null, null, null, null),
+                new MigrationKeyRecord(new Long[]{10L}, null, null, null, null),
                 new String[]{"bigint"});
 
         assertArrayEquals(new String[]{"1"}, values.getOStartValues());
@@ -57,21 +57,21 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void rejectsMalformedValueArrays() {
         assertSqlState("22023", () -> dsl.fetchOne(
                 "SELECT dml_utils_lib.migration_key_pair_values("
-                        + "ROW('[0:1]={1,2}'::bigint[], NULL, NULL, NULL)"
+                        + "ROW('[0:1]={1,2}'::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key,"
-                        + " ROW(ARRAY[1, 2]::bigint[], NULL, NULL, NULL)"
+                        + " ROW(ARRAY[1, 2]::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
         assertSqlState("22023", () -> dsl.fetchOne(
                 "SELECT dml_utils_lib.migration_key_pair_values("
-                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key,"
-                        + " ROW('[1:1][1:1]={{1}}'::bigint[], NULL, NULL, NULL)"
+                        + " ROW('[1:1][1:1]={{1}}'::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key, ARRAY['bigint'])"));
         assertSqlState("22023", () -> dsl.fetchOne(
                 "SELECT dml_utils_lib.migration_key_pair_values("
-                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key,"
-                        + " ROW(ARRAY[1]::bigint[], NULL, NULL, NULL)"
+                        + " ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
                         + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
     }
 
@@ -83,8 +83,8 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void flattensBothBoundsForAMixedCompositeKey() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null),
-                new MigrationKeyRecord(new Long[]{2L, null}, new String[]{null, "y"}, null, null),
+                new MigrationKeyRecord(new Long[]{1L, null}, new String[]{null, "x"}, null, null, null),
+                new MigrationKeyRecord(new Long[]{2L, null}, new String[]{null, "y"}, null, null, null),
                 new String[]{"bigint", "text"});
 
         assertArrayEquals(new String[]{"1", "x"}, values.getOStartValues());
@@ -102,14 +102,32 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
 
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{start}),
-                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{end}),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{start}, null),
+                new MigrationKeyRecord(null, null, null, new OffsetDateTime[]{end}, null),
                 new String[]{"timestamptz"});
 
         assertEquals(start.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values.getOStartValues()[0])
                 .get(0, OffsetDateTime.class).toInstant());
         assertEquals(end.toInstant(), dsl.fetchOne("SELECT ?::timestamptz", values.getOEndValues()[0])
                 .get(0, OffsetDateTime.class).toInstant());
+    }
+
+    /**
+     * A bytea key yields its bytes as bare hex digits, in the same form whatever
+     * {@code bytea_output} is, at its own position of a composite key.
+     */
+    @Test
+    void flattensBothBoundsForAByteaKeyAsHex() {
+        MigrationKeyPairValues values = Routines.migrationKeyPairValues(
+                dsl.configuration(),
+                new MigrationKeyRecord(null, new String[]{"a", null}, null, null,
+                        new byte[][]{null, new byte[]{0x00, (byte) 0xff}}),
+                new MigrationKeyRecord(null, new String[]{"a", null}, null, null,
+                        new byte[][]{null, new byte[]{0x01, (byte) 0x80}}),
+                new String[]{"text", "bytea"});
+
+        assertArrayEquals(new String[]{"a", "00ff"}, values.getOStartValues());
+        assertArrayEquals(new String[]{"a", "0180"}, values.getOEndValues());
     }
 
     /**
@@ -120,8 +138,8 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
     void keepsTheArityForAbsentOrNullPositions() {
         MigrationKeyPairValues values = Routines.migrationKeyPairValues(
                 dsl.configuration(),
-                new MigrationKeyRecord(null, null, null, null),
-                new MigrationKeyRecord(new Long[]{null}, null, null, null),
+                new MigrationKeyRecord(null, null, null, null, null),
+                new MigrationKeyRecord(new Long[]{null}, null, null, null, null),
                 new String[]{"bigint"});
 
         assertArrayEquals(new String[]{null}, values.getOStartValues());
@@ -134,7 +152,7 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
      */
     @Test
     void rejectsUnsupportedOrEmptyKinds() {
-        MigrationKeyRecord key = new MigrationKeyRecord(new Long[]{1L}, null, null, null);
+        MigrationKeyRecord key = new MigrationKeyRecord(new Long[]{1L}, null, null, null, null);
 
         assertSqlState("22023", () -> Routines.migrationKeyPairValues(
                 dsl.configuration(), key, key, new String[]{"numeric"}));

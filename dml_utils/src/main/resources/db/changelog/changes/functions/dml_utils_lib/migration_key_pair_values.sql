@@ -55,6 +55,11 @@ BEGIN
                 OR pg_catalog.array_lower((i_start_key).timestamptz_values, 1) IS DISTINCT FROM 1
                 OR pg_catalog.cardinality((i_start_key).timestamptz_values)
                      <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_start_key).bytea_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_start_key).bytea_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).bytea_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).bytea_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
         OR ((i_end_key).bigint_values IS NOT NULL
             AND (pg_catalog.array_ndims((i_end_key).bigint_values) IS DISTINCT FROM 1
                 OR pg_catalog.array_lower((i_end_key).bigint_values, 1) IS DISTINCT FROM 1
@@ -75,6 +80,11 @@ BEGIN
                 OR pg_catalog.array_lower((i_end_key).timestamptz_values, 1) IS DISTINCT FROM 1
                 OR pg_catalog.cardinality((i_end_key).timestamptz_values)
                      <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).bytea_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).bytea_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).bytea_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).bytea_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
     THEN
         RAISE EXCEPTION 'migration key arrays must be one-dimensional, 1-based and match the key kinds'
             USING ERRCODE = '22023';
@@ -87,7 +97,7 @@ BEGIN
             l_kind := i_key_kinds[l_position];
 
             -- The argument domain rejects a NULL element.
-            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz') THEN
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
                 RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
@@ -105,7 +115,10 @@ BEGIN
                                  l_end := (i_end_key).uuid_values[l_position]::text;
                 WHEN 'timestamptz' THEN l_start := (i_start_key).timestamptz_values[l_position]::text;
                                         l_end := (i_end_key).timestamptz_values[l_position]::text;
-                -- The whitelist above admits exactly these four kinds, so this
+                -- Hex digits, so the text does not depend on bytea_output.
+                WHEN 'bytea' THEN l_start := pg_catalog.encode((i_start_key).bytea_values[l_position], 'hex');
+                                  l_end := pg_catalog.encode((i_end_key).bytea_values[l_position], 'hex');
+                -- The whitelist above admits exactly these five kinds, so this
                 -- arm is only a structural backstop: it must not silently leave
                 -- l_start/l_end at their previous value if the whitelist changes.
                 ELSE RAISE EXCEPTION 'unsupported key kind %', l_kind

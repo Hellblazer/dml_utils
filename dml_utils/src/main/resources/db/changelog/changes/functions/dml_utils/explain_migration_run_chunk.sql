@@ -43,6 +43,7 @@ DECLARE
     l_terminal_text         text[];
     l_terminal_uuid         uuid[];
     l_terminal_timestamptz  timestamptz[];
+    l_terminal_bytea        bytea[];
     l_terminal_key          dml_utils_data.migration_key;
     l_prepared              record;
     l_sql                   text;
@@ -125,9 +126,10 @@ BEGIN
                (leaf.terminal_boundary_id).bigint_values,
                (leaf.terminal_boundary_id).text_values,
                (leaf.terminal_boundary_id).uuid_values,
-               (leaf.terminal_boundary_id).timestamptz_values
+               (leaf.terminal_boundary_id).timestamptz_values,
+               (leaf.terminal_boundary_id).bytea_values
         INTO l_leaf_schema_name, l_leaf_name, l_terminal_bigint, l_terminal_text,
-            l_terminal_uuid, l_terminal_timestamptz
+            l_terminal_uuid, l_terminal_timestamptz, l_terminal_bytea
         FROM dml_utils_data.migration_run_leaf AS leaf
         WHERE leaf.run_id = i_run_id
           AND leaf.leaf_ordinal = l_boundary_leaf_ordinal;
@@ -147,7 +149,8 @@ BEGIN
         IF l_next_leaf_ordinal IS DISTINCT FROM l_boundary_leaf_ordinal THEN
             l_terminal_key := ROW (l_terminal_bigint, l_terminal_text,
                 l_terminal_uuid,
-                l_terminal_timestamptz)::dml_utils_data.migration_key;
+                l_terminal_timestamptz,
+                l_terminal_bytea)::dml_utils_data.migration_key;
             IF l_terminal_key IS NULL THEN
                 RAISE EXCEPTION 'leaf ordinal % of run % has no terminal snapshot',
                     l_boundary_leaf_ordinal, i_run_id

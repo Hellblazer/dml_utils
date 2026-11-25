@@ -193,7 +193,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
                 .set(MIGRATION_RUN_LEAF.BOUNDARY_COUNT, 1L)
                 .set(MIGRATION_RUN_LEAF.CALCULATED_AT, OffsetDateTime.now())
                 .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
-                        new MigrationKeyRecord(new Long[]{1L}, null, null, null))
+                        new MigrationKeyRecord(new Long[]{1L}, null, null, null, null))
                 .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute();
@@ -201,7 +201,7 @@ class MigrationRunLeafGuardTest extends PostgresTestBase {
         assertRejected("22023", "terminal snapshot is immutable once set", () -> dsl.update(
                         MIGRATION_RUN_LEAF)
                 .set(MIGRATION_RUN_LEAF.TERMINAL_BOUNDARY_ID,
-                        new MigrationKeyRecord(new Long[]{2L}, null, null, null))
+                        new MigrationKeyRecord(new Long[]{2L}, null, null, null, null))
                 .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(1))
                 .execute());
