@@ -409,7 +409,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_four_idx
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_four_idx IS
     'Fixture: the valid four-column ordered key (timestamptz, bigint, uuid, text), the supported maximum.';
 
-CREATE UNIQUE INDEX test_ordered_key_five_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_ordered_key_five_idx
     ON dml_utils_fixtures.test_ordered_key (created_at, id, external_id, label, collated_label);
 
 COMMENT ON INDEX dml_utils_fixtures.test_ordered_key_five_idx IS
@@ -961,7 +961,7 @@ COMMENT ON TABLE dml_utils_fixtures.test_bytea_partitioned_alpha IS
 -- collection text, chash bytea, embedding_model text), with the bytea column
 -- third. A second unique index puts the same columns in another order with the
 -- bytea column last, for the ordered_key strategy.
-CREATE TABLE dml_utils_fixtures.test_chunks_four
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_four
 (
     tenant_id       text  NOT NULL,
     collection      text  NOT NULL,
@@ -984,7 +984,7 @@ COMMENT ON COLUMN dml_utils_fixtures.test_chunks_four.embedding_model IS
 COMMENT ON COLUMN dml_utils_fixtures.test_chunks_four.payload IS
     'Fixture payload column.';
 
-CREATE UNIQUE INDEX test_chunks_four_model_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_chunks_four_model_idx
     ON dml_utils_fixtures.test_chunks_four (embedding_model, tenant_id, collection, chash);
 
 COMMENT ON INDEX dml_utils_fixtures.test_chunks_four_model_idx IS
@@ -994,7 +994,7 @@ COMMENT ON INDEX dml_utils_fixtures.test_chunks_four_model_idx IS
 -- embedding_model, then each model's partition by tenant_id, with a default leaf
 -- under each model for the other tenants. Every partition key is in the primary
 -- key and in the second unique index, which PostgreSQL requires.
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned
 (
     tenant_id       text  NOT NULL,
     collection      text  NOT NULL,
@@ -1017,61 +1017,61 @@ COMMENT ON COLUMN dml_utils_fixtures.test_chunks_partitioned.embedding_model IS
 COMMENT ON COLUMN dml_utils_fixtures.test_chunks_partitioned.payload IS
     'Fixture payload column.';
 
-CREATE UNIQUE INDEX test_chunks_partitioned_model_idx
+CREATE UNIQUE INDEX IF NOT EXISTS test_chunks_partitioned_model_idx
     ON dml_utils_fixtures.test_chunks_partitioned (embedding_model, tenant_id, collection, chash);
 
 COMMENT ON INDEX dml_utils_fixtures.test_chunks_partitioned_model_idx IS
     'Fixture: a valid four-column ordered key on the partitioned parent, bytea last.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m1
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned
         FOR VALUES IN ('m1') PARTITION BY LIST (tenant_id);
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m1 IS
     'Fixture: the first-level partition for embedding model m1, itself partitioned by tenant.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m1_t0
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m1_t0
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m1
         FOR VALUES IN ('t0');
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m1_t0 IS
     'Fixture: the leaf for model m1, tenant t0.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m1_t1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m1_t1
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m1
         FOR VALUES IN ('t1');
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m1_t1 IS
     'Fixture: the leaf for model m1, tenant t1.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m1_other
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m1_other
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m1 DEFAULT;
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m1_other IS
     'Fixture: the default leaf for model m1, every other tenant.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m2
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m2
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned
         FOR VALUES IN ('m2') PARTITION BY LIST (tenant_id);
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m2 IS
     'Fixture: the first-level partition for embedding model m2, itself partitioned by tenant.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m2_t0
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m2_t0
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m2
         FOR VALUES IN ('t0');
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m2_t0 IS
     'Fixture: the leaf for model m2, tenant t0.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m2_t1
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m2_t1
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m2
         FOR VALUES IN ('t1');
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m2_t1 IS
     'Fixture: the leaf for model m2, tenant t1.';
 
-CREATE TABLE dml_utils_fixtures.test_chunks_partitioned_m2_other
+CREATE TABLE IF NOT EXISTS dml_utils_fixtures.test_chunks_partitioned_m2_other
     PARTITION OF dml_utils_fixtures.test_chunks_partitioned_m2 DEFAULT;
 
 COMMENT ON TABLE dml_utils_fixtures.test_chunks_partitioned_m2_other IS
