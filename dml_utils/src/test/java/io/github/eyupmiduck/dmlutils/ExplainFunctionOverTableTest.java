@@ -4,15 +4,19 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainFunctionOverTableChunkRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.tables.records.ExplainFunctionOverTableRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
-import org.jooq.impl.DSL;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestOrderedKey.TEST_ORDERED_KEY;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -25,6 +29,23 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
     private static final String FN_SCHEMA = "public";
 
     /**
+     * The functions whose per-row call cannot be planned.
+     *
+     * @return the rejected function definitions
+     */
+    private static java.util.stream.Stream<Arguments> invalidFunctions() {
+        return java.util.stream.Stream.of(
+                Arguments.of("mismatched argument order",
+                        "CREATE OR REPLACE FUNCTION public.wrong_order(text, bigint)"
+                                + " RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$",
+                        "wrong_order"),
+                Arguments.of("non-void return",
+                        "CREATE OR REPLACE FUNCTION public.bad_return(bigint, text)"
+                                + " RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$",
+                        "bad_return"));
+    }
+
+    /**
      * Clears the fixture table and the migration metadata so each test starts
      * clean.
      */
@@ -32,6 +53,8 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
     void resetFixtures() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
         dsl.truncate(TEST_COMPOSITE_MIXED).execute();
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        dsl.truncate(TEST_ORDERED_KEY).execute();
     }
 
     /**
@@ -42,6 +65,8 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
         dsl.execute("DROP FUNCTION IF EXISTS public.mark_mixed(bigint, text)");
         dsl.execute("DROP FUNCTION IF EXISTS public.wrong_order(text, bigint)");
         dsl.execute("DROP FUNCTION IF EXISTS public.bad_return(bigint, text)");
+        dsl.execute("DROP FUNCTION IF EXISTS public.mark_partitioned(bigint)");
+        dsl.execute("DROP FUNCTION IF EXISTS public.mark_ordered_key(bigint)");
     }
 
     /**
@@ -50,11 +75,11 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void returnsTheThreePlansForAMatchingFunction() {
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         List<ExplainFunctionOverTableRecord> plans = Routines.explainFunctionOverTable(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.primary_key);
+                FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.primary_key, null, false, null);
 
         assertEquals(List.of("boundary_population", "chunk_non_final", "chunk_final"),
                 plans.stream().map(ExplainFunctionOverTableRecord::getOPlanKind).toList());
@@ -72,11 +97,11 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void plansTheBlockStrategy() {
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         List<ExplainFunctionOverTableRecord> plans = Routines.explainFunctionOverTable(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.blocks);
+                FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.blocks, null, false, null);
 
         assertEquals(List.of("boundary_population", "chunk_non_final", "chunk_final"),
                 plans.stream().map(ExplainFunctionOverTableRecord::getOPlanKind).toList());
@@ -92,16 +117,16 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void includesTheFilterInTheChunkPlans() {
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         List<ExplainFunctionOverTableRecord> plans = Routines.explainFunctionOverTable(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", 10, "t.b = 'x'", ChunkingStrategy.primary_key);
+                FN_SCHEMA, "mark_mixed", 10, "t.b = 'x'", ChunkingStrategy.primary_key, null, false, null);
 
-        assertTrue(plans.get(1).getOSqlText().contains("AND (t.b = 'x')"),
-                "the non-final chunk ANDs the filter");
-        assertTrue(plans.get(2).getOSqlText().contains("AND (t.b = 'x')"),
-                "the final chunk ANDs the filter");
+        assertTrue(plans.get(1).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the non-final chunk ANDs the filter, closing paren included");
+        assertTrue(plans.get(2).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the final chunk ANDs the filter, closing paren included");
         assertFalse(plans.get(0).getOSqlText().contains("t.b = 'x'"),
                 "the boundary-population plan is unaffected");
     }
@@ -117,10 +142,10 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
                 .values(1L, "y")
                 .values(2L, "x")
                 .execute();
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         Routines.explainFunctionOverTable(dsl.configuration(),
-                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.primary_key);
+                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA, "mark_mixed", 10, null, ChunkingStrategy.primary_key, null, false, null);
 
         assertEquals(0, dsl.fetchCount(MIGRATION_RUN), "no run is created");
         assertEquals(0,
@@ -132,30 +157,22 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
     }
 
     /**
-     * A function whose argument types do not match the primary key, in key
-     * order, is rejected with {@code 22023}.
+     * A function whose argument types are in the wrong order and a function that
+     * does not return void are rejected with {@code 22023} before any plan.
+     *
+     * @param description  the rejected target
+     * @param definition   the CREATE statement for the target
+     * @param functionName the target name
      */
-    @Test
-    void rejectsAMismatchedFunction() {
-        dsl.execute("CREATE FUNCTION public.wrong_order(text, bigint) RETURNS void"
-                + " LANGUAGE sql AS $$ SELECT NULL::void $$");
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidFunctions")
+    void rejectsAFunctionThatCannotBePlanned(String description, String definition,
+                                             String functionName) {
+        dsl.execute(definition);
 
         assertSqlState("22023", () -> Routines.explainFunctionOverTable(dsl.configuration(),
                 schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
-                "wrong_order", 10, null, ChunkingStrategy.primary_key));
-    }
-
-    /**
-     * A function that does not return void is rejected with {@code 22023}.
-     */
-    @Test
-    void rejectsANonVoidFunction() {
-        dsl.execute("CREATE FUNCTION public.bad_return(bigint, text) RETURNS integer"
-                + " LANGUAGE sql AS $$ SELECT 1 $$");
-
-        assertSqlState("22023", () -> Routines.explainFunctionOverTable(dsl.configuration(),
-                schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
-                "bad_return", 10, null, ChunkingStrategy.primary_key));
+                functionName, 10, null, ChunkingStrategy.primary_key, null, false, null));
     }
 
     /**
@@ -166,7 +183,20 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
     void rejectsAMissingFunction() {
         assertSqlState("22023", () -> Routines.explainFunctionOverTable(dsl.configuration(),
                 schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED), FN_SCHEMA,
-                "no_such_function", 10, null, ChunkingStrategy.primary_key));
+                "no_such_function", 10, null, ChunkingStrategy.primary_key, null, false, null));
+    }
+
+    /**
+     * An explicit NULL {@code i_is_final} is rejected by the wrapper's non-null
+     * domain, so it fails at the argument instead of deeper in
+     * {@code explain_migration_chunk}.
+     */
+    @Test
+    void rejectsANullIsFinal() {
+        assertDomainViolation(() -> Routines.explainFunctionOverTableChunk(
+                dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
+                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"},
+                null, null, ChunkingStrategy.primary_key, null, false, null));
     }
 
     /**
@@ -175,18 +205,18 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void explainsOneExplicitChunk() {
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         List<ExplainFunctionOverTableChunkRecord> plans = Routines.explainFunctionOverTableChunk(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"}, false, null);
+                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"}, false, null, ChunkingStrategy.primary_key, null, false, null);
 
         assertEquals(1, plans.size(), "one row for the explicit chunk");
         assertEquals("chunk_non_final", plans.get(0).getOPlanKind());
         String sql = plans.get(0).getOSqlText();
         assertTrue(sql.contains("SELECT public.mark_mixed(t.a, t.b)"),
                 "the plan explains the per-row function call");
-        assertTrue(sql.contains("t.a = '7'::bigint AND t.b >= 'a'::text AND t.b < 'b'::text"),
+        assertTrue(sql.matches("(?s).*t\\.a = '7'::bigint.*t\\.b >= 'a'::text.*t\\.b < 'b'::text.*"),
                 "the shared leading column is a prefix equality");
     }
 
@@ -195,28 +225,89 @@ class ExplainFunctionOverTableTest extends PostgresTestBase {
      */
     @Test
     void appliesTheFilterToAnExplicitChunk() {
-        createFunction("mark_mixed", "done");
+        createCompositeMarkFunction("mark_mixed", "done");
 
         List<ExplainFunctionOverTableChunkRecord> plans = Routines.explainFunctionOverTableChunk(
                 dsl.configuration(), schema(TEST_COMPOSITE_MIXED), name(TEST_COMPOSITE_MIXED),
-                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"}, false, "t.b = 'x'");
+                FN_SCHEMA, "mark_mixed", new String[]{"7", "a"}, new String[]{"7", "b"}, false, "t.b = 'x'", ChunkingStrategy.primary_key, null, false, null);
 
-        assertTrue(plans.get(0).getOSqlText().contains("AND (t.b = 'x')"),
-                "the chunk predicate ANDs the filter");
+        assertTrue(plans.get(0).getOSqlText().contains("AND (t.b = 'x'\n)"),
+                "the chunk predicate ANDs the filter, closing paren included");
     }
 
     /**
-     * Creates the per-row void function that appends the given value to the
-     * payload of the row matching the primary key.
-     *
-     * @param functionName the function to create
-     * @param value        the value appended to {@code payload}
+     * An ordered_key function explain resolves a named unique index while the
+     * function still receives the primary-key columns.
      */
-    private void createFunction(String functionName, String value) {
+    @Test
+    void explainsAnOrderedKeyFunction() {
+        createOrderedKeyFunction("mark_ordered_key");
+
+        List<ExplainFunctionOverTableRecord> plans = Routines.explainFunctionOverTable(
+                dsl.configuration(), schema(TEST_ORDERED_KEY), name(TEST_ORDERED_KEY),
+                FN_SCHEMA, "mark_ordered_key", 10, null, ChunkingStrategy.ordered_key,
+                "test_ordered_key_created_at_id_idx", false, null);
+
+        assertEquals(3, plans.size());
+        assertTrue(plans.get(1).getOSqlText().contains("SELECT public.mark_ordered_key(t.id)"),
+                "the chunk plan still calls the function with the primary-key column");
+        assertTrue(plans.get(1).getOSqlText()
+                        .matches("(?s).*t\\.created_at\\s*[><]=?.*"),
+                "the range predicate uses the ordered key column, not just mentions it");
+    }
+
+    /**
+     * A partition-wise synthetic explain renders the selected leaf.
+     */
+    @Test
+    void explainsAPartitionWiseFunction() {
+        createPartitionFunction("mark_partitioned");
+
+        List<ExplainFunctionOverTableRecord> plans = Routines.explainFunctionOverTable(
+                dsl.configuration(), schema(TEST_PARTITIONED_RANGE), name(TEST_PARTITIONED_RANGE),
+                FN_SCHEMA, "mark_partitioned", 10, null, ChunkingStrategy.primary_key,
+                null, true, 1);
+
+        assertEquals(3, plans.size());
+        assertEquals(1, plans.get(0).getOLeafOrdinal());
+        String leafName = plans.get(0).getOLeafName();
+        assertNotNull(leafName);
+        assertTrue(plans.get(0).getOSqlText().contains(leafName));
+        assertTrue(plans.get(1).getOSqlText().contains(leafName));
+    }
+
+    /**
+     * The explicit form resolves a partition-wise ordered key and renders the
+     * selected leaf.
+     */
+    @Test
+    void explainsAnExplicitPartitionWiseOrderedKeyChunk() {
+        createPartitionFunction("mark_partitioned");
+
+        List<ExplainFunctionOverTableChunkRecord> plans = Routines.explainFunctionOverTableChunk(
+                dsl.configuration(), schema(TEST_PARTITIONED_RANGE), name(TEST_PARTITIONED_RANGE),
+                FN_SCHEMA, "mark_partitioned", new String[]{"0"}, new String[]{"100"},
+                false, null, ChunkingStrategy.ordered_key,
+                "test_partitioned_range_ordered_key_idx", true, 1);
+
+        assertEquals(1, plans.size());
+        assertEquals(1, plans.get(0).getOLeafOrdinal());
+        String leafName = plans.get(0).getOLeafName();
+        assertNotNull(leafName);
+        assertTrue(plans.get(0).getOSqlText().contains(leafName));
+    }
+
+
+    private void createPartitionFunction(String functionName) {
         dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName
-                + "(p_a bigint, p_b text) RETURNS void LANGUAGE sql AS $$"
-                + " UPDATE " + schema(TEST_COMPOSITE_MIXED) + "." + name(TEST_COMPOSITE_MIXED)
-                + " SET payload = coalesce(payload, '') || " + DSL.inline(value)
-                + " WHERE a = p_a AND b = p_b $$");
+                + "(p_id bigint) RETURNS void LANGUAGE sql AS $$"
+                + " UPDATE " + schema(TEST_PARTITIONED_RANGE) + "."
+                + name(TEST_PARTITIONED_RANGE)
+                + " SET payload = 'done' WHERE id = p_id $$");
+    }
+
+    private void createOrderedKeyFunction(String functionName) {
+        dsl.execute("CREATE OR REPLACE FUNCTION public." + functionName
+                + "(p_id bigint) RETURNS void LANGUAGE sql AS $$ SELECT NULL::void $$");
     }
 }

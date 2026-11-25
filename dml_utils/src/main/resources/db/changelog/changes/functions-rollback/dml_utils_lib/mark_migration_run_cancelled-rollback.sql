@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS dml_utils_lib.mark_migration_run_cancelled(bigint);
+DROP FUNCTION IF EXISTS dml_utils_lib.mark_migration_run_cancelled(dml_utils_data.non_null_bigint);

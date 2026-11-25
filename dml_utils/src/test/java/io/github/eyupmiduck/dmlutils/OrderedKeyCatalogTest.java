@@ -4,6 +4,9 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.OrderedKeyAttributesRecord;
 import org.jooq.exception.DataAccessException;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.List;
 
@@ -32,6 +35,24 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
         assertNotNull(row.getColumnOid(), "the column type oid is returned");
     }
 
+    /**
+     * The resolvable index shapes.
+     *
+     * @return the index, its key columns and kinds
+     */
+    private static java.util.stream.Stream<Arguments> resolvableIndexes() {
+        return java.util.stream.Stream.of(
+                Arguments.of("composite timestamptz, bigint",
+                        "test_ordered_key_created_at_id_idx",
+                        new String[]{"created_at", "id"}, new String[]{"timestamptz", "bigint"}),
+                Arguments.of("single uuid", "test_ordered_key_external_id_idx",
+                        new String[]{"external_id"}, new String[]{"uuid"}),
+                Arguments.of("primary key", "test_ordered_key_pkey",
+                        new String[]{"id"}, new String[]{"bigint"}),
+                Arguments.of("INCLUDE columns", "test_ordered_key_include_idx",
+                        new String[]{"created_at", "id"}, new String[]{"timestamptz", "bigint"}));
+    }
+
     private List<OrderedKeyAttributesRecord> attributes(String index) {
         return Routines.orderedKeyAttributes(
                 dsl.configuration(), FIXTURE_SCHEMA, TABLE, index);
@@ -42,54 +63,24 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
     }
 
     /**
-     * A composite (timestamptz, bigint) unique index resolves in index order
-     * with each column's collapsed kind.
+     * Each supported unique btree index resolves to its key columns in index
+     * order; INCLUDE columns are not part of the key.
+     *
+     * @param description the index shape
+     * @param index       the index name
+     * @param columns     the expected key columns
+     * @param kinds       the expected collapsed kinds
      */
-    @Test
-    void resolvesACompositeTimestamptzKey() {
-        List<OrderedKeyAttributesRecord> rows =
-                attributes("test_ordered_key_created_at_id_idx");
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("resolvableIndexes")
+    void resolvesAKeyInIndexOrder(String description, String index, String[] columns,
+                                  String[] kinds) {
+        List<OrderedKeyAttributesRecord> rows = attributes(index);
 
-        assertEquals(2, rows.size());
-        assertAttribute(rows.get(0), 1, "created_at", "timestamptz");
-        assertAttribute(rows.get(1), 2, "id", "bigint");
-    }
-
-    /**
-     * A single-column unique uuid index resolves to one key column.
-     */
-    @Test
-    void resolvesASingleColumnUuidKey() {
-        List<OrderedKeyAttributesRecord> rows =
-                attributes("test_ordered_key_external_id_idx");
-
-        assertEquals(1, rows.size());
-        assertAttribute(rows.get(0), 1, "external_id", "uuid");
-    }
-
-    /**
-     * The table's primary-key index is itself a valid unique btree index, so it
-     * resolves like any other ordered key.
-     */
-    @Test
-    void resolvesThePrimaryKeyIndex() {
-        List<OrderedKeyAttributesRecord> rows = attributes("test_ordered_key_pkey");
-
-        assertEquals(1, rows.size());
-        assertAttribute(rows.get(0), 1, "id", "bigint");
-    }
-
-    /**
-     * INCLUDE columns are not part of the key order and are ignored.
-     */
-    @Test
-    void ignoresIncludedColumns() {
-        List<OrderedKeyAttributesRecord> rows =
-                attributes("test_ordered_key_include_idx");
-
-        assertEquals(2, rows.size());
-        assertAttribute(rows.get(0), 1, "created_at", "timestamptz");
-        assertAttribute(rows.get(1), 2, "id", "bigint");
+        assertEquals(columns.length, rows.size());
+        for (int i = 0; i < columns.length; i++) {
+            assertAttribute(rows.get(i), i + 1, columns[i], kinds[i]);
+        }
     }
 
     /**
@@ -141,10 +132,11 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
         DataAccessException error = assertThrows(DataAccessException.class,
                 () -> attributes("test_bigint_pkey"));
 
-        assertTrue(error.getMessage().contains("exists on table"),
-                () -> "unexpected message: " + error.getMessage());
-        assertTrue(error.getMessage().contains("test_bigint"),
-                () -> "unexpected message: " + error.getMessage());
+        assertTrue(error.getMessage().contains("Hint:"),
+                () -> "expected a hint in the message: " + error.getMessage());
+        assertTrue(error.getMessage().contains(
+                        "exists on table " + FIXTURE_SCHEMA + ".test_bigint"),
+                () -> "the hint should name the table that owns the index: " + error.getMessage());
     }
 
     /**
@@ -203,6 +195,20 @@ class OrderedKeyCatalogTest extends PostgresTestBase {
     @Test
     void rejectsANullableKeyColumn() {
         assertRejected("0A000", "test_ordered_key_nullable_idx");
+    }
+
+    /**
+     * A valid three-column key is accepted: the mixed-kind primary key of the
+     * composite fixture is a genuine unique index.
+     */
+    @Test
+    void acceptsAThreeColumnKey() {
+        assertArrayEquals(new String[]{"b", "a", "c"},
+                Routines.orderedKeyColumns(dsl.configuration(), FIXTURE_SCHEMA,
+                        "test_composite_three", "test_composite_three_pkey"));
+        assertArrayEquals(new String[]{"bigint", "text", "uuid"},
+                Routines.orderedKeyKinds(dsl.configuration(), FIXTURE_SCHEMA,
+                        "test_composite_three", "test_composite_three_pkey"));
     }
 
     /**

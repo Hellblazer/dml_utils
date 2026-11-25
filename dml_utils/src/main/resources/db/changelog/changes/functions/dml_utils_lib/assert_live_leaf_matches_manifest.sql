@@ -1,15 +1,27 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
     i_chunk_by dml_utils_data.chunking_strategy,
-    i_leaf_schema_name text,
-    i_leaf_name text,
-    i_leaf_oid oid,
-    i_leaf_bound text,
+    i_leaf_schema_name dml_utils_data.non_null_text,
+    i_leaf_name dml_utils_data.non_null_text,
+    i_leaf_oid dml_utils_data.non_null_oid,
+    i_leaf_bound dml_utils_data.non_null_text,
     i_relation_filepath text
 )
     RETURNS void
     LANGUAGE plpgsql
-    STABLE
+    VOLATILE
     SECURITY INVOKER
+    -- The stored leaf_bound was deparsed by leaf_partitions under these pins;
+    -- read the live bound the same way or a session with different deparse
+    -- settings would report a spurious bound change (TimeZone, DateStyle,
+    -- IntervalStyle, extra_float_digits, standard_conforming_strings,
+    -- bytea_output and lc_monetary all change the text).
+    SET timezone = 'UTC'
+    SET datestyle = 'ISO, MDY'
+    SET intervalstyle = 'postgres'
+    SET extra_float_digits = 0
+    SET standard_conforming_strings = on
+    SET bytea_output = 'hex'
+    SET lc_monetary = 'C'
 AS
 $$
 DECLARE
@@ -18,6 +30,43 @@ DECLARE
     l_live_bound    text;
     l_live_filepath text;
 BEGIN
+    -- A NULL strategy would make both filepath guards below NULL and the function
+    -- would fail open (a recorded filepath would go unverified). Manifest columns
+    -- are NOT NULL, but the function is directly callable, so reject it.
+    IF i_chunk_by IS NULL THEN
+        RAISE EXCEPTION 'chunk strategy must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
+    -- Hold the relation until the caller's transaction ends, before reading it: a
+    -- catalog read alone is a point-in-time check, and DETACH, VACUUM FULL,
+    -- CLUSTER or pg_repack could otherwise commit between the read and the scan
+    -- that relies on it (the exact staleness this function exists to catch; for a
+    -- blocks run it means ctid-addressed work on a rewritten heap). Taking the
+    -- lock first also means the compared values are the ones the lock protects.
+    -- ACCESS SHARE conflicts with the ACCESS EXCLUSIVE those operations need and
+    -- with nothing the scan needs.
+    BEGIN
+        -- NOWAIT: waiting would block a claim for the whole duration of a rewrite,
+        -- and a caller-side lock_timeout would surface 55P03 where this function
+        -- documents 55000. Failing fast and translating both cases keeps the
+        -- contract "the leaf is being changed" => 55000.
+        EXECUTE pg_catalog.format('LOCK TABLE %I.%I IN ACCESS SHARE MODE NOWAIT',
+                                  i_leaf_schema_name, i_leaf_name);
+    EXCEPTION
+        WHEN undefined_table OR invalid_schema_name THEN
+            RAISE EXCEPTION 'leaf %.% no longer exists', i_leaf_schema_name, i_leaf_name
+                USING ERRCODE = '55000';
+        WHEN lock_not_available THEN
+            RAISE EXCEPTION 'leaf %.% is being modified concurrently',
+                i_leaf_schema_name, i_leaf_name
+                USING ERRCODE = '55000';
+        WHEN wrong_object_type THEN
+            -- Not lockable as a table (an index); the relkind guard below reports
+            -- it as the documented 55000.
+            NULL;
+    END;
+
     SELECT c.oid,
            c.relkind::text,
            pg_catalog.pg_get_expr(c.relpartbound, c.oid),
@@ -64,7 +113,9 @@ BEGIN
             i_leaf_schema_name, i_leaf_name, i_relation_filepath, l_live_filepath
             USING ERRCODE = '55000';
     END IF;
-    IF i_chunk_by <> 'blocks' AND i_relation_filepath IS NOT NULL THEN
+    IF i_chunk_by <> 'blocks'
+        AND i_relation_filepath IS NOT NULL
+    THEN
         RAISE EXCEPTION 'leaf %.% records a filepath for a key-strategy run',
             i_leaf_schema_name, i_leaf_name
             USING ERRCODE = '55000';
@@ -72,15 +123,12 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest(
-    dml_utils_data.chunking_strategy,
-    text,
-    text,
-    oid,
-    text,
-    text
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.assert_live_leaf_matches_manifest IS
     'Compares one manifest leaf identity with the live relation and raises '
         'object_not_in_prerequisite_state (55000) when it is missing, replaced '
         '(different OID), detached or rebound (different partition bound), not a '
-        'plain table, or (for blocks) a rewritten heap.';
+        'plain table, or (for blocks) a rewritten heap. Takes ACCESS SHARE (NOWAIT) on '
+        'the leaf so the verified identity cannot change before the caller uses it, '
+        'and reports a concurrent modification as the same 55000. A NULL strategy '
+        'is rejected with 22023 and a NULL or blank leaf bound by the non-null '
+        'domain, so a guard cannot fail open.';

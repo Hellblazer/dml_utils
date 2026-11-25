@@ -1,0 +1,305 @@
+package io.github.eyupmiduck.dmlutils;
+
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
+import org.jooq.DSLContext;
+import org.jooq.SQLDialect;
+import org.jooq.impl.DSL;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+
+import java.sql.Connection;
+import java.sql.Statement;
+import java.time.OffsetDateTime;
+
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Verifies {@code dml_utils.pause_migration_run} and
+ * {@code dml_utils.resume_migration_run}: pause is a reversible, non-terminal
+ * flag on the active unfinished run, terminal runs are not paused, and cancel or
+ * completion clears the flag.
+ */
+class PauseMigrationRunTest extends PostgresTestBase {
+
+    private static final String TEMPLATE =
+            "UPDATE <driving_table> SET payload = payload WHERE <chunking_clause>";
+
+    /**
+     * Clears the fixture table and the migration metadata so each test starts
+     * clean.
+     */
+    @BeforeEach
+    void resetFixtures() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_BIGINT).execute();
+    }
+
+    /**
+     * Pausing an active run records the pause and leaves the run unfinished.
+     */
+    @Test
+    void pausesAnActiveRun() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("pause");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+
+        Long paused = Routines.pauseMigrationRun(dsl.configuration(), label);
+
+        assertEquals(runId, paused, "pause returns the active run id");
+        MigrationRunRecord run = migrationRun(runId);
+        assertNotNull(run.getPausedAt(), "the run is paused");
+        assertNull(run.getCompletedAt(), "a paused run is not completed");
+        assertNull(run.getCancelledAt(), "a paused run is not cancelled");
+    }
+
+    /**
+     * A second pause is idempotent and does not move the original timestamp.
+     */
+    @Test
+    void pausingTwiceKeepsTheOriginalTimestamp() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("pause-twice");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+
+        assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
+        OffsetDateTime first = migrationRun(runId).getPausedAt();
+        assertNotNull(first, "the first pause must record a timestamp");
+        assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        assertEquals(first, migrationRun(runId).getPausedAt(), "a second pause is a no-op");
+    }
+
+    /**
+     * Resuming clears the pause and returns the run id.
+     */
+    @Test
+    void resumesAPausedRun() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("resume");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
+
+        assertNull(migrationRun(runId).getPausedAt(), "resume clears the pause");
+    }
+
+    /**
+     * Resuming an active run that is not paused is a no-op and still returns the
+     * run id.
+     */
+    @Test
+    void resumingANotPausedRunReturnsItsId() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("resume-not-paused");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+
+        assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
+
+        assertNull(migrationRun(runId).getPausedAt(), "the run was never paused");
+    }
+
+    /**
+     * Pause and resume return NULL when there is no active unfinished run.
+     */
+    @Test
+    void returnsNullWhenThereIsNoActiveRun() {
+        String label = uniqueLabel("pause-none");
+
+        assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+        assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
+    }
+
+    /**
+     * A completed run is not pausable or resumable.
+     */
+    @Test
+    void doesNotPauseACompletedRun() {
+        seedBigint(1, 2);
+        String label = uniqueLabel("pause-completed");
+        runToCompletion(label);
+        Long runId = runId(label);
+        assertNotNull(migrationRun(runId).getCompletedAt(), "the run completed");
+
+        assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+        assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
+        assertNull(migrationRun(runId).getPausedAt(), "the completed run stays unpaused");
+    }
+
+
+    /**
+     * A cancelled or archived run is not pausable or resumable, and gains no
+     * pause timestamp.
+     *
+     * @param action the terminal transition, {@code cancel} or {@code archive}
+     */
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"cancel", "archive"})
+    void doesNotPauseATerminalRun(String action) {
+        seedBigint(1, 2);
+        String label = uniqueLabel("pause-" + action);
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(switch (action) {
+            case "cancel" -> Routines.cancelMigrationRun(dsl.configuration(), label);
+            case "archive" -> Routines.archiveMigrationRun(dsl.configuration(), label);
+            default -> throw new IllegalArgumentException(action);
+        });
+
+        assertNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+        assertNull(Routines.resumeMigrationRun(dsl.configuration(), label));
+        assertNull(migrationRun(runId).getPausedAt(),
+                "a terminal run is not paused");
+    }
+
+    /**
+     * Cancelling a paused run clears the pause and records the cancellation.
+     */
+    @Test
+    void cancelClearsAPause() {
+        seedBigint(1, 2);
+        String label = uniqueLabel("pause-cancel");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        assertNotNull(Routines.cancelMigrationRun(dsl.configuration(), label));
+
+        MigrationRunRecord run = migrationRun(runId);
+        assertNotNull(run.getCancelledAt(), "the run is cancelled");
+        assertNull(run.getPausedAt(), "cancel clears the pause");
+    }
+
+    /**
+     * Completing a paused run clears the pause and records completion.
+     */
+    @Test
+    void completeClearsAPause() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("pause-complete");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.TOTAL_CHUNKS_COMPLETED, MIGRATION_RUN.TOTAL_CHUNKS)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .execute();
+        assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.completeMigrationRun(
+                dsl.configuration(), runId);
+
+        MigrationRunRecord run = migrationRun(runId);
+        assertNotNull(run.getCompletedAt(), "the run is completed");
+        assertNull(run.getPausedAt(), "completion clears the pause");
+    }
+
+    /**
+     * Archiving a paused run cancels it, which clears the pause.
+     */
+    @Test
+    void archiveClearsAPause() {
+        seedBigint(1, 2);
+        String label = uniqueLabel("pause-archive");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        assertNotNull(Routines.archiveMigrationRun(dsl.configuration(), label));
+
+        MigrationRunRecord run = migrationRun(runId);
+        assertNotNull(run.getArchivedAt(), "the run is archived");
+        assertNotNull(run.getCancelledAt(), "archiving cancels the unfinished run");
+        assertNull(run.getPausedAt(), "archive clears the pause");
+    }
+
+    /**
+     * Pausing waits for a concurrent holder of the run row even when the run is
+     * already paused: the old no-op path took no lock, so a resume could commit
+     * between the update and the fallback read and pause would report no run.
+     */
+    @Test
+    void pauseWaitsForTheRunRowEvenWhenAlreadyPaused() throws Exception {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("pause-locked");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(runId);
+        assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label));
+
+        assertCallWaitsForTheRunRow(label, "pause_migration_run");
+
+        assertEquals(runId, Routines.pauseMigrationRun(dsl.configuration(), label),
+                "after the lock is released the pause sees the committed run");
+        assertNotNull(migrationRun(runId).getPausedAt(), "the run stays paused");
+    }
+
+    /**
+     * Resuming waits for a concurrent holder of the run row even when the run is
+     * not paused: the old no-op path took no lock, so a pause could commit
+     * between the update and the fallback read and resume would report no run.
+     */
+    @Test
+    void resumeWaitsForTheRunRowEvenWhenNotPaused() throws Exception {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("resume-locked");
+        Long runId = populateSingleRelation(label, TEMPLATE, 2);
+        assertNotNull(runId);
+
+        assertCallWaitsForTheRunRow(label, "resume_migration_run");
+
+        assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label),
+                "after the lock is released the resume sees the committed run");
+        assertNull(migrationRun(runId).getPausedAt(), "the run is not paused");
+    }
+
+    /**
+     * Calls one of the run-control routines from a second connection while a
+     * first one holds the run row, and asserts it waits instead of returning a
+     * stale result. The holder then commits, so the caller can verify that the
+     * routine sees the committed state once the lock is released.
+     *
+     * @param label   the run label
+     * @param routine the routine to call
+     */
+    private void assertCallWaitsForTheRunRow(String label, String routine) throws Exception {
+        Long runId = runId(label);
+        try (Connection holder = openTestConnection();
+             Connection caller = openTestConnection()) {
+            holder.setAutoCommit(false);
+            DSL.using(holder, SQLDialect.POSTGRES)
+                    .selectOne()
+                    .from(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                    .forUpdate()
+                    .execute();
+
+            try (Statement setting = caller.createStatement()) {
+                setting.execute("SET lock_timeout = '1s'");
+                DSLContext callerDsl = DSL.using(caller, SQLDialect.POSTGRES);
+                assertSqlState("55P03", () -> {
+                    switch (routine) {
+                        case "pause_migration_run" -> Routines.pauseMigrationRun(callerDsl.configuration(), label);
+                        case "resume_migration_run" -> Routines.resumeMigrationRun(callerDsl.configuration(), label);
+                        default -> throw new IllegalArgumentException("unknown routine: " + routine);
+                    }
+                });
+            }
+
+            holder.commit();
+        }
+    }
+
+
+    /**
+     * Runs the migration to completion.
+     *
+     * @param label the run label
+     */
+    private void runToCompletion(String label) {
+        Routines.runMigrationChunks(dsl.configuration(), TEMPLATE,
+                schema(TEST_BIGINT), name(TEST_BIGINT), label, 1, 1, "t",
+                ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
+    }
+
+}

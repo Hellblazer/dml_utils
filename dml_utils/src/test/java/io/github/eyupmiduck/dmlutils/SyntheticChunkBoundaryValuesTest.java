@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Verifies {@code dml_utils_lib.synthetic_chunk_boundary_values}: it returns one
  * non-final and one final representative chunk range, position-aligned with the
- * key kinds and in key order, and rejects malformed kinds or a non-positive
- * chunk size.
+ * key kinds and in key order, rejects malformed kinds with {@code 22023}, and
+ * takes a non-positive chunk size as a {@code positive_bigint} domain violation.
  */
 class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
 
@@ -119,6 +119,26 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
                 dsl.configuration(), new String[]{"bigint", "bigint", "bigint", "bigint", "bigint"}, 10L));
         assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"numeric"}, 10L));
+        // Cardinality alone cannot detect these shapes: a multidimensional array
+        // and a zero-based array both have one entry, but indexing them would read
+        // a slice or the wrong element.
+        assertSqlState("23514", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "ARRAY[['bigint']]::text[], 10::bigint)"));
+        assertSqlState("23514", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "'[0:0]={bigint}'::text[], 10::bigint)"));
+    }
+
+    /**
+     * A NULL element is rejected by the argument domain rather than falling
+     * through the kind chain with an empty value.
+     */
+    @Test
+    void rejectsANullKeyKindAtItsPosition() {
+        assertSqlState("23514", () -> dsl.fetch(
+                "SELECT * FROM dml_utils_lib.synthetic_chunk_boundary_values("
+                        + "ARRAY['bigint', NULL]::text[], 10::bigint)"));
     }
 
     /**
@@ -127,9 +147,9 @@ class SyntheticChunkBoundaryValuesTest extends PostgresTestBase {
      */
     @Test
     void rejectsANonPositiveChunkSize() {
-        assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
+        assertDomainViolation(() -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"bigint"}, 0L));
-        assertSqlState("22023", () -> Routines.syntheticChunkBoundaryValues(
+        assertDomainViolation(() -> Routines.syntheticChunkBoundaryValues(
                 dsl.configuration(), new String[]{"bigint"}, -1L));
     }
 }

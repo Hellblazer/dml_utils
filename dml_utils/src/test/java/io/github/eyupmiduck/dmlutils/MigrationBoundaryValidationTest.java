@@ -9,6 +9,9 @@ import org.jooq.Table;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -17,7 +20,9 @@ import java.util.List;
 import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeFive.TEST_COMPOSITE_FIVE;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeFour.TEST_COMPOSITE_FOUR;
@@ -41,6 +46,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     private static final String FIXTURE_SCHEMA = "dml_utils_fixtures";
     private static final String NO_SUCH_TABLE = "no_such_table";
     private static final String SQL_TEXT = "SELECT 1";
+
+    /**
+     * The invalid label and SQL-text values.
+     *
+     * @return the rejected argument pairs
+     */
+    private static java.util.stream.Stream<Arguments> invalidTextArguments() {
+        return java.util.stream.Stream.of(
+                Arguments.of("null label", null, SQL_TEXT),
+                Arguments.of("blank label", "   ", SQL_TEXT),
+                Arguments.of("null sql text", "null-sql-text", null),
+                Arguments.of("blank sql text", "blank-sql-text", "   "));
+    }
 
     @BeforeEach
     void resetFixtures() {
@@ -82,39 +100,19 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     }
 
     /**
-     * A null label is rejected by the non-null text domain.
+     * A null or blank label and a null or blank SQL text are each rejected by
+     * their non-null text domain before any run is created.
+     *
+     * @param description the violated argument
+     * @param label       the run label
+     * @param sqlText     the chunk SQL template
      */
-    @Test
-    void rejectsNullLabel() {
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("invalidTextArguments")
+    void rejectsNullAndBlankTextArguments(String description, String label, String sqlText) {
         assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), null, SQL_TEXT, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
-    }
-
-    /**
-     * A blank label is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsBlankLabel() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "   ", SQL_TEXT, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
-    }
-
-    /**
-     * A null SQL text is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsNullSqlText() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "null-sql-text", null, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
-    }
-
-    /**
-     * A blank SQL text is rejected by the non-null text domain.
-     */
-    @Test
-    void rejectsBlankSqlText() {
-        assertDomainViolation(() -> Routines.populateMigrationBoundaries(
-                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), "blank-sql-text", "   ", 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false));
+                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), label, sqlText,
+                1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000));
     }
 
     /**
@@ -124,7 +122,39 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     void rejectsANullSleep() {
         assertDomainViolation(() -> Routines.populateMigrationBoundaries(
                 dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(),
-                uniqueLabel(), SQL_TEXT, 2, 1, ChunkingStrategy.primary_key, "t", null, null, false));
+                uniqueLabel(), SQL_TEXT, 2, 1, ChunkingStrategy.primary_key, "t", null, null, false, 3, 1000));
+    }
+
+    /**
+     * A NULL retry count is rejected by the non-negative-integer domain.
+     */
+    @Test
+    void rejectsANullMaxRetries() {
+        assertDomainViolation(() -> populateWithRetryPolicy(null, 1000));
+    }
+
+    /**
+     * A negative retry count is rejected by the non-negative-integer domain.
+     */
+    @Test
+    void rejectsANegativeMaxRetries() {
+        assertDomainViolation(() -> populateWithRetryPolicy(-1, 1000));
+    }
+
+    /**
+     * A NULL retry backoff is rejected by the non-negative-integer domain.
+     */
+    @Test
+    void rejectsANullRetryBackoff() {
+        assertDomainViolation(() -> populateWithRetryPolicy(3, null));
+    }
+
+    /**
+     * A negative retry backoff is rejected by the non-negative-integer domain.
+     */
+    @Test
+    void rejectsANegativeRetryBackoff() {
+        assertDomainViolation(() -> populateWithRetryPolicy(3, -1));
     }
 
     /**
@@ -500,6 +530,43 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     }
 
     /**
+     * The value arrays are validated like i_key_kinds: a non-1-based,
+     * multidimensional or short present array is rejected with {@code 22023}
+     * instead of silently yielding a NULL (and shifting the predicate).
+     */
+    @Test
+    void migrationKeyValuesRejectsMalformedValueArrays() {
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW('[0:1]={1,2}'::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW('[1:1][1:1]={{1}}'::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW(NULL, '[0:1]={a,b}'::text[], NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['text', 'text'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW(NULL, NULL, ARRAY[ARRAY['00000000-0000-0000-0000-000000000001'::uuid]],"
+                        + " NULL, NULL)::dml_utils_data.migration_key, ARRAY['uuid'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW(NULL, NULL, NULL, ARRAY['2026-01-01'::timestamptz], NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['timestamptz', 'timestamptz'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_values("
+                        + "ROW('{}'::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint'])"));
+    }
+
+    /**
      * An absent array (NULL) for a used position and a present array with a
      * NULL element there both flatten to a NULL value, so the result keeps the
      * key's arity instead of shifting the remaining values.
@@ -561,6 +628,8 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         dsl.insertInto(TEST_BIGINT, TEST_BIGINT.ID).values(1L).execute();
         int runsBefore = dsl.fetchCount(MIGRATION_RUN);
         int boundariesBefore = dsl.fetchCount(MIGRATION_BOUNDARY);
+        int leavesBefore = dsl.fetchCount(MIGRATION_RUN_LEAF);
+        int errorsBefore = dsl.fetchCount(MIGRATION_ERROR);
 
         // A domain failure, an unknown schema/table, and each catalog validation
         // failure must all leave the migration tables untouched.
@@ -575,6 +644,10 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
         assertEquals(runsBefore, dsl.fetchCount(MIGRATION_RUN), "no run should be written");
         assertEquals(boundariesBefore, dsl.fetchCount(MIGRATION_BOUNDARY),
                 "no boundary should be written");
+        assertEquals(leavesBefore, dsl.fetchCount(MIGRATION_RUN_LEAF),
+                "no leaf manifest row should be written");
+        assertEquals(errorsBefore, dsl.fetchCount(MIGRATION_ERROR),
+                "no error row should be written");
     }
 
     /**
@@ -655,7 +728,14 @@ class MigrationBoundaryValidationTest extends PostgresTestBase {
     private long populateByNames(String schema, String table, String label, Integer chunkSize,
                                  Integer threads) {
         return Routines.populateMigrationBoundaries(
-                dsl.configuration(), schema, table, label, SQL_TEXT, chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null, false);
+                dsl.configuration(), schema, table, label, SQL_TEXT, chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+    }
+
+    private long populateWithRetryPolicy(Integer maxRetries, Integer retryBackoff) {
+        return Routines.populateMigrationBoundaries(
+                dsl.configuration(), FIXTURE_SCHEMA, TEST_BIGINT.getName(), uniqueLabel(),
+                SQL_TEXT, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false,
+                maxRetries, retryBackoff);
     }
 
     private String uniqueLabel() {

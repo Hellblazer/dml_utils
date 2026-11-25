@@ -3,7 +3,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_block_chunk_plans(
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_chunk_size bigint
+    i_chunk_size dml_utils_data.positive_bigint
 )
     RETURNS TABLE
             (
@@ -17,6 +17,15 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.explain_block_chunk_plans(
 AS
 $$
 BEGIN
+    -- The positive domain rejects a NULL or non-positive size; above 2147483647
+    -- (= (2^32 - 1) / 2) 2 * i_chunk_size overflows tid's block space or the
+    -- bigint arithmetic in render_block_chunk_sql (the plans use 0..chunk_size and
+    -- chunk_size..2*chunk_size as the block ranges).
+    IF i_chunk_size > 2147483647 THEN
+        RAISE EXCEPTION 'i_chunk_size must not exceed 2147483647'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- 1. The block boundary-population insert, with a synthetic run id (0):
     -- EXPLAIN plans the insert as a ModifyTable and does not evaluate the
     -- foreign key, so no run needs to exist and nothing is written.
@@ -56,13 +65,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.explain_block_chunk_plans(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    bigint
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.explain_block_chunk_plans IS
     'Returns the EXPLAIN (FORMAT JSON) plans for a blocks run: the boundary '
         'insert and two representative half-open ctid ranges. No run or boundary '
         'is read or written. Shared by explain_chunk_plans.';

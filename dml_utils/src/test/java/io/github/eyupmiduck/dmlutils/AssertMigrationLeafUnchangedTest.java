@@ -7,9 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 
 /**
@@ -30,8 +28,7 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsAndRange();
     }
 
     /**
@@ -48,14 +45,14 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
     }
 
     /**
-     * A missing run or a leaf ordinal that is not in the manifest raises
-     * {@code 55000}.
+     * An unknown run raises {@code P0002}; a leaf ordinal that is not in the
+     * manifest raises {@code 55000}.
      */
     @Test
     void rejectsAMissingRunOrLeaf() {
         long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
 
-        assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
+        assertSqlState("P0002", () -> Routines.assertMigrationLeafUnchanged(
                 dsl.configuration(), -1L, 1));
         assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
                 dsl.configuration(), runId, 999));
@@ -118,12 +115,12 @@ class AssertMigrationLeafUnchangedTest extends PartitionTestBase {
         long runId = populatePartitionWise("leaf-unchanged-primary_key", PARENT, TEMPLATE, ChunkingStrategy.primary_key, 2, null);
         int midOrdinal = leafOrdinal(runId, MID);
 
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
-                + " DETACH PARTITION " + PARTITION_SCHEMA + "." + MID);
-        executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
-                + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + MID
-                + " FOR VALUES FROM (100) TO (199)");
         try {
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
+                    + " DETACH PARTITION " + PARTITION_SCHEMA + "." + MID);
+            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARENT
+                    + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + MID
+                    + " FOR VALUES FROM (100) TO (199)");
             assertSqlState("55000", () -> Routines.assertMigrationLeafUnchanged(
                     dsl.configuration(), runId, midOrdinal));
         } finally {

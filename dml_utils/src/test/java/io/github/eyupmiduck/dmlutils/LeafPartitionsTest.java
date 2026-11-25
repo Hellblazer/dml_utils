@@ -6,13 +6,11 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.LeafParti
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Verifies {@code dml_utils_lib.leaf_partitions}: the deterministic leaf order,
@@ -237,14 +235,151 @@ class LeafPartitionsTest extends PostgresTestBase {
         }
     }
 
+    /**
+     * A NULL strategy is rejected instead of silently degrading to the key path
+     * (the filepath CASE would be NULL for every leaf).
+     */
+    @Test
+    void rejectsANullStrategy() {
+        assertSqlState("22023", () -> Routines.leafPartitions(dsl.configuration(), SCHEMA,
+                "test_partitioned_range", null));
+    }
+
+    /**
+     * Date bounds are deparsed and sorted in the manifest order, so the January
+     * leaf comes before the February one even though the fixtures were created
+     * late-first.
+     */
+    @Test
+    void ordersDateBoundsByBound() {
+        assertEquals(List.of("test_partitioned_date_january", "test_partitioned_date_february"),
+                leaves("test_partitioned_date", ChunkingStrategy.primary_key)
+                        .stream().map(LeafPartitionsRecord::getLeafName).toList(),
+                "the date bounds decide the manifest order, not the names or OIDs");
+    }
+
+    /**
+     * The manifest order sorts the deparsed bounds, whose text depends on
+     * TimeZone/DateStyle/IntervalStyle/extra_float_digits. Both the enumerator
+     * and the live-bound assertion pin them, so the manifest text and the
+     * byte-wise comparison are session-independent.
+     */
+    @Test
+    void pinsTheStylesThatDecideTheManifestOrder() {
+        for (String function : List.of("leaf_partitions",
+                "assert_live_leaf_matches_manifest")) {
+            String config = dsl.fetchOne("""
+                            SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                            FROM pg_catalog.pg_proc AS p
+                            WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                              AND p.proname = ?
+                            """, function)
+                    .get(0, String.class)
+                    .toLowerCase(java.util.Locale.ROOT);
+            assertTrue(config.contains("timezone=utc"),
+                    () -> function + " must pin TimeZone: " + config);
+            assertTrue(config.contains("datestyle=iso, mdy"),
+                    () -> function + " must pin DateStyle: " + config);
+            assertTrue(config.contains("intervalstyle=postgres"),
+                    () -> function + " must pin IntervalStyle: " + config);
+            assertTrue(config.contains("extra_float_digits=0"),
+                    () -> function + " must pin extra_float_digits: " + config);
+        }
+    }
+
+    /**
+     * A timestamptz bound is deparsed in the pinned UTC zone: the same tree
+     * yields the same text in a session set to another time zone.
+     */
+    @Test
+    void ordersTimestamptzBoundsIndependentlyOfTimeZone() {
+        List<String> utc = leaves("test_partitioned_time", ChunkingStrategy.primary_key)
+                .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, utc.size());
+        assertTrue(utc.getFirst().contains("+00"), utc.toString());
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL timezone = 'America/New_York'");
+            List<String> newYork = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_time", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(utc, newYork, "TimeZone must not change the deparsed bound");
+        });
+    }
+
+    /**
+     * A text bound containing a backslash is deparsed under the pinned
+     * standard_conforming_strings, so a session with the setting off sees the
+     * same bound text and order.
+     */
+    @Test
+    void textBoundsIgnoreStandardConformingStrings() {
+        List<String> pinned = leaves("test_partitioned_text_escape",
+                ChunkingStrategy.primary_key).stream()
+                .map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, pinned.size());
+        assertTrue(pinned.getFirst().contains("\\"), pinned.toString());
+
+        // PostgreSQL 19 removed non-standard string literals, so the setting can
+        // no longer be turned off there; the pin is then a no-op rather than a
+        // behaviour change.
+        assumeTrue(supportsNonStandardStringLiterals(),
+                "standard_conforming_strings = off is no longer supported");
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL standard_conforming_strings = off");
+            List<String> unpinned = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_text_escape", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(pinned, unpinned,
+                    "standard_conforming_strings must not change the bound");
+        });
+    }
+
+    /**
+     * A bytea bound is deparsed under the pinned bytea_output, so a session set to
+     * escape output sees the same bound text as the default hex output.
+     */
+    @Test
+    void byteaBoundsIgnoreByteaOutput() {
+        List<String> pinned = leaves("test_partitioned_bytea",
+                ChunkingStrategy.primary_key).stream()
+                .map(LeafPartitionsRecord::getLeafBound).toList();
+        assertEquals(1, pinned.size());
+        assertTrue(pinned.getFirst().contains("\\x01"), pinned.toString());
+
+        dsl.transaction(config -> {
+            org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+            tx.execute("SET LOCAL bytea_output = 'escape'");
+            List<String> escaped = Routines.leafPartitions(tx.configuration(), SCHEMA,
+                            "test_partitioned_bytea", ChunkingStrategy.primary_key)
+                    .stream().map(LeafPartitionsRecord::getLeafBound).toList();
+            assertEquals(pinned, escaped, "bytea_output must not change the bound");
+        });
+    }
+
+    /**
+     * Whether this server still allows non-standard string literals
+     * ({@code standard_conforming_strings = off}); PostgreSQL 19 rejects them.
+     *
+     * @return true when the off setting can be applied
+     */
+    private boolean supportsNonStandardStringLiterals() {
+        return Boolean.TRUE.equals(dsl.transactionResult(config -> {
+            try {
+                org.jooq.impl.DSL.using(config)
+                        .execute("SET LOCAL standard_conforming_strings = off");
+                return true;
+            } catch (org.jooq.exception.DataAccessException e) {
+                return false;
+            }
+        }));
+    }
+
     private List<LeafPartitionsRecord> leaves(String table, ChunkingStrategy chunkBy) {
         return Routines.leafPartitions(dsl.configuration(), SCHEMA, table, chunkBy);
     }
 
-    private void executeAsOwner(String sql) throws SQLException {
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute(sql);
-        }
-    }
 }

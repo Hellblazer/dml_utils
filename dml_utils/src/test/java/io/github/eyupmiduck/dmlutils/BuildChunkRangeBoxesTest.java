@@ -93,6 +93,35 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * When the first of three columns differs, the lower tail and the upper tail
+     * each have one box per suffix column, plus the middle: five boxes. The
+     * final flag only affects the last column of the final upper-tail box.
+     */
+    @Test
+    void rendersFiveBoxesForAFirstColumnDifferenceOnThreeColumns() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b > '2'",
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a > '1' AND t.a < '2'",
+                        "t.a = '2' AND t.b < '5'",
+                        "t.a = '2' AND t.b = '5' AND t.c < '6'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'2'", "'5'", "'6'"},
+                        1, false));
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b > '2'",
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a > '1' AND t.a < '2'",
+                        "t.a = '2' AND t.b < '5'",
+                        "t.a = '2' AND t.b = '5' AND t.c <= '6'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'2'", "'5'", "'6'"},
+                        1, true));
+    }
+
+    /**
      * A four-column key that differs at the first column renders the three lower
      * tail boxes, the middle box and the three upper tail boxes: 2 * (4 - 1) + 1
      * boxes in all.
@@ -114,6 +143,42 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
     }
 
     /**
+     * The same three-box shape with the final flag set only makes the upper
+     * tail's last-column bound inclusive (the middle box stays a strict open
+     * range), so the last chunk includes its end key.
+     */
+    @Test
+    void rendersInclusiveThreeBoxesForAFinalChunk() {
+        assertArrayEquals(new String[]{
+                        "t.a = '1' AND t.b = '2' AND t.c >= '3'",
+                        "t.a = '1' AND t.b > '2' AND t.b < '4'",
+                        "t.a = '1' AND t.b = '4' AND t.c <= '5'"},
+                boxes(new String[]{"t.a", "t.b", "t.c"},
+                        new String[]{"'1'", "'2'", "'3'"},
+                        new String[]{"'1'", "'4'", "'5'"},
+                        2, true));
+    }
+
+    /**
+     * Malformed arrays are rejected with {@code 22023} instead of rendering a
+     * degenerate box: a NULL element, mismatched lengths, a difference position
+     * outside the key, a blank column name and an empty key.
+     */
+    @Test
+    void rejectsMalformedRangeInputs() {
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{null},
+                new String[]{"'5'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{"'1'"},
+                new String[]{"'5'", "'6'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[]{"t.c1"}, new String[]{"'1'"},
+                new String[]{"'5'"}, 2, false));
+        assertSqlState("22023", () -> boxes(new String[]{"  "}, new String[]{"'1'"},
+                new String[]{"'5'"}, 1, false));
+        assertSqlState("22023", () -> boxes(new String[0], new String[0],
+                new String[0], 0, false));
+    }
+
+    /**
      * A four-column key that differs only at the last column is one scalar range
      * after a three-column equality prefix.
      */
@@ -132,7 +197,7 @@ class BuildChunkRangeBoxesTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullFinalFlag() {
-        assertSqlState("22023", () -> boxes(new String[]{"t.c1"},
+        assertDomainViolation(() -> boxes(new String[]{"t.c1"},
                 new String[]{"'1'"}, new String[]{"'5'"}, 1, null));
     }
 }

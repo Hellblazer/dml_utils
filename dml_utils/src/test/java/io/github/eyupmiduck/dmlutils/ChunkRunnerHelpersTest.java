@@ -2,18 +2,17 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationErrorRecord;
-import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.NextMigrationChunk;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationError.MIGRATION_ERROR;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -31,9 +30,17 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_BIGINT).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsBigintAndRange();
+    }
+
+    /**
+     * A NULL run id is rejected by the non-null bigint domain instead of silently
+     * matching no row.
+     */
+    @Test
+    void rejectsANullRunIdWhenPreparing() {
+        assertDomainViolation(() -> Routines.preparePartitionWiseExecution(
+                dsl.configuration(), null, "prepare-null"));
     }
 
     /**
@@ -45,15 +52,15 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 200L);
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("prepare"),
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
 
         assertTrue(Routines.preparePartitionWiseExecution(dsl.configuration(), runId,
                 "prepare"));
-        assertNotNull(run(runId).getBoundariesCalculatedAt());
+        assertNotNull(migrationRun(runId).getBoundariesCalculatedAt());
 
         long cancelled = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("prepare-cancel"),
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         dsl.update(MIGRATION_RUN)
                 .set(MIGRATION_RUN.CANCELLED_AT, OffsetDateTime.now())
                 .where(MIGRATION_RUN.RUN_ID.eq(cancelled))
@@ -61,6 +68,31 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
 
         assertFalse(Routines.preparePartitionWiseExecution(dsl.configuration(), cancelled,
                 "prepare-cancel"));
+
+        long pausedBefore = Routines.populateMigrationBoundaries(dsl.configuration(),
+                PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("prepare-paused"),
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(pausedBefore))
+                .execute();
+        assertFalse(Routines.preparePartitionWiseExecution(dsl.configuration(), pausedBefore,
+                "prepare-paused"));
+        assertNull(migrationRun(pausedBefore).getBoundariesCalculatedAt(),
+                "a paused calculation does not finalize");
+
+        long pausedAfter = Routines.populateMigrationBoundaries(dsl.configuration(),
+                PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("prepare-paused-after"),
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
+        assertTrue(Routines.preparePartitionWiseExecution(dsl.configuration(), pausedAfter,
+                "prepare-paused-after"));
+        assertNotNull(migrationRun(pausedAfter).getBoundariesCalculatedAt());
+        dsl.update(MIGRATION_RUN)
+                .set(MIGRATION_RUN.PAUSED_AT, OffsetDateTime.now())
+                .where(MIGRATION_RUN.RUN_ID.eq(pausedAfter))
+                .execute();
+        assertFalse(Routines.preparePartitionWiseExecution(dsl.configuration(), pausedAfter,
+                "prepare-paused-after"));
     }
 
     /**
@@ -72,7 +104,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         seedBigint(1, 2, 3, 4, 5);
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("next-single"),
-                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         NextMigrationChunk first = next(runId, false, new Long[0]);
         assertEquals(0L, first.getOBoundaryNo());
@@ -91,6 +123,66 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     /**
+     * A caller that puts a schema with a shadowing max() aggregate before
+     * pg_catalog must not change the final-chunk decision: the helper pins
+     * search_path to pg_catalog and the generated SQL qualifies the aggregate.
+     */
+    @Test
+    void ignoresASearchPathShadowingTheMaxAggregate() throws Exception {
+        seedBigint(1, 2, 3, 4, 5);
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("next-shadow"),
+                TEMPLATE, 2, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+
+        String database = currentDatabase();
+        try {
+            try (java.sql.Connection admin = openAdminConnection(database);
+                 java.sql.Statement statement = admin.createStatement()) {
+                statement.execute("CREATE SCHEMA next_shadow");
+                statement.execute("CREATE AGGREGATE next_shadow.max(bigint)"
+                        + " (SFUNC = pg_catalog.int8pl, STYPE = bigint, INITCOND = '1000000')");
+            }
+            dsl.transaction(config -> {
+                org.jooq.DSLContext tx = org.jooq.impl.DSL.using(config);
+                tx.execute("SET LOCAL search_path = next_shadow, pg_catalog");
+
+                NextMigrationChunk next = Routines.nextMigrationChunk(tx.configuration(),
+                        runId, false, new String[]{"bigint"}, new Long[]{0L, 1L},
+                        schema(TEST_BIGINT), name(TEST_BIGINT));
+
+                assertEquals(2L, next.getOBoundaryNo());
+                assertTrue(next.getOIsFinal(),
+                        "the pinned path must use pg_catalog.max, not the shadow");
+            });
+        } finally {
+            try (java.sql.Connection admin = openAdminConnection(database);
+                 java.sql.Statement statement = admin.createStatement()) {
+                statement.execute("DROP SCHEMA IF EXISTS next_shadow CASCADE");
+            }
+        }
+    }
+
+    /**
+     * The runner helpers that build or run boundary SQL pin search_path, so a
+     * caller cannot shadow a built-in name they rely on.
+     */
+    @Test
+    void pinsTheSearchPathForTheRunnerHelpers() {
+        for (String function : List.of("next_migration_chunk",
+                "populate_single_relation_boundaries")) {
+            String config = dsl.fetchOne("""
+                            SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                            FROM pg_catalog.pg_proc AS p
+                            WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                              AND p.proname = ?
+                            """, function)
+                    .get(0, String.class);
+            assertTrue(config.contains("search_path=pg_catalog"),
+                    () -> function + " must pin search_path: " + config);
+        }
+    }
+
+    /**
      * For a partition-wise run, the last chunk of a leaf ends at the manifest
      * high-water snapshot and is marked final.
      */
@@ -99,7 +191,7 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         insertRangeRows(0L, 1L, 200L);
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, "test_partitioned_range", uniqueLabel("next-partition"),
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, true, 3, 1000);
         Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
         NextMigrationChunk lowFirst = next(runId, true, new Long[0]);
@@ -115,14 +207,16 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
     }
 
     /**
-     * A worker failure is recorded in its own autonomous transaction.
+     * A worker failure is recorded as a migration_error row with the given
+     * boundary, SQLSTATE and message. The caller (the coordinator's worker) runs
+     * in its own transaction; this routine itself runs in the caller's.
      */
     @Test
     void recordsAWorkerFailure() {
         seedBigint(1, 2);
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("record-failure"),
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         Routines.recordMigrationWorkerFailure(dsl.configuration(), runId, 0L,
                 "55000", "boom");
@@ -138,14 +232,14 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
 
     /**
      * The throttle returns immediately for zero and reports a cancellation while
-     * sleeping.
+     * sleeping. Pause interruption is covered by the runner pause test.
      */
     @Test
     void sleepsAndReportsCancellation() {
         seedBigint(1, 2);
         long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
                 schema(TEST_BIGINT), name(TEST_BIGINT), uniqueLabel("sleep"),
-                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
 
         assertNull(Routines.sleepBetweenMigrationChunks(dsl.configuration(), runId, 0));
 
@@ -156,15 +250,60 @@ class ChunkRunnerHelpersTest extends PartitionTestBase {
         assertNotNull(Routines.sleepBetweenMigrationChunks(dsl.configuration(), runId, 10));
     }
 
+    /**
+     * A negative or NULL delay is rejected by the non-negative domain before the
+     * loop, so it cannot silently behave like a zero-delay no-op.
+     */
+    @Test
+    void rejectsANegativeOrNullSleep() {
+        assertDomainViolation(() -> Routines.sleepBetweenMigrationChunks(
+                dsl.configuration(), 1L, -1));
+        assertDomainViolation(() -> Routines.sleepBetweenMigrationChunks(
+                dsl.configuration(), 1L, null));
+    }
+
+    /**
+     * A run row deleted through the supported path (archive, then delete the
+     * archived terminal run) ends the sleep at the next slice instead of making
+     * it loop on a vanished run.
+     */
+    @Test
+    void sleepEndsWhenTheRunRowDisappears() {
+        seedBigint(1, 2);
+        String label = uniqueLabel("sleep-deleted");
+        long runId = Routines.populateMigrationBoundaries(dsl.configuration(),
+                schema(TEST_BIGINT), name(TEST_BIGINT), label,
+                TEMPLATE, 1, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+        io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                .archiveMigrationRun(dsl.configuration(), label);
+        assertEquals(1, io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .deleteArchivedMigrationRuns(dsl.configuration(), label, 1000),
+                "the archived terminal run is deleted");
+
+        long startedAt = System.nanoTime();
+        assertNull(Routines.sleepBetweenMigrationChunks(dsl.configuration(), runId, 10_000));
+
+        long elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000;
+        assertTrue(elapsedMillis < 2_000,
+                () -> "the sleep should stop at the first slice, took " + elapsedMillis + "ms");
+    }
+
+    /**
+     * A NULL element in the in-flight boundary array is rejected by the argument
+     * domain: {@code boundary_no <> ALL (ARRAY[... NULL])} is NULL and would
+     * silently drop that boundary from the selection.
+     */
+    @Test
+    void rejectsANullInFlightBoundaryElement() {
+        assertSqlState("23514", () -> next(1L, false, new Long[]{null}));
+    }
+
     private NextMigrationChunk next(long runId, boolean partitionWise, Long[] inFlight) {
+        String tableSchema = partitionWise ? PARTITION_SCHEMA : schema(TEST_BIGINT);
+        String tableName = partitionWise ? PARTITIONED_RANGE : name(TEST_BIGINT);
         return Routines.nextMigrationChunk(dsl.configuration(), runId, partitionWise,
-                new String[]{"bigint"}, inFlight, schema(TEST_BIGINT), name(TEST_BIGINT));
+                new String[]{"bigint"}, inFlight, tableSchema, tableName);
     }
 
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 }

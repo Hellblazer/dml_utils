@@ -1,7 +1,7 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_pair_values(
     i_start_key dml_utils_data.migration_key,
     i_end_key dml_utils_data.migration_key,
-    i_key_kinds text[],
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     OUT o_start_values text[],
     OUT o_end_values text[]
 )
@@ -9,6 +9,7 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.migration_key_pair_values(
     LANGUAGE plpgsql
     STABLE
     SECURITY INVOKER
+    SET search_path = pg_catalog
 AS
 $$
 DECLARE
@@ -30,16 +31,74 @@ BEGIN
             USING ERRCODE = '22023';
     END IF;
 
+    -- Both keys are indexed with l_position exactly like i_key_kinds, so every
+    -- present array must have the same one-dimensional, 1-based shape and the same
+    -- arity. A short or reshaped array would otherwise yield a NULL (or the wrong
+    -- element) for a position instead of failing.
+    IF ((i_start_key).bigint_values IS NOT NULL
+        AND (pg_catalog.array_ndims((i_start_key).bigint_values) IS DISTINCT FROM 1
+            OR pg_catalog.array_lower((i_start_key).bigint_values, 1) IS DISTINCT FROM 1
+            OR pg_catalog.cardinality((i_start_key).bigint_values)
+                 <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_start_key).text_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_start_key).text_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).text_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).text_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_start_key).uuid_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_start_key).uuid_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).uuid_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).uuid_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_start_key).timestamptz_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_start_key).timestamptz_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).timestamptz_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).timestamptz_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_start_key).bytea_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_start_key).bytea_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_start_key).bytea_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_start_key).bytea_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).bigint_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).bigint_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).bigint_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).bigint_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).text_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).text_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).text_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).text_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).uuid_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).uuid_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).uuid_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).uuid_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).timestamptz_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).timestamptz_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).timestamptz_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).timestamptz_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+        OR ((i_end_key).bytea_values IS NOT NULL
+            AND (pg_catalog.array_ndims((i_end_key).bytea_values) IS DISTINCT FROM 1
+                OR pg_catalog.array_lower((i_end_key).bytea_values, 1) IS DISTINCT FROM 1
+                OR pg_catalog.cardinality((i_end_key).bytea_values)
+                     <> pg_catalog.cardinality(i_key_kinds)))
+    THEN
+        RAISE EXCEPTION 'migration key arrays must be one-dimensional, 1-based and match the key kinds'
+            USING ERRCODE = '22023';
+    END IF;
+
     o_start_values := ARRAY []::text[];
     o_end_values := ARRAY []::text[];
     FOR l_position IN 1..pg_catalog.cardinality(i_key_kinds)
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would make every comparison below NULL (not true) and
-            -- fall through to a NULL branch; reject it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
+            -- The argument domain rejects a NULL element.
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
+                RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
@@ -59,6 +118,11 @@ BEGIN
                 -- Hex digits, so the text does not depend on bytea_output.
                 WHEN 'bytea' THEN l_start := pg_catalog.encode((i_start_key).bytea_values[l_position], 'hex');
                                   l_end := pg_catalog.encode((i_end_key).bytea_values[l_position], 'hex');
+                -- The whitelist above admits exactly these five kinds, so this
+                -- arm is only a structural backstop: it must not silently leave
+                -- l_start/l_end at their previous value if the whitelist changes.
+                ELSE RAISE EXCEPTION 'unsupported key kind %', l_kind
+                    USING ERRCODE = '22023';
                 END CASE;
 
             o_start_values := o_start_values || l_start;

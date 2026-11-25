@@ -173,7 +173,8 @@ class FourColumnKeyCommittingTest extends CommittingRunTestBase {
 
     private static Call withLabel(Call call, String label) {
         return new Call(call.template(), call.schema(), call.table(), label, call.chunkSize(),
-                call.threads(), call.chunkBy(), call.sleepMs(), call.index(), call.partition());
+                call.threads(), call.chunkBy(), call.sleepMs(), call.index(), call.partition(),
+                call.maxRetries(), call.retryBackoffMs());
     }
 
     private static Call plain(String label, int chunkSize) {

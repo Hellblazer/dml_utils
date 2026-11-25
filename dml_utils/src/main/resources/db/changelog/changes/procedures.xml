@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog https://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- One changeset per stored procedure, mirroring functions.xml. Each
+         procedure lives in its own file under procedures/<schema>/ and is added
+         with createProcedure. runOnChange re-applies only the changeset whose
+         body changed, and each one carries its own rollback under
+         procedures-rollback/<schema>/, which drops the current signature.
+
+         A routine is a procedure only when it must COMMIT (see
+         procedures/README.md); everything else is a function. The changesets only
+         issue CREATE OR REPLACE PROCEDURE, whose embedded COMMITs are body text,
+         so they do not need runInTransaction="false". -->
+
+    <!-- The coordinator shared by run_migration_chunks and
+         run_migration_chunks_committing. It is a procedure because only a
+         procedure can COMMIT; the function calls it with i_commit false. -->
+    <changeSet id="procedure-dml_utils_lib.coordinate_migration_chunks" author="hellblazer"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="procedures/dml_utils_lib/coordinate_migration_chunks.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="procedures-rollback/dml_utils_lib/coordinate_migration_chunks-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="procedure-dml_utils.run_migration_chunks_committing" author="hellblazer"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="procedures/dml_utils/run_migration_chunks_committing.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="procedures-rollback/dml_utils/run_migration_chunks_committing-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>

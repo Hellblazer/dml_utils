@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    i_column_names text[],
-    i_key_kinds text[],
+    i_column_names dml_utils_data.non_null_element_text_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_key_collations text[],
     i_start_values text[],
     i_end_values text[],
@@ -19,6 +19,7 @@ DECLARE
     l_column_count        integer;
     l_kind                text;
     l_start_less_than_end boolean;
+    l_values_equal        boolean;
     l_start_bigint        bigint;
     l_end_bigint          bigint;
     l_start_uuid          uuid;
@@ -40,12 +41,15 @@ BEGIN
         OR pg_catalog.array_lower(i_start_values, 1) IS DISTINCT FROM 1
         OR pg_catalog.array_ndims(i_end_values) IS DISTINCT FROM 1
         OR pg_catalog.array_lower(i_end_values, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_ndims(i_key_collations) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_key_collations, 1) IS DISTINCT FROM 1
         OR pg_catalog.array_length(i_column_names, 1) IS NULL
         OR pg_catalog.array_length(i_column_names, 1) IS DISTINCT FROM pg_catalog.array_length(i_key_kinds, 1)
         OR pg_catalog.array_length(i_column_names, 1) IS DISTINCT FROM pg_catalog.array_length(i_start_values, 1)
         OR pg_catalog.array_length(i_column_names, 1) IS DISTINCT FROM pg_catalog.array_length(i_end_values, 1)
+        OR pg_catalog.array_length(i_column_names, 1) IS DISTINCT FROM pg_catalog.array_length(i_key_collations, 1)
     THEN
-        RAISE EXCEPTION 'column names, kinds and boundary values must be one-dimensional, 1-based, same-length and non-empty'
+        RAISE EXCEPTION 'column names, kinds, collations and boundary values must be one-dimensional, 1-based, same-length and non-empty'
             USING ERRCODE = '22023';
     END IF;
 
@@ -61,10 +65,25 @@ BEGIN
         LOOP
             l_kind := i_key_kinds[l_position];
 
-            -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL, not
-            -- true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
+            -- A collation is interpolated raw into a COLLATE clause below, so it
+            -- must be exactly one (optionally schema-qualified) identifier as
+            -- quote_ident/format('%I') renders it: an unquoted lower-case
+            -- identifier, or a quoted one with doubled quotes. Both the schema and
+            -- the name may be quoted (a schema like "My Schema"), and the value as
+            -- a whole cannot leave the identifier position. The C collation makes
+            -- [a-z] a byte range, not a locale-dependent character class.
+            IF i_key_collations[l_position] IS NOT NULL
+                AND i_key_collations[l_position] COLLATE pg_catalog."C" !~
+                    '^(([a-z_][a-z0-9_$]*|"([^"]|"")*")\.)?("([^"]|"")*"|[a-z_][a-z0-9_$]*)$'
+            THEN
+                RAISE EXCEPTION 'collation for column % is not a safe identifier: %',
+                    i_column_names[l_position], i_key_collations[l_position]
+                    USING ERRCODE = '22023';
+            END IF;
+
+            -- The argument domain rejects a NULL element.
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
+                RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
@@ -130,27 +149,40 @@ BEGIN
                     -- prepare_chunk_sql_render: NULL means the column is not in the
                     -- catalog (compare under the default collation), otherwise it is
                     -- applied with an explicit COLLATE.
-                    IF o_first_difference = 0
-                        AND i_start_values[l_position] IS DISTINCT FROM i_end_values[l_position]
-                    THEN
+                    --
+                    -- Equality and direction are computed in the same expression.
+                    -- Testing IS DISTINCT FROM first would compare under the
+                    -- database default collation: with a nondeterministic column
+                    -- collation two byte-different values can be equal (or the
+                    -- reverse), so the reported difference would disagree with the
+                    -- ordering the chunk predicate actually uses.
+                    IF o_first_difference = 0 THEN
                         IF i_key_collations[l_position] IS NULL THEN
+                            l_values_equal :=
+                                    i_start_values[l_position] = i_end_values[l_position];
                             l_start_less_than_end :=
                                     i_start_values[l_position] < i_end_values[l_position];
                         ELSE
                             EXECUTE pg_catalog.format(
-                                    'SELECT %L::text COLLATE %s < %L::text COLLATE %s',
+                                    'SELECT (%L::text COLLATE %s = %L::text COLLATE %s), '
+                                        '(%L::text COLLATE %s < %L::text COLLATE %s)',
+                                    i_start_values[l_position], i_key_collations[l_position],
+                                    i_end_values[l_position], i_key_collations[l_position],
                                     i_start_values[l_position], i_key_collations[l_position],
                                     i_end_values[l_position], i_key_collations[l_position])
-                                INTO l_start_less_than_end;
+                                INTO l_values_equal, l_start_less_than_end;
                         END IF;
 
-                        o_first_difference := CASE WHEN l_start_less_than_end THEN -1 ELSE 1 END;
-                        o_first_difference_position := l_position;
+                        IF NOT l_values_equal THEN
+                            o_first_difference := CASE WHEN l_start_less_than_end THEN -1 ELSE 1 END;
+                            o_first_difference_position := l_position;
+                        END IF;
                     END IF;
                 END IF;
             EXCEPTION
                 WHEN invalid_parameter_value
                     OR invalid_text_representation
+                    OR numeric_value_out_of_range
                     OR invalid_datetime_format
                     OR datetime_field_overflow
                     OR SQLSTATE '22009' THEN
@@ -182,14 +214,9 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.build_chunk_boundary_literals(
-    text[],
-    text[],
-    text[],
-    text[],
-    text[]
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.build_chunk_boundary_literals IS
     'Validates a chunk''s start/end boundary values, builds their typed SQL '
         'literals and returns the first differing column with its direction. A '
         'NULL value, an invalid literal for its kind or a malformed array is '
-        'rejected with 22023. Shared by render_prepared_chunk_sql.';
+        'rejected with 22023, and the first differing column is compared under the '
+        'column''s own collation. Shared by render_prepared_chunk_sql.';

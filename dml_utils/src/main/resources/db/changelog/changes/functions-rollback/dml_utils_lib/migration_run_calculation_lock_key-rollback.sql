@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS dml_utils_lib.migration_run_calculation_lock_key(bigint);
+DROP FUNCTION IF EXISTS dml_utils_lib.migration_run_calculation_lock_key(dml_utils_data.non_null_bigint);

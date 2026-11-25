@@ -1,1 +1,1 @@
-DROP FUNCTION IF EXISTS dml_utils_lib.finalize_migration_boundaries(bigint);
+DROP FUNCTION IF EXISTS dml_utils_lib.finalize_migration_boundaries(dml_utils_data.non_null_bigint);

@@ -127,6 +127,7 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
         assertRejected("22023", "test_ordered_key_five_idx");
     }
 
+
     /**
      * A missing index OID and an OID that belongs to a different table are
      * rejected with {@code 42704}; the supplied names only affect the message.
@@ -141,14 +142,15 @@ class OrderedKeyAttributesForIndexTest extends PartitionTestBase {
     }
 
     /**
-     * An index built with ON ONLY is not valid, ready and live, so it fails closed
-     * with {@code 55000}.
+     * An index built with ON ONLY is not valid, ready and live, so it fails
+     * closed with {@code 55000}. The nullable payload column is also a
+     * column-level violation ({@code 0A000}); the index-level error wins.
      */
     @Test
     void rejectsAnOnOnlyIndex() throws Exception {
         String index = "test_ordered_key_on_only_idx";
         executeAsOwner("CREATE UNIQUE INDEX " + index + " ON ONLY "
-                + SCHEMA + ".test_partitioned_range (id)");
+                + SCHEMA + ".test_partitioned_range (id, payload)");
         try {
             assertSqlState("55000", () -> Routines.orderedKeyAttributesForIndex(
                     dsl.configuration(), relationOid(SCHEMA + "." + index),

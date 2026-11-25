@@ -20,6 +20,14 @@ $$
 DECLARE
     l_parent_index oid;
 BEGIN
+    -- The strategy is a plain enum (no domain, for the jOOQ initialisation
+    -- cycle), so a NULL would make both IF/ELSIF predicates NULL and fall
+    -- through to the primary-key branch below.
+    IF i_chunk_by IS NULL THEN
+        RAISE EXCEPTION 'i_chunk_by must not be NULL'
+            USING ERRCODE = '22023';
+    END IF;
+
     -- A range run reads its key columns and kinds from the primary key or the
     -- named ordered-key index. A non-partition-wise block run instead records the
     -- driving table's physical filepath so a resume can detect a heap rewrite,
@@ -36,6 +44,10 @@ BEGIN
                     i_table_name => i_table_name);
         END IF;
     ELSIF i_chunk_by = 'ordered_key' THEN
+        IF i_boundary_key_index IS NULL THEN
+            RAISE EXCEPTION 'i_boundary_key_index is required for an ordered_key run'
+                USING ERRCODE = '22023';
+        END IF;
         IF i_partition_wise::boolean THEN
             -- Validate the parent index shape and take its descriptor now. The
             -- leaf child indexes are checked against the manifest after it is
@@ -57,26 +69,37 @@ BEGIN
                          i_table_name => i_table_name,
                          i_index_name => i_boundary_key_index) AS a;
         ELSE
-            PERFORM dml_utils_lib.assert_usable_ordered_key(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
-            o_key_columns := dml_utils_lib.ordered_key_columns(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
-            o_key_kinds := dml_utils_lib.ordered_key_kinds(
-                    i_schema_name => i_schema_name,
-                    i_table_name => i_table_name,
-                    i_index_name => i_boundary_key_index);
+            -- One traversal validates the index and yields both arrays; the
+            -- helper's table checks and shape checks run once, not three times.
+            SELECT pg_catalog.array_agg(a.column_name ORDER BY a.ordinality),
+                   pg_catalog.array_agg(a.key_kind ORDER BY a.ordinality)
+            INTO o_key_columns, o_key_kinds
+            FROM dml_utils_lib.ordered_key_attributes(
+                         i_schema_name => i_schema_name,
+                         i_table_name => i_table_name,
+                         i_index_name => i_boundary_key_index) AS a;
+
+            -- array_agg over no rows yields one NULL row, not an empty array, so
+            -- keep the fail-closed gate the assert gate provided: never build an
+            -- ordered run with a NULL descriptor.
+            IF o_key_columns IS NULL OR o_key_kinds IS NULL THEN
+                RAISE EXCEPTION 'index %.% has no usable ordered-key attributes',
+                    i_schema_name, i_boundary_key_index
+                    USING ERRCODE = '55000';
+            END IF;
         END IF;
-    ELSE
+    ELSIF i_chunk_by = 'primary_key' THEN
         o_key_columns := dml_utils_lib.primary_key_columns(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
         o_key_kinds := dml_utils_lib.primary_key_kinds(
                 i_schema_name => i_schema_name,
                 i_table_name => i_table_name);
+    ELSE
+        -- The enum has exactly the three values above; reject anything else
+        -- rather than giving it primary-key semantics.
+        RAISE EXCEPTION 'unsupported chunking strategy %', i_chunk_by
+            USING ERRCODE = '22023';
     END IF;
 
     -- The run-row constraint requires the ordered descriptor all-or-nothing; build
@@ -89,15 +112,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.resolve_migration_creation_key(
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name,
-    dml_utils_data.non_null_boolean
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.resolve_migration_creation_key IS
     'Resolves the key descriptor and filepath a new run stores: the primary key '
         'for primary_key, the ordered descriptor for ordered_key (validating the '
         'parent index for a partition-wise run) and the relation filepath for a '
         'single-relation blocks run. Partition-wise blocks leaves the run-level '
-        'filepath NULL.';
+        'filepath NULL. Raises 22023 for a NULL strategy; ordered-key validation '
+        'raises 42704/0A000/55000/22023 from ordered_key_attributes.';

@@ -6,7 +6,6 @@ import org.jooq.Table;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
@@ -57,10 +56,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
         dsl.execute(Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, runId, 2L));
 
-        List<MigrationBoundaryRecord> boundaries = dsl.selectFrom(MIGRATION_BOUNDARY)
-                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_BOUNDARY.BOUNDARY_NO)
-                .fetch();
+        List<MigrationBoundaryRecord> boundaries = this.boundaries(runId);
 
         // Rows 1..5 at chunk size 2: starts at 1, 3 and 5 (boundary_no 0, 1, 2)
         // and a terminal high-water boundary at 5 (boundary_no 3).
@@ -92,9 +88,9 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsBadInputs() {
-        assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, null, 2L));
-        assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
+        assertDomainViolation(() -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id"}, new String[]{"bigint"}, 1L, 0L));
         assertSqlState("22023", () -> Routines.buildBoundaryPopulationSql(dsl.configuration(),
                 schema(), name(), new String[]{"id", "id2"}, new String[]{"bigint"}, 1L, 2L));
@@ -111,11 +107,11 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     @Test
     void rejectsMalformedColumnAndKindArrays() {
         assertBuildRejected("ARRAY[]::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("'[0:0]={id}'::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY[ARRAY['id']]::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY[NULL]::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "'[0:0]={id}'::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "ARRAY[ARRAY['id']]::name[]", "ARRAY['bigint']::text[]");
+        assertBuildRejectedAs("23514", "ARRAY[NULL]::name[]", "ARRAY['bigint']::text[]");
         assertBuildRejected("ARRAY['']::name[]", "ARRAY['bigint']::text[]");
-        assertBuildRejected("ARRAY['id']::name[]", "ARRAY[NULL]::text[]");
+        assertBuildRejectedAs("23514", "ARRAY['id']::name[]", "ARRAY[NULL]::text[]");
         assertBuildRejected("ARRAY['a','b','c','d','e']::name[]",
                 "ARRAY['bigint','bigint','bigint','bigint','bigint']::text[]");
     }
@@ -219,15 +215,7 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
      */
     @Test
     void insertsTimestamptzCompositeKeyBoundaries() {
-        for (int i = 1; i <= 5; i++) {
-            dsl.insertInto(TEST_ORDERED_KEY,
-                            TEST_ORDERED_KEY.ID, TEST_ORDERED_KEY.CREATED_AT,
-                            TEST_ORDERED_KEY.EXTERNAL_ID, TEST_ORDERED_KEY.LABEL,
-                            TEST_ORDERED_KEY.COLLATED_LABEL, TEST_ORDERED_KEY.NUMERIC_KEY)
-                    .values((long) i, timestamp((i + 1) / 2), uuid(i), "k" + i, "k" + i,
-                            BigDecimal.valueOf(i))
-                    .execute();
-        }
+        seedOrderedKey();
         long runId = insertRun(TEST_ORDERED_KEY);
 
         executeBuild(TEST_ORDERED_KEY, new String[]{"created_at", "id"},
@@ -248,7 +236,11 @@ class BuildBoundaryPopulationSqlTest extends PostgresTestBase {
     }
 
     private void assertBuildRejected(String columns, String kinds) {
-        assertSqlState("22023", () -> dsl.fetchOne(
+        assertBuildRejectedAs("22023", columns, kinds);
+    }
+
+    private void assertBuildRejectedAs(String state, String columns, String kinds) {
+        assertSqlState(state, () -> dsl.fetchOne(
                 "SELECT dml_utils_lib.build_boundary_population_sql(?, ?, "
                         + columns + ", " + kinds + ", 1, 2)",
                 schema(), name()));

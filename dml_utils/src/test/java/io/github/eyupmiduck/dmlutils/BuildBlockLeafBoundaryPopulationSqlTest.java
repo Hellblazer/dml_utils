@@ -8,10 +8,9 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedQuoted.TEST_PARTITIONED_QUOTED;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitioned_22odd_22.TEST_PARTITIONED__22ODD_22;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.build_block_leaf_boundary_population_sql}: the
@@ -25,14 +24,16 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
             "UPDATE <driving_table> SET payload = 'x' WHERE <chunking_clause>";
     private static final String LOW = "test_partitioned_range_low";
     private static final String HIGH = "test_partitioned_range_high";
+    private static final String QUOTED = "test partitioned \"odd\"";
 
     /**
-     * Empties the range fixture and the migration metadata between tests.
+     * Empties the range and quoted fixtures and the migration metadata between
+     * tests (quotesALeafNameThatNeedsIt inserts into the quoted leaf directly).
      */
     @BeforeEach
     void reset() {
-        dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        resetRunsAndRange();
+        dsl.truncate(TEST_PARTITIONED_QUOTED).execute();
     }
 
     /**
@@ -46,8 +47,9 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertTrue(blockCount > 1, "the seeded leaf should span several blocks");
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
+        int lowOrdinal = leafOrdinal(runId, LOW);
         String sql = Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
-                PARTITION_SCHEMA, LOW, runId, 1L, 1);
+                PARTITION_SCHEMA, LOW, runId, 1L, lowOrdinal);
 
         assertTrue(sql.contains("INSERT INTO dml_utils_data.migration_boundary"));
         assertTrue(sql.contains(PARTITION_SCHEMA + "." + LOW));
@@ -58,7 +60,7 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertEquals(blockCount, boundaries.size(), "one start per block at chunk size one");
         for (int i = 0; i < boundaries.size(); i++) {
             assertEquals(i, boundaries.get(i).getBoundaryNo().intValue());
-            assertEquals(1, boundaries.get(i).getLeafOrdinal());
+            assertEquals(lowOrdinal, boundaries.get(i).getLeafOrdinal());
             assertEquals(i, boundaries.get(i).getBoundaryId().getBigintValues()[0].intValue(),
                     "start i is block i");
         }
@@ -74,10 +76,11 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         long lowBlocks = leafBlocks(LOW);
         long highBlocks = leafBlocks(HIGH);
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 2, null);
+        int lowOrdinal = leafOrdinal(runId, LOW);
         int highOrdinal = leafOrdinal(runId, HIGH);
 
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
-                PARTITION_SCHEMA, LOW, runId, 2L, 1));
+                PARTITION_SCHEMA, LOW, runId, 2L, lowOrdinal));
         dsl.execute(Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
                 PARTITION_SCHEMA, HIGH, runId, 2L, highOrdinal));
 
@@ -87,13 +90,45 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
         assertEquals(lowStarts + highStarts, boundaries.size());
         for (int i = 0; i < lowStarts; i++) {
             assertEquals(i, boundaries.get(i).getBoundaryNo().intValue());
-            assertEquals(1, boundaries.get(i).getLeafOrdinal());
+            assertEquals(lowOrdinal, boundaries.get(i).getLeafOrdinal());
         }
         for (int i = 0; i < highStarts; i++) {
             MigrationBoundaryRecord boundary = boundaries.get((int) (lowStarts + i));
             assertEquals(lowStarts + i, boundary.getBoundaryNo().longValue());
             assertEquals(highOrdinal, boundary.getLeafOrdinal());
             assertEquals(i * 2L, boundary.getBoundaryId().getBigintValues()[0].longValue());
+        }
+    }
+
+    /**
+     * A leaf name that needs quoting survives the identifier round trip: the
+     * builder embeds {@code format('%I.%I')} as a literal and the server resolves
+     * it with {@code ::regclass}, so the space and embedded double quote stay part
+     * of the name instead of breaking the statement.
+     */
+    @Test
+    void quotesALeafNameThatNeedsIt() {
+        dsl.insertInto(TEST_PARTITIONED__22ODD_22,
+                        TEST_PARTITIONED__22ODD_22.ID, TEST_PARTITIONED__22ODD_22.PAYLOAD)
+                .values(1L, "a")
+                .values(2L, "b")
+                .execute();
+        long runId = populatePartitionWise("block-leaf-quoted", "test_partitioned_quoted",
+                TEMPLATE, ChunkingStrategy.blocks, 1, null);
+        int ordinal = leafOrdinal(runId, QUOTED);
+
+        String sql = Routines.buildBlockLeafBoundaryPopulationSql(dsl.configuration(),
+                PARTITION_SCHEMA, QUOTED, runId, 1L, ordinal);
+
+        assertTrue(sql.contains("\"test partitioned \"\"odd\"\"\""),
+                "the leaf name is identifier-quoted in the generated statement");
+        dsl.execute(sql);
+
+        List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertFalse(boundaries.isEmpty(), "the quoted leaf has at least one block");
+        for (MigrationBoundaryRecord boundary : boundaries) {
+            assertEquals(ordinal, boundary.getLeafOrdinal(),
+                    "the quoted leaf's starts carry its manifest ordinal");
         }
     }
 
@@ -118,17 +153,17 @@ class BuildBlockLeafBoundaryPopulationSqlTest extends PartitionTestBase {
     void rejectsBadInputs() {
         long runId = populatePartitionWise("block-leaf-builder", "test_partitioned_range", TEMPLATE, ChunkingStrategy.blocks, 1, null);
 
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, null, 1L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, null, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 0L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, -1L, 1));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 1L, null));
-        assertSqlState("22023", () -> Routines.buildBlockLeafBoundaryPopulationSql(
+        assertDomainViolation(() -> Routines.buildBlockLeafBoundaryPopulationSql(
                 dsl.configuration(), PARTITION_SCHEMA, LOW, runId, 1L, 0));
     }
 

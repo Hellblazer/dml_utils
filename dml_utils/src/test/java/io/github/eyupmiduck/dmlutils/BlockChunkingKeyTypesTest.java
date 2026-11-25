@@ -2,12 +2,18 @@ package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.UUID;
 
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestCompositeMixed.TEST_COMPOSITE_MIXED;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestText.TEST_TEXT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestUuid.TEST_UUID;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -25,14 +31,19 @@ class BlockChunkingKeyTypesTest extends PostgresTestBase {
     @BeforeEach
     void reset() {
         dsl.deleteFrom(MIGRATION_RUN).execute();
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_text");
-        dsl.execute("INSERT INTO dml_utils_fixtures.test_text (id, payload) VALUES ('k', 'p')");
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_uuid");
-        dsl.execute("INSERT INTO dml_utils_fixtures.test_uuid (id, payload)"
-                + " VALUES ('00000000-0000-0000-0000-000000000000', 'p')");
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_composite_mixed");
-        dsl.execute("INSERT INTO dml_utils_fixtures.test_composite_mixed (a, b, payload)"
-                + " VALUES (1, 'x', 'p')");
+        dsl.truncate(TEST_TEXT).execute();
+        dsl.insertInto(TEST_TEXT, TEST_TEXT.ID, TEST_TEXT.PAYLOAD)
+                .values("k", "p")
+                .execute();
+        dsl.truncate(TEST_UUID).execute();
+        dsl.insertInto(TEST_UUID, TEST_UUID.ID, TEST_UUID.PAYLOAD)
+                .values(new UUID(0L, 0L), "p")
+                .execute();
+        dsl.truncate(TEST_COMPOSITE_MIXED).execute();
+        dsl.insertInto(TEST_COMPOSITE_MIXED,
+                        TEST_COMPOSITE_MIXED.A, TEST_COMPOSITE_MIXED.B, TEST_COMPOSITE_MIXED.PAYLOAD)
+                .values(1L, "x", "p")
+                .execute();
     }
 
     /**
@@ -43,9 +54,15 @@ class BlockChunkingKeyTypesTest extends PostgresTestBase {
         for (String table : List.of("test_text", "test_uuid", "test_composite_mixed")) {
             String label = uniqueLabel("block-key");
             Routines.runMigrationChunks(dsl.configuration(), TEMPLATE, "dml_utils_fixtures",
-                    table, label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false);
+                    table, label, 1, 1, "t", ChunkingStrategy.blocks, 1, 0, null, false, 3, 1000);
 
             assertTrue(runCompleted(label), table + " should complete with the block strategy");
+            MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
+                    .where(MIGRATION_RUN.LABEL.eq(label))
+                    .fetchOne();
+            assertNotNull(run, table + " run row must exist");
+            assertTrue(run.getTotalChunks() > 0,
+                    table + " must produce at least one block chunk, not complete empty");
         }
     }
 }

@@ -4,6 +4,8 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.BoundaryKeyDescriptorSqlRecord;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -77,6 +79,40 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A key column literally named {@code id1} collides with the generated alias,
+     * so the select list aliases in key order, the window order by keeps the raw
+     * (input) column names, and only the top-level descending order by uses the
+     * idN aliases.
+     */
+    @Test
+    void describesAKeyColumnThatCollidesWithAnIdAlias() {
+        BoundaryKeyDescriptorSqlRecord row = describe(
+                new String[]{"x", "id1"}, new String[]{"bigint", "bigint"});
+
+        assertEquals("x AS id1, id1 AS id2", row.getOSelectList());
+        assertEquals("id1, id2", row.getOIdList());
+        assertEquals("x, id1", row.getOOrderBy());
+        assertEquals("id1 DESC, id2 DESC", row.getOOrderByDesc());
+
+        // Execute a swapped collision instead: with key columns (id2, id1) the
+        // correct fragment (id1 DESC, id2 DESC) orders by src.id2, then src.id1,
+        // while a raw-name fragment (id2 DESC, id1 DESC) would resolve to the
+        // output aliases and order by src.id1, then src.id2 -- a deterministic
+        // difference, unlike a tie on the first column.
+        BoundaryKeyDescriptorSqlRecord swapped = describe(
+                new String[]{"id2", "id1"}, new String[]{"bigint", "bigint"});
+        List<Long[]> ordered = dsl.fetch("SELECT " + swapped.getOSelectList()
+                        + " FROM (VALUES (1::bigint, 2::bigint), (2::bigint, 1::bigint))"
+                        + " AS src(id2, id1) ORDER BY " + swapped.getOOrderByDesc())
+                .map(record -> new Long[]{record.get("id1", Long.class),
+                        record.get("id2", Long.class)});
+        assertEquals(2L, ordered.getFirst()[0],
+                "the first key column is ordered by its own value");
+        assertEquals(1L, ordered.getFirst()[1],
+                "the second key column is ordered by its own value, not by the first alias");
+    }
+
+    /**
      * A four-column key, the supported maximum and the nexus chunks shape (text,
      * text, bytea, text), keeps each kind in its position of the pack arrays,
      * with the bytea column third.
@@ -127,13 +163,13 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsNonOneDimensionalOrNonOneBasedArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "ARRAY[['k1']]::name[], ARRAY[['bigint']]::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "'[0:0]={k1}'::name[], '{bigint}'::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT * FROM dml_utils_lib.boundary_key_descriptor_sql("
                         + "'{k1}'::name[], '[0:0]={bigint}'::text[])"));
     }
@@ -148,9 +184,9 @@ class BoundaryKeyDescriptorSqlTest extends PostgresTestBase {
                 new String[]{"integer"}));
         assertSqlState("22023", () -> describe(new String[]{"k1"},
                 new String[]{"BIGINT"}));
-        assertSqlState("22023", () -> describe(new String[]{"k1"},
+        assertSqlState("23514", () -> describe(new String[]{"k1"},
                 new String[]{null}));
-        assertSqlState("22023", () -> describe(new String[]{null},
+        assertSqlState("23514", () -> describe(new String[]{null},
                 new String[]{"bigint"}));
         assertSqlState("22023", () -> describe(new String[]{""},
                 new String[]{"bigint"}));

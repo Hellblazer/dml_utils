@@ -1,37 +1,43 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.explain_query_plan(
-    i_sql_text text
+    i_sql_text dml_utils_data.non_null_text
 )
     RETURNS json
     LANGUAGE plpgsql
     VOLATILE
     SECURITY INVOKER
+    SET standard_conforming_strings = on
 AS
 $$
 DECLARE
     l_plan json;
 BEGIN
-    -- A NULL would concatenate to the literal "EXPLAIN (FORMAT JSON) " with no
-    -- statement, and a blank statement would fail with a syntax error; reject
-    -- both up front with a message that names the argument.
-    IF i_sql_text IS NULL OR pg_catalog.btrim(i_sql_text) = '' THEN
-        RAISE EXCEPTION 'i_sql_text must not be NULL or empty'
-            USING ERRCODE = '22023';
-    END IF;
+    -- i_sql_text is a non_null_text, so the domain rejects NULL and a blank
+    -- statement (the same ASCII whitespace set the rest of the package uses)
+    -- before the body runs; the concatenation below therefore cannot produce an
+    -- empty statement.
 
     -- EXPLAIN (FORMAT JSON) returns one row with a single json column. Without
     -- ANALYZE it only plans, so the statement is never executed: an INSERT or
     -- UPDATE yields a ModifyTable plan and changes nothing, and an insert whose
-    -- foreign key is unsatisfied still plans. EXECUTE accepts a single
-    -- statement, so a multi-statement string fails rather than running.
+    -- foreign key is unsatisfied still plans. PL/pgSQL's EXECUTE runs every
+    -- statement in its argument, so the input is checked first: a
+    -- multi-statement string must fail here rather than execute its trailing
+    -- statements after the EXPLAIN.
     --
     -- The function is VOLATILE, not STABLE: PostgreSQL rejects EXPLAIN inside a
     -- non-volatile function ("EXPLAIN is not allowed in a non-volatile
     -- function"). It still only plans, so it changes nothing.
     --
+    -- standard_conforming_strings is pinned to on: assert_single_statement
+    -- scans the text with that mode, and the EXECUTE below must parse it the
+    -- same way, whatever the caller's session setting is.
+    --
     -- The statement is caller-supplied, but the routine is SECURITY INVOKER and
     -- only plans (it cannot execute), so it is no more privileged than running
     -- EXPLAIN on the same SQL directly: it is not an authorization boundary and
     -- needs no provenance check.
+    PERFORM dml_utils_lib.assert_single_statement(i_sql_text => i_sql_text);
+
     EXECUTE 'EXPLAIN (FORMAT JSON) ' || i_sql_text INTO l_plan;
 
     RETURN l_plan;
@@ -41,6 +47,9 @@ $$;
 COMMENT ON FUNCTION dml_utils_lib.explain_query_plan IS
     'Returns EXPLAIN (FORMAT JSON) of i_sql_text as a json value without '
         'executing it (no ANALYZE), so an INSERT/UPDATE only plans. Rejects a '
-        'NULL or empty statement. The statement is caller-supplied but the '
-        'routine is SECURITY INVOKER and only plans, so it is no more privileged '
-        'than running EXPLAIN on the same SQL directly.';
+        'NULL or empty statement, and rejects a multi-statement string (22023) '
+        'so its trailing statements cannot run. Parses with '
+        'standard_conforming_strings pinned to on so the guard and the EXPLAIN '
+        'agree, whatever the caller session sets. The statement is caller-supplied '
+        'but the routine is SECURITY INVOKER and only plans, so it is no more '
+        'privileged than running EXPLAIN on the same SQL directly.';

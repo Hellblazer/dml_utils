@@ -34,7 +34,7 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
      * names are the alias-qualified key columns in key order.
      */
     @Test
-    void leavesTheDrivingTableAsASentinelAndQuotesTheColumnNames() {
+    void leavesTheDrivingTableAsASentinelAndQualifiesTheColumnNames() {
         PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"a", "b"}, new String[]{"bigint", "text"});
@@ -63,7 +63,8 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
         String[] collations = prepared.getOKeyCollations();
         assertEquals(2, collations.length, "one collation entry per key column");
         assertNull(collations[0], "a bigint column has no collation entry");
-        assertEquals("\"en-x-icu\"", collations[1], "the text column's ICU collation");
+        assertEquals("pg_catalog.\"en-x-icu\"", collations[1],
+                "the text column's ICU collation, schema-qualified");
     }
 
     /**
@@ -105,6 +106,22 @@ class PrepareChunkSqlRenderTest extends PostgresTestBase {
                 + "' WHERE <chunking_clause>";
         assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
                 dsl.configuration(), template, "public", "src", "t",
+                new String[]{"a"}, new String[]{"bigint"}));
+    }
+
+    /**
+     * An alias carrying a reserved substitution character is rejected: the alias is
+     * baked into every qualified column name, so it would be rewritten as a token.
+     */
+    @Test
+    void rejectsAnAliasWithASentinelCharacter() {
+        assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src",
+                "t" + DRIVING_TABLE_SENTINEL,
+                new String[]{"a"}, new String[]{"bigint"}));
+        assertSqlState("22023", () -> Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src",
+                "t" + CLAUSE_SENTINEL,
                 new String[]{"a"}, new String[]{"bigint"}));
     }
 

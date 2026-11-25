@@ -1,8 +1,7 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.changelogvalidator.testing.PlpgsqlCheckContract;
-
-import java.util.Collection;
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 
 /**
  * Runs the {@code plpgsql_check} static analyser over every routine in the
@@ -16,22 +15,13 @@ import java.util.Collection;
 class PlpgsqlCheckTest extends PlpgsqlCheckContract {
 
     /**
-     * The dml_utils container and changelog configuration.
+     * The dml_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
      *
-     * @return the configuration
+     * @return the dml_utils profile
      */
     @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.CONFIGURATION;
-    }
-
-    /**
-     * The schemas that hold the project's routines.
-     *
-     * @return the routine schemas
-     */
-    @Override
-    protected Collection<String> routineSchemas() {
-        return TestSchemas.APPLICATION;
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }

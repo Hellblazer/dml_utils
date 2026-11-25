@@ -49,6 +49,28 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
     }
 
     /**
+     * A single timestamptz key populates only the timestamptz array.
+     */
+    @Test
+    void packsASingleTimestamptzKey() {
+        assertEquals("ROW(NULL::bigint[], NULL::text[], NULL::uuid[],"
+                        + " ARRAY[id1::timestamptz]::timestamptz[], NULL::bytea[])"
+                        + "::dml_utils_data.migration_key",
+                pack(new String[]{"timestamptz"}));
+    }
+
+    /**
+     * A repeated kind fills successive positions of the same array.
+     */
+    @Test
+    void packsRepeatedKindsIntoOneArray() {
+        assertEquals("ROW(ARRAY[id1::bigint, id2::bigint]::bigint[], NULL::text[],"
+                        + " NULL::uuid[], NULL::timestamptz[], NULL::bytea[])"
+                        + "::dml_utils_data.migration_key",
+                pack(new String[]{"bigint", "bigint"}));
+    }
+
+    /**
      * A three-column key places uuid, bigint and text terms in their own arrays.
      */
     @Test
@@ -105,9 +127,18 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
         assertSqlState("22023", () -> pack(null));
         assertSqlState("22023", () -> pack(new String[]{}));
         assertSqlState("22023", () -> pack(new String[]{"bigint", "text", "uuid", "text", "bytea"}));
-        assertSqlState("22023", () -> pack(new String[]{null}));
+        assertSqlState("23514", () -> pack(new String[]{null}));
         assertSqlState("22023", () -> pack(new String[]{"integer"}));
         assertSqlState("22023", () -> pack(new String[]{"BIGINT"}));
+    }
+
+    /**
+     * A NULL kind element is rejected by the argument domain before the body can
+     * fall through the kind chain with an empty value.
+     */
+    @Test
+    void rejectsANullKindElement() {
+        assertSqlState("23514", () -> pack(new String[]{null}));
     }
 
     /**
@@ -115,9 +146,9 @@ class BoundaryKeyPackExpressionTest extends PostgresTestBase {
      */
     @Test
     void rejectsMalformedArrays() {
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT dml_utils_lib.boundary_key_pack_expression(ARRAY[['bigint']]::text[])"));
-        assertSqlState("22023", () -> dsl.fetch(
+        assertSqlState("23514", () -> dsl.fetch(
                 "SELECT dml_utils_lib.boundary_key_pack_expression('[0:0]={bigint}'::text[])"));
     }
 }

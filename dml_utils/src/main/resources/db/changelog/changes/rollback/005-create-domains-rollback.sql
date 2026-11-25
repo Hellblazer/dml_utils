@@ -1,0 +1,15 @@
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_name_array;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_text_array;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_bigint_array;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_element_integer_array;
+DROP TYPE IF EXISTS dml_utils_data.migration_key;
+DROP TYPE IF EXISTS dml_utils_data.chunking_strategy;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_bigint;
+DROP DOMAIN IF EXISTS dml_utils_data.non_negative_bigint;
+DROP DOMAIN IF EXISTS dml_utils_data.positive_bigint;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_timestamptz;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_oid;
+DROP DOMAIN IF EXISTS dml_utils_data.non_negative_integer;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_boolean;
+DROP DOMAIN IF EXISTS dml_utils_data.positive_integer;
+DROP DOMAIN IF EXISTS dml_utils_data.non_null_text;

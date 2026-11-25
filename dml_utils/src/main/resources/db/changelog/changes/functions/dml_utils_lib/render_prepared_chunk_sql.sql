@@ -1,14 +1,14 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.render_prepared_chunk_sql(
-    i_template text,
+    i_template dml_utils_data.non_null_text,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_table_alias dml_utils_data.non_null_text,
-    i_column_names text[],
-    i_key_kinds text[],
+    i_column_names dml_utils_data.non_null_element_text_array,
+    i_key_kinds dml_utils_data.non_null_element_text_array,
     i_key_collations text[],
     i_start_values text[],
     i_end_values text[],
-    i_is_final boolean
+    i_is_final dml_utils_data.non_null_boolean
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -23,6 +23,7 @@ DECLARE
     l_driving_table_sentinel   constant text := pg_catalog.chr(1);
     l_chunking_clause_sentinel constant text := pg_catalog.chr(2);
     l_column_count                      integer;
+    l_alias_prefix                      text;
     l_start_literals                    text[];
     l_end_literals                      text[];
     l_first_difference                  integer;
@@ -34,10 +35,6 @@ DECLARE
 BEGIN
     -- The per-chunk render consumes only the run-invariant context prepared once
     -- by prepare_chunk_sql_render; it reads no catalog and validates no template.
-    IF i_template IS NULL THEN
-        RAISE EXCEPTION 'prepared template must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
 
     -- The prepared template must carry exactly the clause sentinel, or the
     -- substituted clause would never be placed and the chunk would render with no
@@ -66,8 +63,17 @@ BEGIN
 
     -- i_is_final selects the upper bound (inclusive for the final chunk, exclusive
     -- otherwise); a NULL would silently take the non-final branch, so reject it.
-    IF i_is_final IS NULL THEN
-        RAISE EXCEPTION 'i_is_final must not be NULL'
+
+    -- The prepared context carries one collation per key column (NULL for a kind
+    -- that does not order by collation). A missing or misaligned array would make
+    -- the helper compare a text key under the default collation instead of the
+    -- column's, so reject it here where the parameter is still named.
+    IF i_key_collations IS NULL
+        OR pg_catalog.array_ndims(i_key_collations) IS DISTINCT FROM 1
+        OR pg_catalog.array_lower(i_key_collations, 1) IS DISTINCT FROM 1
+        OR pg_catalog.array_length(i_key_collations, 1) IS DISTINCT FROM pg_catalog.array_length(i_column_names, 1)
+    THEN
+        RAISE EXCEPTION 'key collations must be a one-dimensional, 1-based array aligned with the column names'
             USING ERRCODE = '22023';
     END IF;
 
@@ -92,14 +98,23 @@ BEGIN
     -- different alias would render a predicate that no longer binds the driving
     -- table; reject it rather than emit SQL that fails in the worker.
     l_column_count := pg_catalog.array_length(i_column_names, 1);
+    l_alias_prefix := pg_catalog.quote_ident(i_table_alias) || '.';
     FOR l_position IN 1..l_column_count
         LOOP
+        -- The element is interpolated verbatim into the predicate, so it must
+        -- be exactly the alias-qualified identifier build_key_render_columns
+        -- produced: the prefix followed by one (quoted or simple) identifier.
+        -- A prefix match alone would accept "t.a OR true --". The C collation
+        -- makes [a-z] a byte range: under a linguistic collation it would
+        -- also accept uppercase, which the producer always quotes.
             IF i_column_names[l_position] IS NULL
-                OR NOT pg_catalog.starts_with(
-                        i_column_names[l_position],
-                        pg_catalog.quote_ident(i_table_alias) || '.')
+                OR NOT pg_catalog.starts_with(i_column_names[l_position], l_alias_prefix)
+                OR pg_catalog.substr(i_column_names[l_position],
+                                     pg_catalog.length(l_alias_prefix) + 1)
+                       COLLATE pg_catalog."C"
+                   !~ '^"([^"]|"")+"$|^[a-z_][a-z0-9_$]*$'
             THEN
-                RAISE EXCEPTION 'column name % is not qualified with alias %',
+                RAISE EXCEPTION 'column name % is not a single identifier qualified with alias %',
                     i_column_names[l_position], i_table_alias
                     USING ERRCODE = '22023';
             END IF;
@@ -131,7 +146,7 @@ BEGIN
     IF pg_catalog.strpos(l_chunking_clause, l_driving_table_sentinel) > 0
         OR pg_catalog.strpos(l_chunking_clause, l_chunking_clause_sentinel) > 0
     THEN
-        RAISE EXCEPTION 'template or identifier contains a reserved substitution character'
+        RAISE EXCEPTION 'the chunking clause contains a reserved substitution character'
             USING ERRCODE = '22023';
     END IF;
 
@@ -152,7 +167,8 @@ COMMENT ON FUNCTION dml_utils_lib.render_prepared_chunk_sql IS
         'one leaf) for the template''s driving-table sentinel and the clause for '
         'its sentinel. i_table_alias must be the alias the context was prepared '
         'with, because the column names are already qualified with it; a different '
-        'alias is rejected. The final chunk uses an inclusive upper bound; a '
+        'alias or a column name that is not one alias-qualified identifier is '
+        'rejected. The final chunk uses an inclusive upper bound; a '
         'reversed range, a NULL value or a value that is not a valid literal for '
         'its key kind is rejected. A text key is ordered under the precomputed '
         'column collation, matching the predicate.';

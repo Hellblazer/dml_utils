@@ -1,5 +1,6 @@
 package io.github.eyupmiduck.dmlutils;
 
+import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.changelogvalidator.testing.RollbackSignatureContract;
 
 import java.util.Collection;
@@ -18,26 +19,6 @@ import java.util.List;
 class RollbackSignatureTest extends RollbackSignatureContract {
 
     /**
-     * The dml_utils container and changelog configuration.
-     *
-     * @return the configuration
-     */
-    @Override
-    protected Configuration configuration() {
-        return PostgresTestBase.CONFIGURATION;
-    }
-
-    /**
-     * The schemas that hold the project's routines.
-     *
-     * @return the routine schemas
-     */
-    @Override
-    protected Collection<String> routineSchemas() {
-        return TestSchemas.APPLICATION;
-    }
-
-    /**
      * The rollback trees for the function changesets and the schema changesets.
      * The latter is included because {@code migration_key_is_canonical} is
      * created by a schema changeset rather than a routine changeset.
@@ -48,5 +29,16 @@ class RollbackSignatureTest extends RollbackSignatureContract {
     protected Collection<String> rollbackDirectories() {
         return List.of("db/changelog/changes/functions-rollback",
                 "db/changelog/changes/rollback");
+    }
+
+    /**
+     * The dml_utils profile, so this contract uses the project's roles, image,
+     * changelog and schemas rather than the library defaults.
+     *
+     * @return the dml_utils profile
+     */
+    @Override
+    protected ProjectProfile projectProfile() {
+        return PostgresTestBase.PROFILE;
     }
 }

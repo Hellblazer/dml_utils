@@ -7,13 +7,25 @@ CREATE OR REPLACE FUNCTION dml_utils.explain_function_over_table(
     -- Plain text, not non_null_text: an omitted filter is NULL and means no
     -- filter. non_null_text would reject the DEFAULT NULL before the body.
     i_filter text DEFAULT NULL,
-    i_chunk_by dml_utils_data.chunking_strategy DEFAULT 'primary_key'
+    i_chunk_by dml_utils_data.chunking_strategy DEFAULT 'primary_key',
+    -- The unique index whose order an ordered_key run uses. Required for
+    -- ordered_key and rejected for the other strategies.
+    i_boundary_key_index name DEFAULT NULL,
+    -- When true, the plans are rendered against one leaf of a declarative
+    -- partitioned parent.
+    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE,
+    -- Deterministic manifest ordinal; NULL selects the first leaf. Rejected for a
+    -- non-partition-wise call.
+    i_leaf_ordinal integer DEFAULT NULL
 )
     RETURNS TABLE
             (
-                o_plan_kind text,
-                o_sql_text  text,
-                o_plan      json
+                o_plan_kind        text,
+                o_sql_text         text,
+                o_plan             json,
+                o_leaf_schema_name text,
+                o_leaf_name        text,
+                o_leaf_ordinal     integer
             )
     LANGUAGE plpgsql
     VOLATILE
@@ -22,19 +34,11 @@ AS
 $$
 DECLARE
     l_function_chunk_template text;
-    l_primary_key_columns     name[];
-    l_key_kinds               text[];
 BEGIN
-    -- The generated function template binds the primary-key column types, so an
-    -- ordered key would change the function contract; it is out of scope for v1.
-    IF i_chunk_by = 'ordered_key' THEN
-        RAISE EXCEPTION 'explain_function_over_table does not support ordered_key chunking'
-            USING ERRCODE = '0A000';
-    END IF;
-
     -- Validate the function against the driving table's primary key and build
     -- the per-row template first, exactly as the runner does; a bad table or
-    -- function fails before any plan is produced.
+    -- function fails before any plan is produced. The chunk key is independent of
+    -- the function arguments.
     l_function_chunk_template := dml_utils_lib.build_function_chunk_template(
             i_table_schema_name => i_driving_table_schema_name,
             i_table_name => i_driving_table_name,
@@ -42,36 +46,26 @@ BEGIN
             i_function_name => i_function_name,
             i_filter => i_filter);
 
-    IF i_chunk_by = 'blocks' THEN
-        PERFORM dml_utils_lib.assert_plain_heap(
-                i_schema_name => i_driving_table_schema_name,
-                i_table_name => i_driving_table_name);
-        -- The placeholder columns and kind are unused by the block renderer.
-        l_primary_key_columns := ARRAY ['ctid']::name[];
-        l_key_kinds := ARRAY ['bigint'];
-    ELSE
-        l_primary_key_columns := dml_utils_lib.primary_key_columns(
-                i_schema_name => i_driving_table_schema_name,
-                i_table_name => i_driving_table_name);
-        l_key_kinds := dml_utils_lib.primary_key_kinds(
-                i_schema_name => i_driving_table_schema_name,
-                i_table_name => i_driving_table_name);
-    END IF;
-
     -- The generated template is a valid <driving_table>/<chunking_clause>
-    -- template whose alias is fixed at 't', so the shared explain path renders
-    -- and plans it unchanged.
+    -- template whose alias is fixed at 't', so the public explain path renders,
+    -- resolves the requested leaf and plans it unchanged.
     RETURN QUERY
-        SELECT p.o_plan_kind, p.o_sql_text, p.o_plan
-        FROM dml_utils_lib.explain_chunk_plans(
+        SELECT p.o_plan_kind,
+               p.o_sql_text,
+               p.o_plan,
+               p.o_leaf_schema_name,
+               p.o_leaf_name,
+               p.o_leaf_ordinal
+        FROM dml_utils.explain_migration_chunks(
                      i_sql_text => l_function_chunk_template,
-                     i_schema_name => i_driving_table_schema_name,
-                     i_table_name => i_driving_table_name,
-                     i_table_alias => 't',
-                     i_key_columns => l_primary_key_columns,
-                     i_key_kinds => l_key_kinds,
-                     i_chunk_size => i_chunk_size::bigint,
-                     i_chunk_by => i_chunk_by) AS p;
+                     i_driving_table_schema_name => i_driving_table_schema_name,
+                     i_driving_table_name => i_driving_table_name,
+                     i_chunk_size => i_chunk_size,
+                     i_driving_table_alias => 't',
+                     i_chunk_by => i_chunk_by,
+                     i_boundary_key_index => i_boundary_key_index,
+                     i_partition_wise => i_partition_wise,
+                     i_leaf_ordinal => i_leaf_ordinal) AS p;
 END;
 $$;
 
@@ -80,9 +74,12 @@ COMMENT ON FUNCTION dml_utils.explain_function_over_table IS
         'run_function_over_table call would generate: the boundary-population '
         'insert, a non-final chunk and the final chunk, as rows '
         'boundary_population, chunk_non_final and chunk_final, for the given '
-        'chunking strategy (primary_key or blocks). The function must return void '
-        'with argument types matching the driving table''s primary key, in key '
-        'order. A non-NULL i_filter is ANDed onto the chunk plans'' range '
-        'predicate (the boundary-population plan is unaffected). It resolves no '
-        'run, reads no boundaries and writes nothing; the chunk ranges are '
-        'synthetic, so their estimates may differ from a real chunk.';
+        'chunking strategy (primary_key, ordered_key or blocks). The function must '
+        'return void with argument types matching the driving table''s primary key, '
+        'in key order; the chunk key is independent. A non-NULL i_filter is ANDed '
+        'onto the chunk plans'' range predicate (the boundary-population plan is '
+        'unaffected). With i_partition_wise the plans are rendered against one leaf '
+        'of a declarative partitioned parent, selected by i_leaf_ordinal (NULL '
+        'means the first leaf), and the returned leaf schema/name/ordinal identify '
+        'it. It resolves no run, reads no boundaries and writes nothing; the chunk '
+        'ranges are synthetic, so their estimates may differ from a real chunk.';

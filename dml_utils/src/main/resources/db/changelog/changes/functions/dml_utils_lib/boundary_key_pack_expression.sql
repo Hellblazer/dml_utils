@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.boundary_key_pack_expression(
-    i_key_kinds text[]
+    i_key_kinds dml_utils_data.non_null_element_text_array
 )
     RETURNS text
     LANGUAGE plpgsql
@@ -33,9 +33,14 @@ BEGIN
             l_kind := i_key_kinds[l_position];
 
             -- A NULL kind would slip past NOT IN (NULL NOT IN (...) is NULL,
-            -- not true), so guard it explicitly.
-            IF l_kind IS NULL OR l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
-                RAISE EXCEPTION 'unsupported key kind %', l_kind
+            -- not true), and format('%s', NULL) renders an empty string, so name
+            -- the NULL explicitly instead of reporting an empty kind.
+            IF l_kind IS NULL THEN
+                RAISE EXCEPTION 'key kind must not be NULL at position %', l_position
+                    USING ERRCODE = '22023';
+            END IF;
+            IF l_kind NOT IN ('bigint', 'text', 'uuid', 'timestamptz', 'bytea') THEN
+                RAISE EXCEPTION 'unsupported key kind % at position %', l_kind, l_position
                     USING ERRCODE = '22023';
             END IF;
 
@@ -87,7 +92,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.boundary_key_pack_expression(text[]) IS
+COMMENT ON FUNCTION dml_utils_lib.boundary_key_pack_expression IS
     'Builds the migration_key row expression for a one-to-four-column boundary '
         'key, placing each kind''s idN term in its position-aligned array. Shared '
         'by boundary_key_descriptor_sql.';

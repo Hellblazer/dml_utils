@@ -5,6 +5,7 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.PrepareChunkSql
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies {@code dml_utils_lib.render_prepared_chunk_sql}: it renders one chunk
@@ -141,6 +142,64 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
     }
 
     /**
+     * A column name must be exactly the alias-qualified identifier, not just
+     * start with it: an element carrying an operator or a comment would be
+     * interpolated into the predicate verbatim.
+     */
+    @Test
+    void rejectsAColumnNameThatIsNotOneQualifiedIdentifier() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a"}, new String[]{"bigint"});
+
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                new String[]{"t.a OR true --"}, new String[]{"bigint"}, new String[]{null},
+                new String[]{"1"}, new String[]{"2"}, false));
+        // Under a linguistic collation [a-z] would also match A-Z; the producer
+        // always quotes an uppercase name, so the unquoted form is rejected.
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                new String[]{"t.Abc"}, new String[]{"bigint"}, new String[]{null},
+                new String[]{"1"}, new String[]{"2"}, false));
+    }
+
+    /**
+     * A column name that needs quoting is accepted: build_key_render_columns
+     * emits the doubled-quote form, and the validator must recognise it.
+     */
+    @Test
+    void acceptsAQuotedColumnName() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a b", "a\"c"}, new String[]{"bigint", "bigint"});
+
+        String rendered = renderPrepared(prepared, new String[]{"bigint", "bigint"},
+                new String[]{"1", "3"}, new String[]{"2", "4"}, false);
+
+        assertTrue(rendered.contains("t.\"a b\""), rendered);
+        assertTrue(rendered.contains("t.\"a\"\"c\""), rendered);
+    }
+
+    /**
+     * An alias that needs quoting is accepted: the validator rebuilds the prefix
+     * with quote_ident, a path the simple "t" alias never reaches.
+     */
+    @Test
+    void acceptsAQuotedAlias() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "T odd",
+                new String[]{"a"}, new String[]{"bigint"});
+
+        String rendered = Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "T odd",
+                prepared.getOColumnNames(), new String[]{"bigint"},
+                prepared.getOKeyCollations(), new String[]{"1"}, new String[]{"2"}, false);
+
+        assertTrue(rendered.contains("\"T odd\".a"), rendered);
+    }
+
+    /**
      * A schema, table or alias containing a reserved substitution character is
      * rejected before the substitution.
      */
@@ -182,6 +241,26 @@ class RenderPreparedChunkSqlTest extends PostgresTestBase {
 
         assertSqlState("22023", () -> renderPrepared(prepared, new String[]{"bigint", "text"},
                 new String[]{"1"}, new String[]{"2", "y"}, false));
+    }
+
+    /**
+     * The collation array must be present and aligned with the column names; a
+     * missing or shorter array would silently compare under the wrong collation.
+     */
+    @Test
+    void rejectsMissingOrMisalignedKeyCollations() {
+        PrepareChunkSqlRender prepared = Routines.prepareChunkSqlRender(
+                dsl.configuration(), TEMPLATE, "public", "src", "t",
+                new String[]{"a", "b"}, new String[]{"text", "text"});
+
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                prepared.getOColumnNames(), new String[]{"text", "text"}, null,
+                new String[]{"a", "x"}, new String[]{"b", "y"}, false));
+        assertSqlState("22023", () -> Routines.renderPreparedChunkSql(
+                dsl.configuration(), prepared.getOTemplate(), "public", "src", "t",
+                prepared.getOColumnNames(), new String[]{"text", "text"},
+                new String[]{null}, new String[]{"a", "x"}, new String[]{"b", "y"}, false));
     }
 
     private String renderPrepared(PrepareChunkSqlRender prepared, String[] kinds,

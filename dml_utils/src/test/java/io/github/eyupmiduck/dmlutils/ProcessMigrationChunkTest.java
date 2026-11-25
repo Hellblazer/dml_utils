@@ -65,6 +65,39 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
         assertEquals(4, payloadCount(TEST_BIGINT, "done"), "rows 1..4 should be updated");
         assertEquals(6, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.isNull()),
                 "rows outside the chunk range must be untouched");
+        assertEquals(4L, dsl.select(MIGRATION_BOUNDARY.ROWS_AFFECTED)
+                        .from(MIGRATION_BOUNDARY)
+                        .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                        .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                        .fetchOne(MIGRATION_BOUNDARY.ROWS_AFFECTED),
+                "the boundary records the affected-row count");
+        assertEquals(4L, dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
+                        .from(MIGRATION_RUN)
+                        .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                        .fetchOne(MIGRATION_RUN.TOTAL_ROWS_AFFECTED),
+                "the run total advances by the chunk count");
+    }
+
+    /**
+     * A chunk that matches no rows records 0, not NULL.
+     */
+    @Test
+    void recordsZeroRowsForAChunkThatMatchesNothing() {
+        createSource(1, 2, 3);
+        long runId = populate(2);
+
+        processChunk(runId, 0, "UPDATE " + qualified(TEST_BIGINT)
+                + " SET payload = 'done' WHERE id >= 100 AND id < 200");
+
+        assertEquals(0L, dsl.select(MIGRATION_BOUNDARY.ROWS_AFFECTED)
+                .from(MIGRATION_BOUNDARY)
+                .where(MIGRATION_BOUNDARY.RUN_ID.eq(runId))
+                .and(MIGRATION_BOUNDARY.BOUNDARY_NO.eq(0L))
+                .fetchOne(MIGRATION_BOUNDARY.ROWS_AFFECTED));
+        assertEquals(0L, dsl.select(MIGRATION_RUN.TOTAL_ROWS_AFFECTED)
+                .from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId))
+                .fetchOne(MIGRATION_RUN.TOTAL_ROWS_AFFECTED));
     }
 
     /**
@@ -180,15 +213,16 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
             Future<Boolean> second = pool.submit(claim);
             start.countDown();
 
-            boolean firstClaimed = first.get();
-            boolean secondClaimed = second.get();
+            boolean firstClaimed = first.get(30, TimeUnit.SECONDS);
+            boolean secondClaimed = second.get(30, TimeUnit.SECONDS);
 
             assertNotEquals(firstClaimed, secondClaimed,
                     "exactly one caller should claim the boundary");
         } finally {
             pool.shutdownNow();
-            pool.awaitTermination(30, TimeUnit.SECONDS);
         }
+        assertTrue(pool.awaitTermination(30, TimeUnit.SECONDS),
+                "the claim workers must terminate");
 
         assertTrue(boundaryCompleted(runId, 0), "the boundary should be completed once");
         assertEquals(2, dsl.fetchCount(TEST_BIGINT, TEST_BIGINT.PAYLOAD.eq("x")),
@@ -203,7 +237,7 @@ class ProcessMigrationChunkTest extends PostgresTestBase {
     private long populate(int chunkSize) {
         return Routines.populateMigrationBoundaries(
                 dsl.configuration(), TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                "process-chunk-test-" + UUID.randomUUID(), "SELECT 1", chunkSize, 1, ChunkingStrategy.primary_key, "t", 0, null, false);
+                "process-chunk-test-" + UUID.randomUUID(), "SELECT 1", chunkSize, 1, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
     }
 
     private void processChunk(long runId, long boundaryNo, String sql) {

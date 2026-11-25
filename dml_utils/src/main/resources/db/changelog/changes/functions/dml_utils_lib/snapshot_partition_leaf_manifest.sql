@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
-    i_run_id bigint,
+    i_run_id dml_utils_data.non_null_bigint,
     i_schema_name dml_utils_data.non_null_text,
     i_table_name dml_utils_data.non_null_text,
     i_chunk_by dml_utils_data.chunking_strategy,
@@ -17,15 +17,11 @@ DECLARE
     l_leaf_schema text;
     l_leaf_name   text;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'i_run_id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
-
     -- The run row is the authority for the driving table and strategy. A
     -- SECURITY DEFINER function must not let a caller attach another relation's
     -- leaves (or choose a different strategy) for an arbitrary run id.
     SELECT run.partition_wise,
+           run.manifest_snapshotted_at,
            run.boundaries_calculated_at,
            run.cancelled_at,
            run.driving_table_schema_name,
@@ -34,7 +30,8 @@ BEGIN
            run.ordered_key_index
     INTO l_run
     FROM dml_utils_data.migration_run AS run
-    WHERE run.run_id = i_run_id;
+    WHERE run.run_id = i_run_id
+        FOR UPDATE;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'migration run % does not exist', i_run_id
@@ -51,9 +48,13 @@ BEGIN
             USING ERRCODE = '55000';
     END IF;
 
-    IF EXISTS (SELECT 1
-               FROM dml_utils_data.migration_run_leaf AS leaf
-               WHERE leaf.run_id = i_run_id)
+    -- The marker, not the row count, is the authority: a zero-leaf parent has a
+    -- snapshotted but empty manifest, and must not be snapshotted a second time
+    -- (which could attach a leaf added since).
+    IF l_run.manifest_snapshotted_at IS NOT NULL
+        OR EXISTS (SELECT 1
+                   FROM dml_utils_data.migration_run_leaf AS leaf
+                   WHERE leaf.run_id = i_run_id)
     THEN
         RAISE EXCEPTION 'run % already has a leaf manifest', i_run_id
             USING ERRCODE = '55000';
@@ -80,7 +81,7 @@ BEGIN
             RAISE EXCEPTION 'i_boundary_key_index is required for an ordered_key run'
                 USING ERRCODE = '22023';
         END IF;
-        IF i_boundary_key_index <> l_run.ordered_key_index THEN
+        IF i_boundary_key_index IS DISTINCT FROM l_run.ordered_key_index THEN
             RAISE EXCEPTION 'run % uses ordered key index %, not %',
                 i_run_id, l_run.ordered_key_index, i_boundary_key_index
                 USING ERRCODE = '22023';
@@ -113,6 +114,13 @@ BEGIN
                  i_table_name => l_run.driving_table_name,
                  i_chunk_by => l_run.chunk_by) AS live;
 
+    -- Mark the manifest snapshotted even when it is empty, so a legitimate
+    -- zero-leaf parent is distinguishable from a run that never took a manifest.
+    UPDATE dml_utils_data.migration_run
+    SET manifest_snapshotted_at = pg_catalog.clock_timestamp()
+    WHERE run_id = i_run_id
+      AND manifest_snapshotted_at IS NULL;
+
     -- The manifest is now the exact leaf set; validate each stored leaf's
     -- ordered-key child index (a leaf attached between the descriptor read and
     -- the insert is not in this set, so it cannot slip through).
@@ -141,15 +149,10 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest(
-    bigint,
-    dml_utils_data.non_null_text,
-    dml_utils_data.non_null_text,
-    dml_utils_data.chunking_strategy,
-    name
-    ) IS
+COMMENT ON FUNCTION dml_utils_lib.snapshot_partition_leaf_manifest IS
     'Snapshots the deterministic leaf manifest for a new partition-wise run: one '
-        'pending row per storage leaf with its identity, bound and blocks filepath. '
+        'pending row per storage leaf with its identity, bound and blocks filepath, '
+        'and sets manifest_snapshotted_at even when the parent has zero leaves. '
         'The run row is the authority for the driving table, strategy and ordered '
         'key index (a mismatch, a non-partition-wise run, a finalized/cancelled '
         'run or an existing manifest is rejected; 22023/55000/P0002). It then '

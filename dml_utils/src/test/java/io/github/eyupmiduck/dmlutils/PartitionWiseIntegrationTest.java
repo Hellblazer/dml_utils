@@ -9,10 +9,11 @@ import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.tables.records.ExplainCh
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationBoundary.MIGRATION_BOUNDARY;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
-import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedHash.TEST_PARTITIONED_HASH;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedList.TEST_PARTITIONED_LIST;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
@@ -42,6 +43,41 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         dsl.truncate(TEST_PARTITIONED_HASH).execute();
         dsl.truncate(TEST_PARTITIONED_LIST).execute();
         dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+    }
+
+    /**
+     * A declarative parent with no leaves at all finalizes to zero chunks: the
+     * manifest is snapshotted (empty), so the run completes instead of failing
+     * with "no leaf manifest".
+     */
+    @Test
+    void zeroLeafParentFinalizesToZeroChunks() {
+        String label = uniqueLabel("integration-zero-leaf");
+
+        run("test_partitioned_empty", label, 2, 1, ChunkingStrategy.primary_key, null);
+
+        MigrationRunRecord run = run(label);
+        assertNotNull(run.getManifestSnapshottedAt(), "the empty manifest is snapshotted");
+        assertNotNull(run.getBoundariesCalculatedAt(), "the run is finalized");
+        assertNotNull(run.getCompletedAt(), "the zero-chunk run is complete");
+        assertEquals(0L, run.getTotalChunks());
+        assertEquals(0, leaves(run.getRunId()).size());
+        assertEquals(0L, dsl.fetchCount(MIGRATION_BOUNDARY,
+                MIGRATION_BOUNDARY.RUN_ID.eq(run.getRunId())));
+    }
+
+    /**
+     * A zero-leaf manifest cannot be snapshotted a second time, so a leaf added
+     * after the snapshot is never silently attached to the run.
+     */
+    @Test
+    void zeroLeafManifestCannotBeSnapshottedTwice() {
+        long runId = populatePartitionWise("integration-zero-leaf-resnapshot",
+                "test_partitioned_empty", TEMPLATE, ChunkingStrategy.primary_key, 2, null);
+
+        assertSqlState("55000", () -> Routines.snapshotPartitionLeafManifest(
+                dsl.configuration(), runId, PARTITION_SCHEMA, "test_partitioned_empty",
+                ChunkingStrategy.primary_key, null));
     }
 
     /**
@@ -251,15 +287,17 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         String label = uniqueLabel("integration-mid-failure");
         long runId = populate(PARTITIONED_RANGE, label, 1);
 
-        executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()"
-                + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
-                + " RAISE EXCEPTION 'injected leaf failure' USING ERRCODE = '55000';"
-                + " RETURN NEW; END; $$");
-        executeAsOwner("CREATE TRIGGER fail_leaf_two BEFORE INSERT"
-                + " ON dml_utils_data.migration_boundary FOR EACH ROW"
-                + " WHEN (NEW.leaf_ordinal = 2)"
-                + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()");
         try {
+            executeAsOwner("CREATE OR REPLACE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()"
+                    + " RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN"
+                    + " RAISE EXCEPTION 'injected leaf failure' USING ERRCODE = '55000';"
+                    + " RETURN NEW; END; $$");
+            // Scope the trigger to this run, so another run's leaf 2 cannot match
+            // while the trigger exists.
+            executeAsOwner("CREATE TRIGGER fail_leaf_two BEFORE INSERT"
+                    + " ON dml_utils_data.migration_boundary FOR EACH ROW"
+                    + " WHEN (NEW.leaf_ordinal = 2 AND NEW.run_id = " + runId + ")"
+                    + " EXECUTE FUNCTION " + PARTITION_SCHEMA + ".fail_leaf_two()");
             assertSqlState("55000", () -> run(PARTITIONED_RANGE, label, 1));
         } finally {
             executeAsOwner("DROP TRIGGER IF EXISTS fail_leaf_two"
@@ -271,6 +309,9 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         assertEquals("calculated", leaves.get(0).getState());
         long firstLeafBoundaries = leaves.get(0).getBoundaryCount();
         assertTrue(firstLeafBoundaries > 0);
+        OffsetDateTime firstCalculatedAt = leaves.get(0).getCalculatedAt();
+        assertNotNull(firstCalculatedAt,
+                "the calculated leaf records its calculation timestamp");
         assertEquals("failed", leaves.get(1).getState());
         assertEquals("55000", leaves.get(1).getErrorSqlstate());
         assertEquals("pending", leaves.get(2).getState());
@@ -282,6 +323,8 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
 
         assertEquals(firstLeafBoundaries, leaves(runId).get(0).getBoundaryCount(),
                 "the calculated leaf must not be recomputed");
+        assertEquals(firstCalculatedAt, leaves(runId).get(0).getCalculatedAt(),
+                "the calculated leaf keeps its calculation timestamp");
         assertNotNull(run(label).getCompletedAt());
         assertEquals(0L, dsl.fetchCount(TEST_PARTITIONED_RANGE,
                 TEST_PARTITIONED_RANGE.PAYLOAD.ne("done")));
@@ -302,9 +345,16 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
         Routines.calculateMigrationRunBoundaries(dsl.configuration(), runId);
 
         List<MigrationBoundaryRecord> boundaries = boundaries(runId);
+        assertTrue(boundaries.size() >= 2,
+                "the run has at least a chunk start and its next boundary");
         MigrationBoundaryRecord first = boundaries.getFirst();
         MigrationBoundaryRecord next = boundaries.get(1);
-        String leafName = leaves(runId).get(first.getLeafOrdinal() - 1).getLeafName();
+        assertNotNull(first.getLeafOrdinal(), "a partition-wise boundary records its leaf");
+        List<MigrationRunLeafRecord> manifest = leaves(runId);
+        assertTrue(first.getLeafOrdinal() >= 1 && first.getLeafOrdinal() <= manifest.size(),
+                () -> "leaf ordinal " + first.getLeafOrdinal()
+                        + " is outside the 1-based manifest of " + manifest.size());
+        String leafName = manifest.get(first.getLeafOrdinal() - 1).getLeafName();
         String[] kinds = {"bigint"};
         String[] start = Routines.migrationKeyValues(dsl.configuration(),
                 first.getBoundaryId(), kinds);
@@ -335,7 +385,7 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
     private long populate(String table, String label, int chunkSize) {
         return Routines.populateMigrationBoundaries(dsl.configuration(), PARTITION_SCHEMA,
                 table, label, TEMPLATE, chunkSize, 1, ChunkingStrategy.primary_key,
-                "t", 0, null, true);
+                "t", 0, null, true, 3, 1000);
     }
 
     private void run(String table, String label, int chunkSize) {
@@ -346,7 +396,7 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
                      ChunkingStrategy chunkBy, String boundaryKeyIndex) {
         io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines.runMigrationChunks(
                 dsl.configuration(), TEMPLATE, PARTITION_SCHEMA, table, label,
-                chunkSize, threads, "t", chunkBy, 1, 0, boundaryKeyIndex, true);
+                chunkSize, threads, "t", chunkBy, 1, 0, boundaryKeyIndex, true, 3, 1000);
     }
 
     private MigrationRunRecord run(String label) {
@@ -355,11 +405,5 @@ class PartitionWiseIntegrationTest extends PartitionTestBase {
                 .fetchOne();
     }
 
-    private List<MigrationRunLeafRecord> leaves(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .fetch();
-    }
 
 }

@@ -1,6 +1,6 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.process_migration_chunk(
-    i_run_id bigint,
-    i_boundary_no bigint,
+    i_run_id dml_utils_data.non_null_bigint,
+    i_boundary_no dml_utils_data.non_negative_bigint,
     i_sql_text dml_utils_data.non_null_text
 )
     RETURNS void
@@ -9,7 +9,8 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.process_migration_chunk(
 AS
 $$
 DECLARE
-    l_started_at timestamptz;
+    l_started_at    timestamptz;
+    l_rows_affected bigint;
 BEGIN
     -- Claim the boundary through the owner-owned helper. The helper locks the
     -- row with SELECT ... FOR UPDATE and retains that lock until this caller's
@@ -28,22 +29,28 @@ BEGIN
     -- transaction aborts and the claim rolls back, leaving the boundary
     -- unclaimed for a retry.
     EXECUTE i_sql_text;
+    GET DIAGNOSTICS l_rows_affected = ROW_COUNT;
 
     -- Complete the boundary through the owner-owned helper. The row lock from
     -- claim_migration_boundary is still held, so no other transaction can
-    -- interleave; the helper writes both timestamps and advances the run counter
-    -- in this same transaction.
+    -- interleave; the helper writes both timestamps, the affected-row count and
+    -- advances the run counters in this same transaction. ROW_COUNT is the
+    -- affected-row count for DML and the returned-row count for the
+    -- run_function_over_table SELECT template.
     PERFORM dml_utils_lib.complete_migration_boundary(
             i_run_id => i_run_id,
             i_boundary_no => i_boundary_no,
-            i_started_at => l_started_at);
+            i_started_at => l_started_at,
+            i_rows_affected => l_rows_affected);
 END;
 $$;
 
 COMMENT ON FUNCTION dml_utils_lib.process_migration_chunk IS
     'Claims one migration boundary through the owner-owned claim helper, runs its '
-        'chunk SQL as the caller, then completes the boundary through the '
-        'owner-owned completion helper; raises P0C01 when the boundary is missing, '
-        'already completed or cancelled. The routine is SECURITY INVOKER so the '
-        'chunk SQL runs with the invoker''s privileges; metadata writes are '
-        'delegated to SECURITY DEFINER helpers.';
+        'chunk SQL as the caller, captures ROW_COUNT, then completes the boundary '
+        'through the owner-owned completion helper; raises P0C01 when the boundary '
+        'is missing, already completed or cancelled. ROW_COUNT is the affected-row '
+        'count for DML and the returned-row count for the run_function_over_table '
+        'SELECT template. The routine is SECURITY INVOKER so the chunk SQL runs with '
+        'the invoker''s privileges; metadata writes are delegated to SECURITY '
+        'DEFINER helpers.';

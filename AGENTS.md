@@ -90,11 +90,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   with `contents` and `pull-requests` write); the default `GITHUB_TOKEN` is not
   used because GitHub suppresses workflow runs for events it creates, which
   would leave the PR without the required checks.
-- `LiquibaseUpgradeTest` must stay enabled. It resolves the most recent
-  published release below the current `<revision>` and upgrades it to the
-  current changelog. If a baseline change is unavoidable, cut a release from the
-  cleaned changelog first, then re-enable the test against that release; do not
-  leave it `@Disabled` or skip it in CI.
+- The previous-release upgrade test is `BaselineUpgradeTest`. It resolves the
+  latest published release strictly below the current revision, applies it, then
+  the current changelog, and compares the two catalogs. It is enabled in the
+  normal `verify` gate; disable it only while a baseline is edited in place, and
+  re-enable it after the replacement release. Do not delete the shared upgrade
+  support, `UPGRADE_CONFIGURATION` or the `upgrade.current.version` property.
+  Any later in-place schema edit repeats the disable -> baseline release ->
+  re-enable cycle.
 - A release is a `v<version>` tag pushed to `main`. The `Release` workflow (`.github/workflows/release.yml`) derives the
   version from the tag (`-Drevision=${tag#v}`), runs the full `verify` gate, deploys to GitHub
   Packages, then creates the GitHub Release. Do not tag a commit that CI has
@@ -142,7 +145,7 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   table and add its `BEFORE UPDATE ... FOR EACH ROW` trigger as a new changeset
   in `changes/triggers.xml` with its body under `changes/triggers/<schema>/` (the
   shared function already exists). The migration tables are the reference
-  implementation for the columns (`changes/sql_changes/006-create-migration-tables.sql`)
+  implementation for the columns (`changes/sql_changes/007-create-migration-tables.sql`)
   and the triggers (`changes/triggers/dml_utils_data/`).
 - **Every object has a comment.** Add a `COMMENT ON` for each schema, table,
   column, domain, function and procedure, describing what it is for. Comment a
@@ -166,8 +169,16 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
 - The run's `dml_utils_data.migration_run_leaf` manifest is the contract: a
   deterministic leaf order (partition bound, then schema, name, OID under
   `COLLATE "C"`), identity snapshot, state, boundary count and high-water key.
+  The deparsed bound is pinned to session-independent GUCs (`TimeZone`,
+  `DateStyle`, `IntervalStyle`, `extra_float_digits`,
+  `standard_conforming_strings`, `bytea_output`, `lc_monetary`) in both
+  `leaf_partitions` and `assert_live_leaf_matches_manifest`; pin any new
+  GUC that changes the text when a bound type is added.
   It is committed before any boundaries. An empty leaf is a row with
-  `boundary_count = 0`.
+  `boundary_count = 0`. A parent with no leaves at all snapshots an empty
+  manifest and records `migration_run.manifest_snapshotted_at` anyway, so it is
+  distinguishable from a run that never took a manifest and finalizes with 0
+  chunks.
 - Calculation is one leaf per committed worker transaction, serialized by the
   run-keyed advisory lock; a failed leaf is marked `failed` with its SQLSTATE
   and the earlier leaves stay. Re-running the same label resumes at the first
@@ -217,13 +228,49 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   Liquibase has no `createFunction` change type, so functions use
   `createProcedure` too; the `path` attribute keeps SQL out of the XML.
 - `CREATE OR REPLACE` only replaces a routine with an identical signature.
-  Changing `RETURNS` or a parameter name aborts the deploy, and changing a
-  parameter type leaves the old overload behind. When a signature changes, add
-  an explicit `DROP FUNCTION IF EXISTS <old signature>;` (for example another
-  `sqlFile` in the same changeset) so the deprecated signature is removed.
-- Type routine arguments with the `dml_utils_data` domains (for example
-  `non_null_text`, `positive_integer`) so null or invalid inputs fail fast with
-  a check-constraint violation.
+  Nothing is deployed yet, so a signature change is made in place: edit the
+  routine file and let `CREATE OR REPLACE` define the one current signature. Do
+  not add `DROP FUNCTION IF EXISTS <old signature>;` guards or other
+  compatibility changesets — a fresh database (and every test and CI database)
+  defines only the new signature.
+- **Every argument that must not be NULL is typed with a `dml_utils_data` domain,
+  not the base type.** Use `non_null_text` for identifiers, names and required messages (including a SQLSTATE that must
+  be present); `non_null_bigint` for ids; `non_negative_bigint` for a
+  boundary number (0 is valid); `positive_integer`/`positive_bigint` for sizes and
+  ordinals; `non_negative_integer` for a permitted zero (a delay); `non_null_oid`
+  for catalog OIDs; `non_null_boolean` for flags; `non_null_timestamptz` for
+  timestamps. The domain then fails a NULL or invalid value at the call with a
+  check-constraint violation (`23514`), so do not repeat that check with a manual
+  `IS NULL` guard. Keep an explicit guard only for a bound the domain cannot
+  express (for example an upper limit), and let the domain own the NULL/blank or
+  sign check.
+- **An array argument whose elements must not be NULL is typed with a domain over
+  the array**, not with a per-element guard in each routine (for example
+  `dml_utils_data.non_null_element_integer_array`, which also pins the
+  one-dimensional, lower-bound-1 shape). The domain then fails a NULL or
+  misplaced element at the call with `23514`. Cross-array rules (equal length,
+  parallel pairs) stay as explicit guards, because a domain cannot express them.
+- **Keep the plain base type only for an argument where NULL is a documented
+  sentinel**, and say so in the routine's COMMENT and the functions README. The
+  current sentinels are: an optional filter (NULL means no filter), an optional
+  ordered-key index name (NULL means the strategy is not `ordered_key`), an
+  optional recorded filepath (NULL means a key run, nothing to compare), an
+  optional leaf ordinal (NULL means the first leaf), an optional wait timeout (NULL means wait indefinitely), and the
+  worker error SQLSTATE/message that are
+  normalized from NULL or blank to a fallback.
+- A signature change is made in place, and the same argument list must be updated
+  in the routine file, its rollback `DROP`, the
+  `999-grant-privileges.sql`/rollback `REVOKE`/`GRANT` entries, and the routine's
+  signature block in the functions README. The `COMMENT ON FUNCTION` uses the
+  short `schema.name` form (no argument list) for every non-overloaded routine,
+  so it needs no update; list the argument types only for an overloaded name.
+- Assigning a domain argument to a base-type local (for example
+  `l_delay integer := i_delay;`) trips `plpgsql_check`'s "target type is different
+  type than source type" performance warning; cast explicitly (`i_delay::integer`) or type the local with the domain.
+- Do not wrap the `chunking_strategy` enum in a domain: jOOQ's generated
+  `Domains` -> enum -> schema class -> tables -> `Domains` initialisation cycle
+  fails at class load (the same reason composite types are not wrapped). Keep the
+  plain enum type and reject a NULL strategy explicitly.
 - Use `SECURITY INVOKER` (the default). A routine must never require callers to
   hold privileges beyond what they would need to run its SQL directly: if a
   caller could run the statement itself, calling the routine must just work.
@@ -248,6 +295,14 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   the same regardless of the caller's `search_path`.
 - Routines run inside the caller's transaction: use `SET LOCAL` for
   transaction-scoped settings and never assume state survives a rollback.
+- **The runner requires READ COMMITTED.** `run_migration_chunks`,
+  `run_function_over_table`, `resolve_migration_run`,
+  `sleep_between_migration_chunks` and `calculate_migration_run_boundaries` call
+  `dml_utils_lib.assert_read_committed()` first. They observe state that
+  `pg_background` workers commit autonomously (run creation, leaf calculation)
+  and poll the run row for pause/cancel, so a REPEATABLE READ or SERIALIZABLE
+  snapshot would stay stale; a non-READ COMMITTED caller fails with `0A000`
+  instead.
 
 ## Liquibase
 
@@ -289,20 +344,45 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   finding and a stale whitelist entry both fail the build); skip with
   `-Dskip.liquibase-linter`. A separate `Changelog linter` workflow uploads the
   same run as SARIF to GitHub code scanning; `verify` remains the gate.
+- The hygiene rules are on by default: a routine changeset must set
+  `runOnChange`, a `CREATE TRIGGER` must be `CREATE OR REPLACE TRIGGER`
+  (PostgreSQL 14+), a changeset needs a non-blank author, a numbered changeset's
+  file paths must match its id, an id/author/file identity must be unique, a
+  routine body must not use `SELECT *` or transaction control, and routine
+  parameters/locals use the `i_`/`o_`/`io_`/`l_` prefixes. The two opt-in
+  production-safety rules are enabled in `.liquibase-linter.yml`:
+  `require-not-valid-constraint` and `require-if-exists-on-drop`.
 
 ## jOOQ
 
-- Prefer jOOQ's type-safe DSL over constructing SQL strings manually.
-- Use generated jOOQ classes where available.
+- Use jOOQ's type-safe DSL for database access. Use the generated table and
+  routine classes for every changelog-defined table, view, function and
+  procedure; do not hand-write SQL for an object jOOQ generates.
 - Do not duplicate database schema definitions in Java.
-- Use plain SQL when PostgreSQL-specific functionality cannot be expressed
-  clearly with the jOOQ DSL.
+- Raw SQL is reserved for what the DSL cannot express clearly:
+    - DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`) and schema or extension setup;
+    - `pg_catalog` and `information_schema` introspection;
+    - session settings, locks and privileges (`SET`, `LOCK`, `GRANT`, `REVOKE`);
+    - deliberately malformed input that exercises an error path, and PostgreSQL
+      features with no clear jOOQ equivalent (for example `generate_series` or
+      interval arithmetic).
+- For dynamically named test fixtures, use `DSL.table(DSL.name(...))` and
+  `DSL.field(...)` where it keeps the statement clear; a raw statement is
+  acceptable when the fixture is simpler that way. Keep any raw SQL local to
+  the fixture.
 - The generated convenience facades can trip `-Werror` or fail at class
   initialisation:
     - `dml_utils/pom.xml` sets `globalUDTReferences=false`: the generated `UDTs`
       facade calls a static factory through an instance field, which `-Werror`
       rejects. The UDT type and record are still generated (for example
       `...jooq.dml_utils_data.udt.records.MigrationKeyRecord`).
+    - `dml_utils/pom.xml` excludes `non_null_element_*_array` from codegen:
+      jOOQ 3.21 cannot model a domain over an array (it emits `SQLDataType.OTHER`
+      and generates `Domain<Object>`, which does not compile against the domain's
+      `Domain<T[]>`). A routine taking one falls back to `Object` parameters, and
+      `deprecationOnUnknownTypes=false` keeps those from being marked
+      `@Deprecated` under `-Werror`. ddl_utils uses the same workaround for its
+      array domains.
     - Do not wrap a composite type that a table in the same schema uses in a
       domain. The generated `Domains` -> UDT -> schema class -> tables ->
       `Domains` initialisation cycle throws during class loading.
@@ -327,15 +407,33 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   database cloned with `CREATE DATABASE ... TEMPLATE ...` (fast, isolated
   data). Use the inherited `dsl` (jOOQ); do not run Liquibase or start
   containers in individual tests.
-- The container configuration is the single `PostgresTestBase.CONFIGURATION` /
-  `UPGRADE_CONFIGURATION` value, which also carries the extension installer.
-  Return it from `configuration()` in the base, the contract tests and
-  `LiquibaseUpgradeTest` instead of overriding the individual accessors.
+- The project values are the single `PostgresTestBase.PROFILE` (`ProjectProfile`)
+  value (and `UPGRADE_PROFILE` for the previous-release test): the container/
+  changelog `CONFIGURATION`, the managed/application/routine schemas, the caller
+  role, the rollback directories, the round-trip schemas and the installed
+  ddl_utils baseline. Return it from `projectProfile()` in the base, every
+  contract subclass and the upgrade test (`BaselineUpgradeTest`) instead of
+  overriding the individual accessors. A contract subclass that needs the
+  container must override `projectProfile()`; the library defaults do not know
+  the project's roles or image.
 - A test whose shape already exists as a contract inherits it rather than
   copying the body: `ChangelogLinterContract`, `ChangelogNamingContract`,
-  `ChangelogSqlFilesContract`, `TrackingTablesContract`,
-  `PlpgsqlCheckContract`, `RollbackSignatureContract`, `UpgradeContract`.
-  Supply only the project schemas and the configuration.
+  `ChangelogSqlFilesContract`, `ChangelogLayoutContract`, `TrackingTablesContract`,
+  `CommentContract`, `AuditColumnsContract`, `PlpgsqlCheckContract`,
+  `RollbackSignatureContract`, `RoutineSignatureContract`,
+  `RoutineDocumentationContract`, `PrivilegeContract`, `RoutineSecurityContract`,
+  `SchemaLayeringContract`, `RoutineFileContract`,
+  `ChangelogRoundTripContract`, `ChangelogReapplyContract` and `UpgradeContract`.
+  Supply only the project profile and the project-specific allow-lists (for
+  example `allowedSecurityDefiners()`, `catalogRoutines()` or
+  `applicationTypes()`).
+  `SchemaLayeringContract` defaults to the managed schemas ordered highest to
+  lowest; override `schemaLayers()` when they are not in dependency order.
+- `ChangelogRoundTripContract` and `ChangelogReapplyContract` are live
+  Testcontainers tests: they create a scratch database per contract class, apply
+  the plain production master, roll it back or re-apply it, and compare the
+  catalog. The staged ddl_utils changelog is applied as a baseline outside the
+  dml_utils rollback. They run in `verify`, not in the per-change unit-test loop.
 - Read classpath SQL through `TestResources` (one resource, or every `.sql`
   file in a directory) instead of re-implementing the stream handling.
 - Every test class and test method must have Javadoc describing the behavior

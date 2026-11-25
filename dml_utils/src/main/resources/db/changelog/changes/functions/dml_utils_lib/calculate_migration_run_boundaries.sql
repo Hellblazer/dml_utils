@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_migration_run_boundaries(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -10,17 +10,20 @@ $$
 DECLARE
     l_partition_wise boolean;
     l_cancelled_at   timestamptz;
+    l_paused_at      timestamptz;
     l_calculated_at  timestamptz;
     l_lock_key       bigint;
     l_ordinal        integer;
 BEGIN
-    IF i_run_id IS NULL THEN
-        RAISE EXCEPTION 'run id must not be NULL'
-            USING ERRCODE = '22023';
-    END IF;
+    -- The loop below re-reads the run row between leaves to notice pause and
+    -- cancel, which needs a fresh snapshot per statement.
+    PERFORM dml_utils_lib.assert_read_committed();
 
-    SELECT run.partition_wise, run.cancelled_at
-    INTO l_partition_wise, l_cancelled_at
+    SELECT run.partition_wise,
+           run.cancelled_at,
+           run.paused_at,
+           run.boundaries_calculated_at
+    INTO l_partition_wise, l_cancelled_at, l_paused_at, l_calculated_at
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id;
 
@@ -37,10 +40,18 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT run.boundaries_calculated_at
-    INTO l_calculated_at
-    FROM dml_utils_data.migration_run AS run
-    WHERE run.run_id = i_run_id;
+    -- A paused run stops before the lock while leaves are still pending. If every
+    -- leaf is already calculated, fall through so finalization can still finish;
+    -- the pause then applies to processing.
+    IF l_paused_at IS NOT NULL
+        AND EXISTS (SELECT 1
+                    FROM dml_utils_data.migration_run_leaf AS leaf
+                    WHERE leaf.run_id = i_run_id
+                      AND leaf.state <> 'calculated')
+    THEN
+        RETURN;
+    END IF;
+
     IF l_calculated_at IS NOT NULL THEN
         RETURN;
     END IF;
@@ -58,8 +69,8 @@ BEGIN
     -- Re-check terminal state under the lock. A coordinator that finished
     -- between the read above and the lock must not reach the tree assertion,
     -- which would report a misleading 'tree changed' error for a complete run.
-    SELECT run.cancelled_at, run.boundaries_calculated_at
-    INTO l_cancelled_at, l_calculated_at
+    SELECT run.cancelled_at, run.paused_at, run.boundaries_calculated_at
+    INTO l_cancelled_at, l_paused_at, l_calculated_at
     FROM dml_utils_data.migration_run AS run
     WHERE run.run_id = i_run_id;
     IF NOT FOUND THEN
@@ -69,6 +80,14 @@ BEGIN
     IF l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL THEN
         RETURN;
     END IF;
+    IF l_paused_at IS NOT NULL
+        AND EXISTS (SELECT 1
+                    FROM dml_utils_data.migration_run_leaf AS leaf
+                    WHERE leaf.run_id = i_run_id
+                      AND leaf.state <> 'calculated')
+    THEN
+        RETURN;
+    END IF;
 
     -- Compare the live tree with the manifest once before starting. Each leaf is
     -- re-checked when it is claimed, and the tree is compared again before the
@@ -76,8 +95,8 @@ BEGIN
     PERFORM dml_utils_lib.assert_migration_tree_unchanged(i_run_id => i_run_id);
 
     LOOP
-        SELECT run.cancelled_at, run.boundaries_calculated_at
-        INTO l_cancelled_at, l_calculated_at
+        SELECT run.cancelled_at, run.paused_at, run.boundaries_calculated_at
+        INTO l_cancelled_at, l_paused_at, l_calculated_at
         FROM dml_utils_data.migration_run AS run
         WHERE run.run_id = i_run_id;
         IF NOT FOUND THEN
@@ -85,18 +104,34 @@ BEGIN
                 USING ERRCODE = 'P0002';
         END IF;
 
-        EXIT WHEN l_cancelled_at IS NOT NULL OR l_calculated_at IS NOT NULL;
+        EXIT WHEN l_cancelled_at IS NOT NULL
+            OR l_paused_at IS NOT NULL
+            OR l_calculated_at IS NOT NULL;
 
         l_ordinal := dml_utils_lib.calculate_next_leaf_in_worker(i_run_id => i_run_id);
         EXIT WHEN l_ordinal IS NULL;
     END LOOP;
+
+    IF l_cancelled_at IS NOT NULL THEN
+        RETURN;
+    END IF;
+
+    -- A pause (or a leaf that could not be claimed) stops finalization; a resume
+    -- continues at the first pending or failed leaf.
+    IF EXISTS (SELECT 1
+               FROM dml_utils_data.migration_run_leaf AS leaf
+               WHERE leaf.run_id = i_run_id
+                 AND leaf.state <> 'calculated')
+    THEN
+        RETURN;
+    END IF;
 
     -- Re-checks the run state and the tree, then finalizes in its own worker.
     PERFORM dml_utils_lib.finalize_calculated_run(i_run_id => i_run_id);
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries IS
     'Calculates a partition-wise run''s boundaries one leaf per pg_background '
         'transaction until every leaf is calculated, then finalizes the run in its '
         'own worker transaction. Serialized by a transaction-scoped advisory lock '
@@ -106,4 +141,9 @@ COMMENT ON FUNCTION dml_utils_lib.calculate_migration_run_boundaries(bigint) IS
         'finalization, and the claimed leaf is re-checked by '
         'claim_next_migration_leaf. A failing leaf is recorded on the manifest '
         '(state = failed, SQLSTATE and message) in its own worker transaction '
-        'before the error is re-raised. A cancelled run stops without finalizing.';
+        'before the error is re-raised. A paused run stops before launching the '
+        'next leaf; already calculated leaves stay committed and finalization waits '
+        'for a resume unless every leaf is already calculated. A cancelled run stops '
+        'without finalizing. Requires READ COMMITTED (assert_read_committed raises '
+        '0A000 otherwise), because the loop re-reads the run row between leaves to '
+        'notice pause and cancel.';

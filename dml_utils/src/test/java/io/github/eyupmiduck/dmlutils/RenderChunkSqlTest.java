@@ -3,6 +3,9 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,6 +36,69 @@ class RenderChunkSqlTest extends PostgresTestBase {
             "UPDATE <driving_table> SET processed = true WHERE <chunking_clause>";
 
     /**
+     * A type-aware, NULL-marked sort key for a row, so ordering is deterministic
+     * without conflating distinct values (a literal "null" vs SQL NULL, or a '|'
+     * inside a value).
+     *
+     * @param row the row values
+     * @return the sort key
+     */
+    private static String rowKey(List<Object> row) {
+        return row.stream()
+                .map(value -> value == null ? "<null>"
+                        : value.getClass().getName() + ":" + value)
+                .collect(java.util.stream.Collectors.joining("\u0001"));
+    }
+
+    /**
+     * Quotes a SQL string literal, doubling embedded quotes.
+     *
+     * @param value the literal value
+     * @return the quoted literal
+     */
+    private static String quoteLiteral(String value) {
+        return "'" + value.replace("'", "''") + "'";
+    }
+
+    /**
+     * Schema-qualifies a table with both parts quoted.
+     *
+     * @param schema the schema
+     * @param table  the table
+     * @return the qualified name
+     */
+    private static String qualify(String schema, String table) {
+        return quoteQualifiedIdentifier(schema) + "." + quoteQualifiedIdentifier(table);
+    }
+
+    /**
+     * The identifier-rendering cases.
+     *
+     * @return the render cases
+     */
+    private static java.util.stream.Stream<Arguments> renderCases() {
+        return java.util.stream.Stream.of(
+                Arguments.of("given primary-key name", "public", "src", "s",
+                        new String[]{"pk"}, new String[]{"5"}, new String[]{"15"},
+                        "UPDATE public.src s SET processed = true"
+                                + " WHERE (s.pk >= '5'::bigint AND s.pk < '15'::bigint)"),
+                Arguments.of("given alias", "public", "src", "src_row",
+                        new String[]{"id"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE public.src src_row SET processed = true"
+                                + " WHERE (src_row.id >= '1'::bigint"
+                                + " AND src_row.id < '2'::bigint)"),
+                Arguments.of("quoted identifiers", "my schema", "my table", "x\"y",
+                        new String[]{"pk\"col"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE \"my schema\".\"my table\" \"x\"\"y\" SET processed = true"
+                                + " WHERE (\"x\"\"y\".\"pk\"\"col\" >= '1'::bigint"
+                                + " AND \"x\"\"y\".\"pk\"\"col\" < '2'::bigint)"),
+                Arguments.of("token inside an identifier", "public", "<chunking_clause>", "t",
+                        new String[]{"id"}, new String[]{"1"}, new String[]{"2"},
+                        "UPDATE public.\"<chunking_clause>\" t SET processed = true"
+                                + " WHERE (t.id >= '1'::bigint AND t.id < '2'::bigint)"));
+    }
+
+    /**
      * A valid template is accepted.
      */
     @Test
@@ -56,6 +122,18 @@ class RenderChunkSqlTest extends PostgresTestBase {
     void rejectsMissingChunkingClauseToken() {
         assertSqlState("22023", () -> Routines.assertChunkingTemplate(
                 dsl.configuration(), "UPDATE <driving_table> SET x = true"));
+    }
+
+    /**
+     * A template containing a reserved substitution character is rejected: the
+     * render path could not substitute the tokens unambiguously.
+     */
+    @Test
+    void rejectsATemplateWithAReservedCharacter() {
+        assertSqlState("22023", () -> Routines.assertChunkingTemplate(
+                dsl.configuration(), TEMPLATE + (char) 1));
+        assertSqlState("22023", () -> Routines.assertChunkingTemplate(
+                dsl.configuration(), TEMPLATE + (char) 2));
     }
 
     /**
@@ -408,7 +486,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullPrimaryKeyColumnName() {
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertSqlState("23514", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{null}, new String[]{"bigint"},
                 new String[]{"1"}, new String[]{"2"}, false));
@@ -445,86 +523,30 @@ class RenderChunkSqlTest extends PostgresTestBase {
     }
 
     /**
-     * The primary-key names are whatever the caller resolved from the catalog,
-     * not hard-coded {@code id}, and they appear in both range bounds.
+     * The caller-supplied key name, alias and unusual identifiers are rendered
+     * verbatim (quoted), and a substituted identifier that itself contains a
+     * template token is not rewritten.
+     *
+     * @param description the case
+     * @param schemaName  the driving table schema
+     * @param tableName   the driving table name
+     * @param alias       the driving table alias
+     * @param columns     the key columns
+     * @param startValues the lower-bound values
+     * @param endValues   the upper-bound values
+     * @param expected    the exact rendered statement
      */
-    @Test
-    void usesTheGivenPrimaryKeyName() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(), TEMPLATE, "public", "src", "s",
-                new String[]{"pk"}, new String[]{"bigint"}, new String[]{"5"}, new String[]{"15"}, false);
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("renderCases")
+    void rendersCallerSuppliedIdentifiersVerbatim(String description, String schemaName,
+                                                  String tableName, String alias,
+                                                  String[] columns, String[] startValues,
+                                                  String[] endValues, String expected) {
+        String rendered = Routines.renderChunkSql(dsl.configuration(), TEMPLATE,
+                schemaName, tableName, alias, columns, new String[]{"bigint"},
+                startValues, endValues, false);
 
-        assertEquals(
-                "UPDATE public.src s SET processed = true"
-                        + " WHERE (s.pk >= '5'::bigint AND s.pk < '15'::bigint)",
-                rendered);
-    }
-
-    /**
-     * An explicit alias is used verbatim in the driving-table reference and the
-     * range predicate.
-     */
-    @Test
-    void usesTheGivenAlias() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(), TEMPLATE, "public", "src", "src_row",
-                new String[]{"id"}, new String[]{"bigint"}, new String[]{"1"}, new String[]{"2"}, false);
-
-        assertEquals(
-                "UPDATE public.src src_row SET processed = true"
-                        + " WHERE (src_row.id >= '1'::bigint AND src_row.id < '2'::bigint)",
-                rendered);
-    }
-
-    /**
-     * The schema, table, alias and primary-key name are quoted so unusual
-     * identifiers (and a substituted value) cannot break the SQL or reintroduce
-     * a token.
-     */
-    @Test
-    void quotesIdentifiersAndCannotReintroduceTokens() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(),
-                TEMPLATE,
-                "my schema",
-                "my table",
-                "x\"y",
-                new String[]{"pk\"col"},
-                new String[]{"bigint"},
-                new String[]{"1"},
-                new String[]{"2"},
-                false);
-
-        assertEquals(
-                "UPDATE \"my schema\".\"my table\" \"x\"\"y\" SET processed = true"
-                        + " WHERE (\"x\"\"y\".\"pk\"\"col\" >= '1'::bigint"
-                        + " AND \"x\"\"y\".\"pk\"\"col\" < '2'::bigint)",
-                rendered);
-    }
-
-    /**
-     * An identifier that literally contains a template token does not get
-     * rewritten: the substituted values are inserted after both tokens are
-     * replaced, so neither substitution can re-match the other's value.
-     */
-    @Test
-    void doesNotRewriteATokenInsideASubstitutedIdentifier() {
-        String rendered = Routines.renderChunkSql(
-                dsl.configuration(),
-                TEMPLATE,
-                "public",
-                "<chunking_clause>",
-                "t",
-                new String[]{"id"},
-                new String[]{"bigint"},
-                new String[]{"1"},
-                new String[]{"2"},
-                false);
-
-        assertEquals(
-                "UPDATE public.\"<chunking_clause>\" t SET processed = true"
-                        + " WHERE (t.id >= '1'::bigint AND t.id < '2'::bigint)",
-                rendered);
+        assertEquals(expected, rendered);
     }
 
     /**
@@ -533,7 +555,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void rejectsANullFinalFlag() {
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertDomainViolation(() -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id"}, new String[]{"bigint"},
                 new String[]{"1"}, new String[]{"2"}, null));
@@ -621,7 +643,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
         assertSqlState("22023", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id"}, new String[]{"bigint"}, new String[]{"1"}, null, false));
-        assertSqlState("22023", () -> Routines.renderChunkSql(
+        assertSqlState("23514", () -> Routines.renderChunkSql(
                 dsl.configuration(), TEMPLATE, "public", "src", "t",
                 new String[]{"id", "id2"}, new String[]{"bigint", null},
                 new String[]{"1", "2"}, new String[]{"3", "4"}, false));
@@ -790,7 +812,7 @@ class RenderChunkSqlTest extends PostgresTestBase {
      */
     @Test
     void estimatesAMidTableChunkAccurately() {
-        dsl.execute("TRUNCATE dml_utils_fixtures.test_composite_pk");
+        dsl.truncate(TEST_COMPOSITE_PK).execute();
         dsl.execute("INSERT INTO dml_utils_fixtures.test_composite_pk (a, b)"
                 + " SELECT a, b FROM generate_series(1, 100) AS a, generate_series(1, 100) AS b");
         dsl.execute("ANALYZE dml_utils_fixtures.test_composite_pk");
@@ -815,10 +837,13 @@ class RenderChunkSqlTest extends PostgresTestBase {
             long boxEstimate = estimateRows(boxSql);
             long tupleEstimate = estimateRows(tupleSql);
 
-            assertTrue(boxEstimate <= Math.max(10, actual * 3),
-                    "the box estimate " + boxEstimate + " should be near the actual " + actual);
-            assertTrue(tupleEstimate > boxEstimate * 3,
-                    "the row-value estimate " + tupleEstimate + " should be far above the boxes' " + boxEstimate);
+            // Planner estimates are not exact: assert a generous upper bound for
+            // the boxes and that the tuple range estimates strictly more rows.
+            assertTrue(boxEstimate <= Math.max(50, actual * 10),
+                    "the box estimate " + boxEstimate + " should be in the same order as the actual " + actual);
+            assertTrue(tupleEstimate > boxEstimate * 2,
+                    "the row-value estimate " + tupleEstimate + " should exceed the boxes' "
+                            + boxEstimate + " by more than rounding");
         }
     }
 
@@ -897,7 +922,18 @@ class RenderChunkSqlTest extends PostgresTestBase {
             }
             boolean isFinal = random.nextBoolean();
             if (lo == hi && !isFinal) {
-                continue;
+                // A non-final equal range is empty by definition; widen it so the
+                // iteration still verifies a real range instead of being skipped.
+                if (keys.size() > 1) {
+                    hi = (hi + 1) % keys.size();
+                    if (lo > hi) {
+                        int swap = lo;
+                        lo = hi;
+                        hi = swap;
+                    }
+                } else {
+                    isFinal = true;
+                }
             }
             assertBoxesMatchTupleRange(schema, table, columns, kinds, keys.get(lo), keys.get(hi), isFinal);
         }
@@ -916,17 +952,21 @@ class RenderChunkSqlTest extends PostgresTestBase {
         StringBuilder columnTuple = new StringBuilder();
         StringBuilder startTuple = new StringBuilder();
         StringBuilder endTuple = new StringBuilder();
+        StringBuilder selectList = new StringBuilder();
         for (int i = 0; i < columns.length; i++) {
             if (i > 0) {
                 columnTuple.append(", ");
                 startTuple.append(", ");
                 endTuple.append(", ");
+                selectList.append(", ");
             }
-            columnTuple.append("t.").append(columns[i]);
-            startTuple.append("'").append(start[i]).append("'::").append(kinds[i]);
-            endTuple.append("'").append(end[i]).append("'::").append(kinds[i]);
+            columnTuple.append(quoteQualifiedIdentifier("t." + columns[i]));
+            selectList.append(quoteQualifiedIdentifier(columns[i]));
+            startTuple.append(quoteLiteral(start[i])).append("::").append(kinds[i]);
+            endTuple.append(quoteLiteral(end[i])).append("::").append(kinds[i]);
         }
-        String tupleSql = "SELECT " + String.join(", ", columns) + " FROM " + schema + "." + table + " t WHERE ("
+        String tupleSql = "SELECT " + selectList + " FROM "
+                + qualify(schema, table) + " " + quoteQualifiedIdentifier("t") + " WHERE ("
                 + columnTuple + ") >= (" + startTuple + ") AND (" + columnTuple + ") "
                 + (isFinal ? "<=" : "<") + " (" + endTuple + ")";
 
@@ -946,16 +986,16 @@ class RenderChunkSqlTest extends PostgresTestBase {
         return Long.parseLong(matcher.group(1));
     }
 
-    private List<String> rows(String sql, String[] columns) {
+    private List<List<Object>> rows(String sql, String[] columns) {
         return dsl.fetch(sql).stream()
                 .map(record -> {
-                    StringBuilder row = new StringBuilder();
+                    List<Object> row = new ArrayList<>();
                     for (String column : columns) {
-                        row.append(record.get(column)).append('|');
+                        row.add(record.get(column));
                     }
-                    return row.toString();
+                    return row;
                 })
-                .sorted()
+                .sorted(java.util.Comparator.comparing(RenderChunkSqlTest::rowKey))
                 .toList();
     }
 

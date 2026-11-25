@@ -7,8 +7,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.OffsetDateTime;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Verifies {@code dml_utils_lib.migration_key_pair_values}: it flattens a chunk's
@@ -30,6 +29,50 @@ class MigrationKeyPairValuesTest extends PostgresTestBase {
 
         assertArrayEquals(new String[]{"1"}, values.getOStartValues());
         assertArrayEquals(new String[]{"10"}, values.getOEndValues());
+    }
+
+    /**
+     * The helper pins search_path, so an unqualified operator or built-in in its
+     * body cannot be shadowed by a caller schema.
+     */
+    @Test
+    void pinsTheSearchPath() {
+        String config = dsl.fetchOne("""
+                        SELECT coalesce(pg_catalog.array_to_string(p.proconfig, ','), '')
+                        FROM pg_catalog.pg_proc AS p
+                        WHERE p.pronamespace = 'dml_utils_lib'::pg_catalog.regnamespace
+                          AND p.proname = 'migration_key_pair_values'
+                        """)
+                .get(0, String.class);
+        assertTrue(config.contains("search_path=pg_catalog"),
+                () -> "migration_key_pair_values must pin search_path: " + config);
+    }
+
+    /**
+     * Both boundaries are validated like i_key_kinds: a non-1-based,
+     * multidimensional or short present array raises {@code 22023} instead of
+     * yielding the wrong element or a NULL.
+     */
+    @Test
+    void rejectsMalformedValueArrays() {
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW('[0:1]={1,2}'::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW(ARRAY[1, 2]::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW('[1:1][1:1]={{1}}'::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint'])"));
+        assertSqlState("22023", () -> dsl.fetchOne(
+                "SELECT dml_utils_lib.migration_key_pair_values("
+                        + "ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key,"
+                        + " ROW(ARRAY[1]::bigint[], NULL, NULL, NULL, NULL)"
+                        + "::dml_utils_data.migration_key, ARRAY['bigint', 'bigint'])"));
     }
 
     /**

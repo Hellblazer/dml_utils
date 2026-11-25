@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils.migration_errors(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS TABLE
             (
@@ -11,6 +11,7 @@ CREATE OR REPLACE FUNCTION dml_utils.migration_errors(
             )
     LANGUAGE sql
     STABLE
+    PARALLEL SAFE
     SECURITY INVOKER
 AS
 $$
@@ -20,5 +21,5 @@ WHERE e.run_id = i_run_id
 ORDER BY e.error_id;
 $$;
 
-COMMENT ON FUNCTION dml_utils.migration_errors(bigint) IS
+COMMENT ON FUNCTION dml_utils.migration_errors IS
     'Returns the recorded errors of the run, ordered by error id.';

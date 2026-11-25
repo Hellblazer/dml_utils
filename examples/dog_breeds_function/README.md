@@ -8,22 +8,24 @@ chunk — against a small `dogs` table keyed by breed.
 
 `dog_breeds_function.sql`:
 
-1. Creates `public.dogs` (one row per dog breed) and a `status` column to fill.
-2. Seeds it with famous breeds.
-3. Defines `public.review_dog(p_breed text)`, a `void` function whose single
-   argument is the table's primary key.
-4. Prints the plans the run would use via
+1. Archives any earlier run with the example label.
+2. Creates `dog_breeds_function.dogs` (one row per dog breed) and a `status`
+   column to fill, in its own schema so the example never touches a real table.
+3. Seeds it with famous breeds.
+4. Defines `dog_breeds_function.review_dog(p_breed text)`, a `void` function
+   whose single argument is the table's primary key.
+5. Prints the plans the run would use via
    `dml_utils.explain_function_over_table` (read-only: no run or boundaries are
    written, and the chunk ranges are synthetic, so the estimates may differ from
    a real chunk).
-5. Runs `dml_utils.run_function_over_table`, which builds the per-row template,
+6. Runs `dml_utils.run_function_over_table`, which builds the per-row template,
    validates the function against the primary key, and delegates to
    `run_migration_chunks` (small chunk size so the example makes several chunks).
-6. Prints the run summary, the stored boundaries, and the per-status counts.
+7. Prints the run summary, the stored boundaries, and the per-status counts.
 
-The script is idempotent: it drops and recreates the function and the `dogs`
-table and archives any previous run with the same label, so you can re-run it
-freely.
+The script is idempotent: it archives any previous run with the same label, then
+drops and recreates the function and the `dogs` table in the
+`dog_breeds_function` schema, so you can re-run it freely.
 
 ## Run it
 
@@ -33,8 +35,8 @@ Start the local database (applies the changelog as `dml_utils_owner`):
 scripts/start-local-db.sh
 ```
 
-Then run the example as the `postgres` superuser (which can create the table and
-is a member of `pgbackground_role`):
+Then run the example as the `postgres` superuser (which can create the schema and
+table and is a member of `pgbackground_role`):
 
 ```sh
 psql -h localhost -p 5433 -U postgres -d dml_utils \

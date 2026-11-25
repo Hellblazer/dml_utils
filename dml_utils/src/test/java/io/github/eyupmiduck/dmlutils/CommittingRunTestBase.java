@@ -19,22 +19,26 @@ abstract class CommittingRunTestBase extends PostgresTestBase {
     /**
      * One call's inputs, so a test states only what differs from the defaults.
      *
-     * @param template  the chunk SQL template
-     * @param schema    the driving table's schema
-     * @param table     the driving table
-     * @param label     the run label
-     * @param chunkSize the chunk size
-     * @param threads   the worker count
-     * @param chunkBy   the chunking strategy
-     * @param sleepMs   the per-chunk delay
-     * @param index     the ordered-key index, or null
-     * @param partition whether the run is partition-wise
+     * @param template       the chunk SQL template
+     * @param schema         the driving table's schema
+     * @param table          the driving table
+     * @param label          the run label
+     * @param chunkSize      the chunk size
+     * @param threads        the worker count
+     * @param chunkBy        the chunking strategy
+     * @param sleepMs        the per-chunk delay
+     * @param index          the ordered-key index, or null
+     * @param partition      whether the run is partition-wise
+     * @param maxRetries     the transient-retry budget of a new run
+     * @param retryBackoffMs the delay between transient-retry attempts
      */
     record Call(String template, String schema, String table, String label, int chunkSize,
-                int threads, String chunkBy, int sleepMs, String index, boolean partition) {
+                int threads, String chunkBy, int sleepMs, String index, boolean partition,
+                int maxRetries, int retryBackoffMs) {
 
         /**
-         * A primary-key call with one thread and no delay.
+         * A primary-key call with one thread, no delay and the default retry
+         * policy.
          *
          * @param template  the chunk SQL template
          * @param schema    the driving table's schema
@@ -45,32 +49,37 @@ abstract class CommittingRunTestBase extends PostgresTestBase {
          */
         static Call of(String template, String schema, String table, String label, int chunkSize) {
             return new Call(template, schema, table, label, chunkSize, 1, "primary_key", 0, null,
-                    false);
+                    false, 3, 1000);
         }
 
         Call threads(int value) {
             return new Call(template, schema, table, label, chunkSize, value, chunkBy, sleepMs,
-                    index, partition);
+                    index, partition, maxRetries, retryBackoffMs);
         }
 
         Call chunkBy(String value) {
             return new Call(template, schema, table, label, chunkSize, threads, value, sleepMs,
-                    index, partition);
+                    index, partition, maxRetries, retryBackoffMs);
         }
 
         Call sleepMs(int value) {
             return new Call(template, schema, table, label, chunkSize, threads, chunkBy, value,
-                    index, partition);
+                    index, partition, maxRetries, retryBackoffMs);
         }
 
         Call index(String value) {
             return new Call(template, schema, table, label, chunkSize, threads, chunkBy, sleepMs,
-                    value, partition);
+                    value, partition, maxRetries, retryBackoffMs);
         }
 
         Call partitionWise() {
             return new Call(template, schema, table, label, chunkSize, threads, chunkBy, sleepMs,
-                    index, true);
+                    index, true, maxRetries, retryBackoffMs);
+        }
+
+        Call retries(int budget, int backoffMs) {
+            return new Call(template, schema, table, label, chunkSize, threads, chunkBy, sleepMs,
+                    index, partition, budget, backoffMs);
         }
 
         /**
@@ -84,7 +93,8 @@ abstract class CommittingRunTestBase extends PostgresTestBase {
                     Integer.toString(chunkSize), Integer.toString(threads), "'t'",
                     quote(chunkBy) + "::dml_utils_data.chunking_strategy", "1",
                     Integer.toString(sleepMs), index == null ? "NULL" : quote(index),
-                    Boolean.toString(partition));
+                    Boolean.toString(partition), Integer.toString(maxRetries),
+                    Integer.toString(retryBackoffMs));
         }
     }
 

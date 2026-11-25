@@ -23,7 +23,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Verifies {@code dml_utils.run_migration_chunks_committing}: it does what
  * {@code run_migration_chunks} does (every row exactly once, the same run
- * metadata, resume, partition-wise, error recording, cancellation) and differs
+ * metadata, resume, partition-wise, error recording, cancellation, pause and
+ * resume, transient retries, READ COMMITTED) and differs
  * only in that it COMMITs between chunk launches, which the bloat tests in
  * {@link RunMigrationChunksBloatTest} measure.
  */
@@ -37,6 +38,7 @@ class RunMigrationChunksCommittingTest extends CommittingRunTestBase {
     private static final String FAILING_TEMPLATE =
             "SELECT 1 / 0 FROM <driving_table> WHERE <chunking_clause>";
     private static final String ORDERED_KEY_INDEX = "test_ordered_key_created_at_id_idx";
+    private static final String PROBE_SEQUENCE = "public.committing_probe_seq";
 
     /**
      * Clears the fixtures and the run metadata so each test starts clean.
@@ -268,6 +270,140 @@ class RunMigrationChunksCommittingTest extends CommittingRunTestBase {
                         .and(MIGRATION_BOUNDARY.COMPLETED_AT.isNull())
                         .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNull())),
                 "every unfinished boundary is marked cancelled");
+
+        try (Connection connection = openTestConnection()) {
+            SQLException again = assertThrows(SQLException.class,
+                    () -> callCommitting(connection, bigint(label, 2)));
+            assertEquals("55000", again.getSQLState(),
+                    "a call on a cancelled run is rejected as it is for the function");
+        }
+    }
+
+    /**
+     * Pausing a running run stops the procedure once the in-flight chunks have
+     * committed and leaves the run resumable: a call on the paused run does
+     * nothing, and after the resume a call finishes it with every row processed
+     * once.
+     */
+    @Test
+    void stopsWhenTheRunIsPausedAndFinishesAfterTheResume() throws Exception {
+        for (long id = 1; id <= 30; id++) {
+            seedBigint(id);
+        }
+        String label = uniqueLabel("committing-pause");
+
+        CompletableFuture<Void> call;
+        try (Connection connection = openTestConnection()) {
+            call = CompletableFuture.runAsync(() -> {
+                try {
+                    callCommitting(connection, bigint(label, 2).sleepMs(300));
+                } catch (SQLException error) {
+                    throw new IllegalStateException(error);
+                }
+            });
+            awaitCompletedChunks(label, 2);
+
+            assertNotNull(Routines.pauseMigrationRun(dsl.configuration(), label),
+                    "the active run is paused");
+            call.get(30, TimeUnit.SECONDS);
+        }
+
+        long runId = runId(label);
+        assertNotNull(dsl.select(MIGRATION_RUN.PAUSED_AT).from(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(runId)).fetchOne(MIGRATION_RUN.PAUSED_AT),
+                "the run is paused");
+        assertFalse(runCompleted(runId), "a paused run is not complete");
+        long completedWhenPaused = totalChunksCompleted(runId);
+        assertTrue(completedWhenPaused < totalChunks(runId), "the run stopped part-way");
+        assertEquals(0, dsl.fetchCount(MIGRATION_BOUNDARY, MIGRATION_BOUNDARY.RUN_ID.eq(runId)
+                        .and(MIGRATION_BOUNDARY.CANCELLED_AT.isNotNull())),
+                "a pause cancels no boundary");
+
+        try (Connection connection = openTestConnection()) {
+            callCommitting(connection, bigint(label, 2));
+        }
+        assertEquals(completedWhenPaused, totalChunksCompleted(runId),
+                "a call on a paused run does nothing until it is resumed");
+
+        assertEquals(runId, Routines.resumeMigrationRun(dsl.configuration(), label));
+        try (Connection connection = openTestConnection()) {
+            callCommitting(connection, bigint(label, 2));
+        }
+
+        assertEquals(30, payloadCount(TEST_BIGINT, "x"), "every row is processed exactly once");
+        assertTrue(runCompleted(runId), "the resumed run completes");
+        assertEquals(totalChunks(runId), totalChunksCompleted(runId));
+    }
+
+    /**
+     * A transient failure (here a serialization failure) is retried within the
+     * run's budget, as the function does: the chunk runs twice, the run
+     * completes, and no error is recorded.
+     */
+    @Test
+    void retriesATransientFailureAndCompletes() throws Exception {
+        seedBigint(1);
+        String label = uniqueLabel("committing-retry");
+        createRetryProbe();
+        try (Connection connection = openTestConnection()) {
+            callCommitting(connection, Call.of(probeTemplate("committing_retry_once", "40001"),
+                    schema(), name(), label, 2).retries(3, 0));
+        } finally {
+            dropRetryProbe();
+        }
+
+        long runId = runId(label);
+        assertTrue(runCompleted(runId), "the transient failure is retried and the run completes");
+        assertEquals(0, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
+                "a recovered retry records no error");
+    }
+
+    /**
+     * When the retry budget is exhausted the failure is recorded once and its
+     * SQLSTATE is raised, as the function does; the run is left incomplete.
+     */
+    @Test
+    void recordsAnExhaustedTransientFailureOnce() throws Exception {
+        seedBigint(1);
+        String label = uniqueLabel("committing-retry-exhausted");
+        createRetryProbe();
+        try (Connection connection = openTestConnection()) {
+            SQLException failure = assertThrows(SQLException.class, () -> callCommitting(connection,
+                    Call.of(probeTemplate("committing_fail_counted", "40P01"),
+                            schema(), name(), label, 2).retries(1, 0)));
+            assertEquals("40P01", failure.getSQLState(), "the exhausted failure is re-raised");
+        } finally {
+            dropRetryProbe();
+        }
+
+        long runId = runId(label);
+        assertFalse(runCompleted(runId), "an exhausted run is not complete");
+        assertEquals(1, dsl.fetchCount(MIGRATION_ERROR, MIGRATION_ERROR.RUN_ID.eq(runId)),
+                "the failure is recorded once, after the budget is spent");
+    }
+
+    /**
+     * A session whose transactions are not READ COMMITTED is rejected, as it is
+     * for the function: the procedure's first COMMIT starts a transaction at the
+     * session's default isolation, and the coordinator refuses it with
+     * feature_not_supported before any run exists.
+     */
+    @Test
+    void rejectsASessionThatIsNotReadCommitted() throws Exception {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("committing-isolation");
+
+        try (Connection connection = openTestConnection();
+             Statement statement = connection.createStatement()) {
+            statement.execute("SET default_transaction_isolation = 'repeatable read'");
+            SQLException failure = assertThrows(SQLException.class,
+                    () -> callCommitting(connection, bigint(label, 2)));
+            assertEquals("0A000", failure.getSQLState(), "feature_not_supported");
+        }
+
+        assertEquals(0, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "no run is created by a call the isolation level rejects");
+        assertEquals(0, payloadCount(TEST_BIGINT, "x"), "no row is processed");
     }
 
     /**
@@ -333,6 +469,42 @@ class RunMigrationChunksCommittingTest extends CommittingRunTestBase {
                                 + " WHERE p.oid = 'dml_utils.run_migration_chunks_committing'::regproc"
                                 + " AND acl.grantee = 0)")
                 .get(0, Boolean.class), "PUBLIC holds no execute privilege");
+    }
+
+    /**
+     * Creates the probe sequence and the two functions the retry tests run as
+     * their chunk: one fails with the given SQLSTATE on its first execution only,
+     * the other on every execution.
+     */
+    private void createRetryProbe() {
+        dropRetryProbe();
+        dsl.execute("CREATE SEQUENCE " + PROBE_SEQUENCE);
+        dsl.execute("GRANT USAGE, SELECT ON SEQUENCE " + PROBE_SEQUENCE
+                + " TO dml_utils_owner, dml_utils_caller");
+        dsl.execute("CREATE FUNCTION public.committing_retry_once(p_code text) RETURNS void"
+                + " LANGUAGE plpgsql AS $$"
+                + " BEGIN"
+                + "   IF nextval('" + PROBE_SEQUENCE + "') = 1 THEN"
+                + "     RAISE EXCEPTION 'transient' USING ERRCODE = p_code;"
+                + "   END IF;"
+                + " END $$");
+        dsl.execute("CREATE FUNCTION public.committing_fail_counted(p_code text) RETURNS void"
+                + " LANGUAGE plpgsql AS $$"
+                + " BEGIN"
+                + "   PERFORM nextval('" + PROBE_SEQUENCE + "');"
+                + "   RAISE EXCEPTION 'transient' USING ERRCODE = p_code;"
+                + " END $$");
+    }
+
+    private void dropRetryProbe() {
+        dsl.execute("DROP FUNCTION IF EXISTS public.committing_retry_once(text)");
+        dsl.execute("DROP FUNCTION IF EXISTS public.committing_fail_counted(text)");
+        dsl.execute("DROP SEQUENCE IF EXISTS " + PROBE_SEQUENCE);
+    }
+
+    private static String probeTemplate(String function, String code) {
+        return "SELECT public." + function + "('" + code + "')"
+                + " FROM <driving_table> WHERE <chunking_clause>";
     }
 
     private Call bigint(String label, int chunkSize) {

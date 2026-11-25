@@ -21,6 +21,8 @@
 - [ ] Schema changes are Liquibase changesets added to `changes/changes.xml`, with forward SQL in `sql_changes/` and
   rollback SQL in `rollback/`
 - [ ] Tests are added or updated, have Javadoc, and database tests extend `PostgresTestBase`
+- [ ] Database access uses jOOQ's DSL; raw SQL is limited to DDL, catalog
+  introspection, session settings, and SQL the DSL cannot express
 - [ ] No secrets, credentials, or generated build output are included
 - [ ] Documentation is updated where needed
 

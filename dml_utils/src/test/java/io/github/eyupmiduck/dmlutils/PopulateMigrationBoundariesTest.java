@@ -68,6 +68,18 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     }
 
     /**
+     * The retry policy passed to populate is stored on the run.
+     */
+    @Test
+    void storesTheRetryPolicyOnTheRun() {
+        long runId = populateWithRetryPolicy(7, 250);
+
+        MigrationRunRecord run = migrationRun(runId);
+        assertEquals(7, run.getMaxRetries(), "max_retries is persisted");
+        assertEquals(250, run.getRetryBackoffMs(), "retry_backoff_ms is persisted");
+    }
+
+    /**
      * An ordered_key run resolves the named index, stores the descriptor with the
      * run and chunks in index order.
      */
@@ -77,7 +89,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
 
         long runId = populateOrderedKey();
 
-        MigrationRunRecord run = run(runId);
+        MigrationRunRecord run = migrationRun(runId);
         assertEquals(ChunkingStrategy.ordered_key, run.getChunkBy());
         assertEquals("test_ordered_key_created_at_id_idx", run.getOrderedKeyIndex());
         assertArrayEquals(new String[]{"created_at", "id"}, run.getOrderedKeyColumns());
@@ -89,7 +101,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertTimestamptzBigint(boundaries.get(1), 2, 3L);
         assertTimestamptzBigint(boundaries.get(2), 3, 5L);
         assertTimestamptzBigint(boundaries.get(3), 3, 5L);
-        assertEquals(3L, run(runId).getTotalChunks().longValue(), "three chunks");
+        assertEquals(3L, migrationRun(runId).getTotalChunks().longValue(), "three chunks");
     }
 
     /**
@@ -429,7 +441,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     void recordsLabelSqlTextAndChunkSize() {
         createSource(1, 2, 3, 4, 5);
 
-        String label = "records-columns-run";
+        String label = uniqueLabel("records-columns-run");
         long runId = populate(label, 5);
 
         MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
@@ -449,7 +461,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
      */
     @Test
     void recordsTheGivenThreads() {
-        String label = LABEL + "-threads";
+        String label = uniqueLabel("records-threads");
 
         long runId = populate(TEST_BIGINT, label, 5, 3);
 
@@ -552,7 +564,7 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         assertSqlState("22023", () -> io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .populateMigrationBoundaries(dsl.configuration(),
                         TEST_BIGINT.getSchema().getName(), TEST_BIGINT.getName(),
-                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null, false));
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, null, "t", 0, null, false, 3, 1000));
     }
 
     private long populateOrderedKey() {
@@ -564,14 +576,9 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines
                 .populateMigrationBoundaries(
                         dsl.configuration(), table.getSchema().getName(), table.getName(),
-                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index, false);
+                        LABEL + "-" + ++labelCounter, SQL_TEXT, 2, 1, chunkBy, "t", 0, index, false, 3, 1000);
     }
 
-    private MigrationRunRecord run(long runId) {
-        return dsl.selectFrom(MIGRATION_RUN)
-                .where(MIGRATION_RUN.RUN_ID.eq(runId))
-                .fetchOne();
-    }
 
     private void createSource(long... ids) {
         seedBigint(ids);
@@ -603,7 +610,14 @@ class PopulateMigrationBoundariesTest extends PostgresTestBase {
     private long populate(Table<?> table, String label, int chunkSize, int threads) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), table.getSchema().getName(), table.getName(), label, SQL_TEXT,
-                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null, false);
+                chunkSize, threads, ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
+    }
+
+    private long populateWithRetryPolicy(int maxRetries, int retryBackoff) {
+        return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
+                dsl.configuration(), schema(TEST_BIGINT), name(TEST_BIGINT),
+                LABEL + "-" + ++labelCounter, SQL_TEXT, 1, 1,
+                ChunkingStrategy.primary_key, "t", 0, null, false, maxRetries, retryBackoff);
     }
 
     private void assertBoundaries(long runId, long[][] expected) {

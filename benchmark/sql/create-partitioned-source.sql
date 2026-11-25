@@ -9,9 +9,17 @@
 -- balanced. The :pk_def, :pk_key and :pk_exprs variables must each stay on one
 -- line: a psql variable is only substituted when the name follows the colon
 -- with no whitespace.
+--
+-- The first key column defined by :pk_def must be named k1: it is the partition
+-- key. :leaves must be between 1 and the number of distinct k1 values, and :rows
+-- must be at least 1; setup.sh enforces both so this script cannot create an
+-- empty fixture or a leaf with an empty range.
 \set ON_ERROR_STOP on
 
 CREATE SCHEMA IF NOT EXISTS :"schema";
+
+COMMENT ON SCHEMA :"schema" IS
+    'Benchmark fixture schema for the synthetic sweep.';
 
 DROP TABLE IF EXISTS :"schema".:"source_table";
 
@@ -64,3 +72,15 @@ INSERT INTO :"schema".:"source_table" (:pk_key, payload)
 SELECT :pk_exprs,
        pg_catalog.md5(g::text)
 FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;
+
+-- Refresh planner statistics (see create-source.sql).
+ANALYZE :"schema".:"source_table";
+-- ANALYZE on the partitioned parent does not refresh the leaves, and the
+-- partition-wise chunks are planned per leaf, so analyze each storage leaf too.
+SELECT pg_catalog.format('ANALYZE %I.%I', n.nspname, c.relname)
+FROM pg_catalog.pg_partition_tree(pg_catalog.format('%I.%I', :'schema', :'source_table')::regclass) AS leaf
+         JOIN pg_catalog.pg_class AS c ON c.oid = leaf.relid
+         JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+WHERE leaf.isleaf
+\gexec
+

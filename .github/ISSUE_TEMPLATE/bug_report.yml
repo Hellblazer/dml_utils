@@ -19,7 +19,7 @@ body:
       options:
         - label: I searched existing issues and could not find this bug.
           required: true
-        - label: I am running a supported PostgreSQL version (16, 17, or 18).
+        - label: I am running a supported PostgreSQL version (16, 17, 18, or 19).
           required: true
   - type: textarea
     id: what-happened
@@ -53,6 +53,7 @@ body:
         - "16"
         - "17"
         - "18"
+        - "19"
         - Other / not sure
     validations:
       required: true

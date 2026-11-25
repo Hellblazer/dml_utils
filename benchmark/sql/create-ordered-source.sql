@@ -9,6 +9,9 @@
 
 CREATE SCHEMA IF NOT EXISTS :"schema";
 
+COMMENT ON SCHEMA :"schema" IS
+    'Benchmark fixture schema for the synthetic sweep.';
+
 DROP TABLE IF EXISTS :"schema".:"source_table";
 
 CREATE TABLE :"schema".:"source_table"
@@ -27,12 +30,6 @@ COMMENT ON COLUMN :"schema".:"source_table".created_at IS
 COMMENT ON COLUMN :"schema".:"source_table".payload IS
     'Deterministic payload derived from the row number.';
 
-CREATE UNIQUE INDEX :"index"
-    ON :"schema".:"source_table" (created_at, id);
-
-COMMENT ON INDEX :"schema".:"index" IS
-    'The ordered-key index: (created_at, id), with id as the tiebreaker.';
-
 -- The UUID is deterministic: md5 of the row number with the version (4) and
 -- variant (8) nibbles set, so a refresh reproduces the table exactly.
 INSERT INTO :"schema".:"source_table" (id, created_at, payload)
@@ -43,3 +40,14 @@ SELECT pg_catalog.overlay(
            + ((g - 1) / 10) * interval '1 second',
        pg_catalog.md5(g::text)
 FROM pg_catalog.generate_series(1, :'rows'::bigint) AS g;
+
+-- Build the index once after the bulk load: maintaining it row by row during
+-- the INSERT costs more than one sorted build.
+CREATE UNIQUE INDEX :"index"
+    ON :"schema".:"source_table" (created_at, id);
+
+COMMENT ON INDEX :"schema".:"index" IS
+    'The ordered-key index: (created_at, id), with id as the tiebreaker.';
+
+-- Refresh planner statistics (see create-source.sql).
+ANALYZE :"schema".:"source_table";

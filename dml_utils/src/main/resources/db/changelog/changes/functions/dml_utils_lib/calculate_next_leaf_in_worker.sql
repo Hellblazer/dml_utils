@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
-    i_run_id bigint
+    i_run_id dml_utils_data.non_null_bigint
 )
     RETURNS integer
     LANGUAGE plpgsql
@@ -7,11 +7,12 @@ CREATE OR REPLACE FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(
 AS
 $$
 DECLARE
-    l_handle       public.pg_background_handle;
-    l_ordinal      integer;
-    l_leaf_ordinal integer;
-    l_info         public.pg_background_result_info;
-    l_error        public.pg_background_error;
+    l_handle         public.pg_background_handle;
+    l_ordinal        integer;
+    l_leaf_ordinal   integer;
+    l_info           public.pg_background_result_info;
+    l_error          public.pg_background_error;
+    l_record_outcome record;
 BEGIN
     -- One leaf per worker transaction: calculate_migration_leaf claims the first
     -- pending/failed leaf, appends its starts and marks it calculated. A NULL
@@ -25,7 +26,10 @@ BEGIN
     BEGIN
         PERFORM public.pg_background_wait(l_handle.pid, l_handle.cookie);
     EXCEPTION
-        WHEN OTHERS THEN
+        -- QUERY_CANCELED (57014: statement_timeout or a cancel request) is not
+        -- caught by WHEN OTHERS, so name it explicitly: a cancel during the wait
+        -- must still cancel/detach the worker.
+        WHEN QUERY_CANCELED OR OTHERS THEN
             -- The wait failed while the worker may still be running, so its leaf
             -- transaction has not necessarily rolled back. Do not attribute the
             -- failure to a leaf; cancel/detach best-effort so the handle is not
@@ -34,14 +38,15 @@ BEGIN
                 PERFORM public.pg_background_cancel(
                         l_handle.pid, l_handle.cookie, 1000);
             EXCEPTION
-                WHEN OTHERS THEN
+                -- A re-delivered cancel must not replace the cleanup.
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -55,12 +60,12 @@ BEGIN
         l_info := public.pg_background_result_info(
                 l_handle.pid, l_handle.cookie);
     EXCEPTION
-        WHEN OTHERS THEN
+        WHEN QUERY_CANCELED OR OTHERS THEN
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -71,7 +76,9 @@ BEGIN
             l_error := public.pg_background_error_info(
                     l_handle.pid, l_handle.cookie);
         EXCEPTION
-            WHEN OTHERS THEN
+            -- A cancel here must not replace the worker's own error, which is
+            -- re-raised below; the fallbacks in the recording call still work.
+            WHEN QUERY_CANCELED OR OTHERS THEN
                 l_error := NULL;
         END;
 
@@ -87,14 +94,34 @@ BEGIN
         LIMIT 1;
         IF FOUND THEN
             BEGIN
-                PERFORM public.pg_background_run(pg_catalog.format(
-                        'SELECT dml_utils_lib.record_migration_leaf_error(%s, %s, %L, %L)',
+                SELECT outcome.completed,
+                       outcome.has_error,
+                       outcome.sqlstate,
+                       outcome.error_message
+                INTO l_record_outcome
+                FROM public.pg_background_run(pg_catalog.format(
+                        'SELECT dml_utils_lib.record_migration_leaf_error(%L, %L, %L, %L)',
                         i_run_id, l_leaf_ordinal,
                         COALESCE(l_error.sqlstate, 'XX000'),
-                        COALESCE(l_error.message, 'worker failed')));
+                        COALESCE(l_error.message, 'worker failed'))
+                     ) AS outcome;
+
+                -- Do not raise: the original worker SQLSTATE is re-raised below.
+                IF NOT COALESCE(l_record_outcome.completed, false)
+                    OR COALESCE(l_record_outcome.has_error, false)
+                THEN
+                    RAISE WARNING
+                        'could not record the failure of leaf % of run %: % (%)',
+                        l_leaf_ordinal, i_run_id,
+                        l_record_outcome.error_message, l_record_outcome.sqlstate;
+                END IF;
             EXCEPTION
-                WHEN OTHERS THEN
-                    NULL;
+                -- Recording is best-effort; a cancel must not replace the
+                -- original worker error re-raised below.
+                WHEN QUERY_CANCELED OR OTHERS THEN
+                    RAISE WARNING
+                        'could not launch the failure-recording worker for leaf % of run %: % (%)',
+                        l_leaf_ordinal, i_run_id, SQLERRM, SQLSTATE;
             END;
         END IF;
     END IF;
@@ -107,12 +134,14 @@ BEGIN
         FROM public.pg_background_result(
                      l_handle.pid, l_handle.cookie) AS (ordinal integer);
     EXCEPTION
-        WHEN OTHERS THEN
+        -- A cancel during the result read is not caught by WHEN OTHERS; detach
+        -- the finished worker's handle before re-raising the cancel.
+        WHEN QUERY_CANCELED OR OTHERS THEN
             BEGIN
                 PERFORM public.pg_background_detach(
                         l_handle.pid, l_handle.cookie);
             EXCEPTION
-                WHEN OTHERS THEN
+                WHEN QUERY_CANCELED OR OTHERS THEN
                     NULL;
             END;
             RAISE;
@@ -122,10 +151,13 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker(bigint) IS
+COMMENT ON FUNCTION dml_utils_lib.calculate_next_leaf_in_worker IS
     'Runs one calculate_migration_leaf step in its own pg_background '
         'transaction and returns the calculated ordinal (NULL when no leaf is '
         'left). A worker-reported failure is recorded on the manifest in its own '
         'worker transaction before the worker error is re-raised; a wait or '
         'result-materialisation failure cancels/detaches the handle without '
-        'blaming an unattempted leaf.';
+        'blaming an unattempted leaf. QUERY_CANCELED is caught explicitly (WHEN '
+        'OTHERS does not catch it) in the wait, result-info and result handlers '
+        'and their cleanups, so a cancel still detaches the handle and cannot mask '
+        'the worker''s error.';

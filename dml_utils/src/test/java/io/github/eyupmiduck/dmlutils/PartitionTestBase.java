@@ -3,13 +3,17 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunLeafRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ManifestLeafIdentity;
 
-import java.sql.Connection;
 import java.sql.SQLException;
-import java.sql.Statement;
+import java.util.List;
 
+import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRun.MIGRATION_RUN;
 import static io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.MigrationRunLeaf.MIGRATION_RUN_LEAF;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestBigint.TEST_BIGINT;
+import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedMulti.TEST_PARTITIONED_MULTI;
 import static io.github.eyupmiduck.dmlutils.jooqfixtures.tables.TestPartitionedRange.TEST_PARTITIONED_RANGE;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
  * Shared fixture support for the partition-wise tests: owner-side DDL, the
@@ -38,7 +42,7 @@ abstract class PartitionTestBase extends PostgresTestBase {
                                          String index) {
         return Routines.populateMigrationBoundaries(dsl.configuration(),
                 PARTITION_SCHEMA, table, uniqueLabel(labelPrefix), sqlText, chunkSize, 1,
-                chunkBy, "t", 0, index, true);
+                chunkBy, "t", 0, index, true, 3, 1000);
     }
 
     /**
@@ -49,11 +53,11 @@ abstract class PartitionTestBase extends PostgresTestBase {
      * @return the leaf ordinal
      */
     protected int leafOrdinal(long runId, String leafName) {
-        return dsl.select(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
-                .from(MIGRATION_RUN_LEAF)
-                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
-                .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName))
-                .fetchOne(MIGRATION_RUN_LEAF.LEAF_ORDINAL);
+        Integer ordinal = dsl.fetchValue(MIGRATION_RUN_LEAF.LEAF_ORDINAL,
+                MIGRATION_RUN_LEAF.RUN_ID.eq(runId)
+                        .and(MIGRATION_RUN_LEAF.LEAF_NAME.eq(leafName)));
+        assertNotNull(ordinal, () -> "no manifest leaf " + leafName + " in run " + runId);
+        return ordinal;
     }
 
     /**
@@ -64,10 +68,12 @@ abstract class PartitionTestBase extends PostgresTestBase {
      * @return the leaf row
      */
     protected MigrationRunLeafRecord leaf(long runId, int ordinal) {
-        return dsl.selectFrom(MIGRATION_RUN_LEAF)
+        MigrationRunLeafRecord row = dsl.selectFrom(MIGRATION_RUN_LEAF)
                 .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
                 .and(MIGRATION_RUN_LEAF.LEAF_ORDINAL.eq(ordinal))
                 .fetchOne();
+        assertNotNull(row, () -> "no manifest leaf " + ordinal + " in run " + runId);
+        return row;
     }
 
     /**
@@ -90,22 +96,68 @@ abstract class PartitionTestBase extends PostgresTestBase {
         for (Long id : ids) {
             dsl.insertInto(TEST_PARTITIONED_RANGE,
                             TEST_PARTITIONED_RANGE.ID, TEST_PARTITIONED_RANGE.PAYLOAD)
-                    .values(id, "pending")
+                    .values(id, "payload-" + id)
                     .execute();
         }
     }
 
     /**
-     * Executes one statement as the owner.
-     *
-     * @param sql the statement to run
-     * @throws SQLException if the statement fails
+     * Empties the migration metadata and the range fixture between tests.
      */
-    protected void executeAsOwner(String sql) throws SQLException {
-        try (Connection connection = openOwnerConnection();
-             Statement statement = connection.createStatement()) {
-            statement.execute(sql);
-        }
+    protected void resetRunsAndRange() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+    }
+
+    /**
+     * Empties the two partitioned fixtures used by the leaf helpers.
+     */
+    protected void resetRanges() {
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+        dsl.truncate(TEST_PARTITIONED_MULTI).execute();
+    }
+
+    /**
+     * Empties the migration metadata and both driving fixtures between tests.
+     */
+    protected void resetRunsBigintAndRange() {
+        dsl.deleteFrom(MIGRATION_RUN).execute();
+        dsl.truncate(TEST_BIGINT).execute();
+        dsl.truncate(TEST_PARTITIONED_RANGE).execute();
+    }
+
+    /**
+     * Returns a run's manifest leaves in manifest order.
+     *
+     * @param runId the run id
+     * @return the leaf rows
+     */
+    protected List<MigrationRunLeafRecord> leaves(long runId) {
+        return dsl.selectFrom(MIGRATION_RUN_LEAF)
+                .where(MIGRATION_RUN_LEAF.RUN_ID.eq(runId))
+                .orderBy(MIGRATION_RUN_LEAF.LEAF_ORDINAL)
+                .fetch();
+    }
+
+    /**
+     * Returns the first manifest leaf's identity snapshot.
+     *
+     * @param runId the run id
+     * @return the leaf identity
+     */
+    protected ManifestLeafIdentity identity(long runId) {
+        return identity(runId, 1);
+    }
+
+    /**
+     * Returns one manifest leaf's identity snapshot.
+     *
+     * @param runId   the run id
+     * @param ordinal the leaf ordinal
+     * @return the leaf identity
+     */
+    protected ManifestLeafIdentity identity(long runId, int ordinal) {
+        return Routines.manifestLeafIdentity(dsl.configuration(), runId, ordinal);
     }
 
     /**
@@ -147,6 +199,13 @@ abstract class PartitionTestBase extends PostgresTestBase {
      * @throws SQLException if the restore fails
      */
     protected void restoreMidPartition() throws SQLException {
+        // Keep the standalone table's OID and rows: the detach/reattach tests
+        // resume a run over the same leaf, and its rows are the fixture's data, not
+        // leftovers. The next test's @BeforeEach truncates the parent (and so the
+        // reattached child), which clears anything a test changed. Only a missing
+        // leaf is recreated, and only a failed attach triggers the canonical
+        // recreate below, so a half-finished detach/attach cannot leave every later
+        // test on a detached fixture.
         if (partitionAttached()) {
             executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
                     + " DETACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
@@ -156,12 +215,32 @@ abstract class PartitionTestBase extends PostgresTestBase {
                     + " PARTITION OF " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
                     + " FOR VALUES FROM (100) TO (200)");
         } else {
-            executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
-                    + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
-                    + " FOR VALUES FROM (100) TO (200)");
+            try {
+                executeAsOwner("ALTER TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                        + " ATTACH PARTITION " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
+                        + " FOR VALUES FROM (100) TO (200)");
+            } catch (SQLException attachFailure) {
+                // A standalone table that cannot be reattached (for example a row
+                // outside the bound) would otherwise stay detached for every later
+                // test. Recreate the canonical partition, preserving the original
+                // failure if the recovery also fails.
+                try {
+                    executeAsOwner("DROP TABLE " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID);
+                    executeAsOwner("CREATE TABLE " + PARTITION_SCHEMA + "."
+                            + PARTITIONED_RANGE_MID
+                            + " PARTITION OF " + PARTITION_SCHEMA + "." + PARTITIONED_RANGE
+                            + " FOR VALUES FROM (100) TO (200)");
+                } catch (SQLException recoveryFailure) {
+                    attachFailure.addSuppressed(recoveryFailure);
+                    throw attachFailure;
+                }
+            }
         }
         executeAsOwner("GRANT SELECT, INSERT, UPDATE, DELETE, TRUNCATE ON "
                 + PARTITION_SCHEMA + "." + PARTITIONED_RANGE_MID
                 + " TO " + TEST_USER + ", dml_utils_caller");
+        if (!partitionAttached()) {
+            throw new IllegalStateException("the middle range leaf is not attached after restore");
+        }
     }
 }

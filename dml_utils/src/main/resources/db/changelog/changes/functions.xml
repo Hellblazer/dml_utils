@@ -7,14 +7,16 @@
     <!-- One changeset per stored function. Each function lives in its own file
          under functions/<schema>/ and is added with createProcedure (Liquibase
          has no createFunction change type). runOnChange re-applies only the
-         changeset whose body changed, and each one carries its own rollback.
+         changeset whose body changed, and each one carries its own rollback. A
+         rollback drops the routine (there is no data to restore); because a
+         signature change is made in place, its DROP names the current signature.
 
-         CREATE OR REPLACE only replaces a routine with an identical signature:
-         changing RETURNS or the parameter names aborts the deploy, and changing
-         a parameter type silently leaves the old overload behind. When a
-         signature changes, add an explicit
-         `DROP FUNCTION IF EXISTS <old signature>;` (for example another sqlFile
-         in that routine's changeset) so the deprecated signature is removed. -->
+         Nothing is deployed yet, so a signature change is made in place: the
+         routine file is edited and CREATE OR REPLACE defines the one current
+         signature. Do not add `DROP FUNCTION IF EXISTS <old signature>` guards or
+         other compatibility changesets — a fresh database (and every test and CI
+         database) defines only the new signature, and long-lived local databases
+         are recreated. -->
     <changeSet id="function-dml_utils_data.set_updated_at" author="lee.horner" dbms="postgresql"
                runOnChange="true">
         <createProcedure path="functions/dml_utils_data/set_updated_at.sql" relativeToChangelogFile="true"/>
@@ -94,6 +96,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_read_committed" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_read_committed.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_read_committed-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.assert_partitioned_table" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/assert_partitioned_table.sql"
@@ -131,6 +143,17 @@
         <rollback>
             <sqlFile path="functions-rollback/dml_utils_lib/primary_key_attributes-rollback.sql"
                      relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.assert_primary_key_arity_matches" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_primary_key_arity_matches.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile
+                    path="functions-rollback/dml_utils_lib/assert_primary_key_arity_matches-rollback.sql"
+                    relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
 
@@ -254,6 +277,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils_lib.assert_threads_within_max_worker_processes"
+               author="lee.horner" dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_threads_within_max_worker_processes.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_threads_within_max_worker_processes-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils_lib.migration_key_values" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils_lib/migration_key_values.sql"
@@ -350,6 +383,16 @@
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils_lib/synthetic_chunk_boundary_values-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.assert_single_statement" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/assert_single_statement.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/assert_single_statement-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -604,35 +647,12 @@
         </rollback>
     </changeSet>
 
-    <!-- The coordinator shared by run_migration_chunks and
-         run_migration_chunks_committing. It is a procedure because only a procedure
-         can COMMIT; the function calls it with i_commit false. -->
-    <changeSet id="function-dml_utils_lib.coordinate_migration_chunks" author="hellblazer"
-               dbms="postgresql" runOnChange="true">
-        <createProcedure path="functions/dml_utils_lib/coordinate_migration_chunks.sql"
-                         relativeToChangelogFile="true"/>
-        <rollback>
-            <sqlFile path="functions-rollback/dml_utils_lib/coordinate_migration_chunks-rollback.sql"
-                     relativeToChangelogFile="true"/>
-        </rollback>
-    </changeSet>
-
     <changeSet id="function-dml_utils.run_migration_chunks" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/run_migration_chunks.sql"
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/run_migration_chunks-rollback.sql"
-                     relativeToChangelogFile="true"/>
-        </rollback>
-    </changeSet>
-
-    <changeSet id="function-dml_utils.run_migration_chunks_committing" author="hellblazer"
-               dbms="postgresql" runOnChange="true">
-        <createProcedure path="functions/dml_utils/run_migration_chunks_committing.sql"
-                         relativeToChangelogFile="true"/>
-        <rollback>
-            <sqlFile path="functions-rollback/dml_utils/run_migration_chunks_committing-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -653,6 +673,16 @@
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/explain_migration_chunk-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils.explain_migration_run_chunk" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/explain_migration_run_chunk.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/explain_migration_run_chunk-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -747,6 +777,16 @@
         </rollback>
     </changeSet>
 
+    <changeSet id="function-dml_utils.set_migration_run_retries" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/set_migration_run_retries.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/set_migration_run_retries-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
     <changeSet id="function-dml_utils.archive_migration_run" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/archive_migration_run.sql"
@@ -767,18 +807,35 @@
         </rollback>
     </changeSet>
 
-    <!-- Overloads of one routine share a changeset: the no-argument delete and
-         the by-label delete. -->
+    <changeSet id="function-dml_utils.pause_migration_run" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/pause_migration_run.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/pause_migration_run-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils.resume_migration_run" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/resume_migration_run.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/resume_migration_run-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <!-- One changeset for delete_archived_migration_runs. Its i_label argument
+         defaults to NULL (delete every label), so there is one function, not an
+         overload pair. -->
     <changeSet id="function-dml_utils.delete_archived_migration_runs" author="lee.horner"
                dbms="postgresql" runOnChange="true">
         <createProcedure path="functions/dml_utils/delete_archived_migration_runs.sql"
                          relativeToChangelogFile="true"/>
-        <createProcedure path="functions/dml_utils/delete_archived_migration_runs_by_label.sql"
-                         relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/delete_archived_migration_runs-rollback.sql"
-                     relativeToChangelogFile="true"/>
-            <sqlFile path="functions-rollback/dml_utils/delete_archived_migration_runs_by_label-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -789,6 +846,26 @@
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils/migration_run_summary-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils.migration_run_leaves" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/migration_run_leaves.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/migration_run_leaves-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils.migration_run_progress" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils/migration_run_progress.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils/migration_run_progress-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>
@@ -1084,6 +1161,16 @@
                          relativeToChangelogFile="true"/>
         <rollback>
             <sqlFile path="functions-rollback/dml_utils_lib/find_active_migration_run-rollback.sql"
+                     relativeToChangelogFile="true"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="function-dml_utils_lib.find_terminal_migration_run" author="lee.horner"
+               dbms="postgresql" runOnChange="true">
+        <createProcedure path="functions/dml_utils_lib/find_terminal_migration_run.sql"
+                         relativeToChangelogFile="true"/>
+        <rollback>
+            <sqlFile path="functions-rollback/dml_utils_lib/find_terminal_migration_run-rollback.sql"
                      relativeToChangelogFile="true"/>
         </rollback>
     </changeSet>

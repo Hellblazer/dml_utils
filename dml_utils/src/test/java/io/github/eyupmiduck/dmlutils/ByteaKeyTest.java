@@ -197,7 +197,7 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
                     .populateMigrationBoundaries(hostile.configuration(),
                             schema(TEST_BYTEA_COMPOSITE_PK), name(TEST_BYTEA_COMPOSITE_PK),
                             uniqueLabel("bytea-hostile"), APPEND, 5, 1,
-                            ChunkingStrategy.primary_key, "t", 0, null, false);
+                            ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
             List<String> hostileSql = renderedChunkSql(hostileRun, TEST_BYTEA_COMPOSITE_PK,
                     "tenant_id, collection, chash", COMPOSITE_ROW, TEXT_TEXT_BYTEA, hostile);
 
@@ -312,7 +312,7 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, schema(TEST_BYTEA_PK),
                 name(TEST_BYTEA_PK), label, 4, 1, "t", ChunkingStrategy.ordered_key, 1, 0,
-                "test_bytea_pk_pkey", false);
+                "test_bytea_pk_pkey", false, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_BYTEA_PK, EDGE_KEYS.size(), "ordered-key run");
         assertTrue(runCompleted(label), "the ordered-key run completes");
@@ -336,7 +336,8 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
         String label = uniqueLabel("fn-bytea");
 
         Routines.runFunctionOverTable(dsl.configuration(), schema(TEST_BYTEA_PK), name(TEST_BYTEA_PK),
-                "public", "mark_bytea", 4, 1, label, null, ChunkingStrategy.primary_key, 1, 0);
+                "public", "mark_bytea", 4, 1, label, null, ChunkingStrategy.primary_key, 1, 0,
+                null, false, 3, 1000);
 
         assertTrue(runCompleted(label), "the run completes");
         assertEveryRowDoneOnce(TEST_BYTEA_PK, EDGE_KEYS.size(), "function over table");
@@ -353,7 +354,7 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, schema(TEST_BYTEA_PARTITIONED),
                 name(TEST_BYTEA_PARTITIONED), label, 7, 2, "t", ChunkingStrategy.primary_key, 1, 0,
-                null, false);
+                null, false, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_BYTEA_PARTITIONED, 2 * EDGE_KEYS.size(), "partitioned parent");
         assertTrue(runCompleted(label), "the run completes");
@@ -373,7 +374,7 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
 
         Routines.runMigrationChunks(dsl.configuration(), APPEND, schema(TEST_BYTEA_PARTITIONED),
                 name(TEST_BYTEA_PARTITIONED), label, 7, 2, "t", ChunkingStrategy.primary_key, 1, 0,
-                null, true);
+                null, true, 3, 1000);
 
         assertEveryRowDoneOnce(TEST_BYTEA_PARTITIONED, 2 * EDGE_KEYS.size(), "partition-wise");
         assertTrue(runCompleted(label), "the partition-wise run completes");
@@ -391,13 +392,13 @@ class ByteaKeyTest extends ChunkRenderingTestBase {
     private void runPrimaryKey(String label, String template, Table<?> table, int chunkSize,
                                int threads) {
         Routines.runMigrationChunks(dsl.configuration(), template, schema(table), name(table), label,
-                chunkSize, threads, "t", ChunkingStrategy.primary_key, 1, 0, null, false);
+                chunkSize, threads, "t", ChunkingStrategy.primary_key, 1, 0, null, false, 3, 1000);
     }
 
     private long populate(Table<?> table, String label, int chunkSize) {
         return io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines.populateMigrationBoundaries(
                 dsl.configuration(), schema(table), name(table), label, APPEND, chunkSize, 1,
-                ChunkingStrategy.primary_key, "t", 0, null, false);
+                ChunkingStrategy.primary_key, "t", 0, null, false, 3, 1000);
     }
 
     private void seedSingle(List<byte[]> keys) {

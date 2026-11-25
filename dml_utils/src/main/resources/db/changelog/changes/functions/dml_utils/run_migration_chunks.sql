@@ -26,7 +26,11 @@ CREATE OR REPLACE FUNCTION dml_utils.run_migration_chunks(
     -- and its leaf manifest are created first, each leaf's boundaries are
     -- calculated in its own worker/transaction, and every chunk is rendered
     -- against its leaf.
-    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE
+    i_partition_wise dml_utils_data.non_null_boolean DEFAULT FALSE,
+    -- Retries after the first attempt for a transient chunk failure; 0 disables.
+    i_max_retries dml_utils_data.non_negative_integer DEFAULT 3,
+    -- Milliseconds between transient-retry attempts; 0 retries immediately.
+    i_retry_backoff_ms dml_utils_data.non_negative_integer DEFAULT 1000
 )
     RETURNS void
     LANGUAGE plpgsql
@@ -51,6 +55,8 @@ BEGIN
             i_sleep_ms => i_sleep_ms,
             i_boundary_key_index => i_boundary_key_index,
             i_partition_wise => i_partition_wise,
+            i_max_retries => i_max_retries,
+            i_retry_backoff_ms => i_retry_backoff_ms,
             i_commit => false);
 END;
 $$;
@@ -71,10 +77,25 @@ COMMENT ON FUNCTION dml_utils.run_migration_chunks IS
         'failed chunk it stops launching, lets the in-flight chunks commit, drains '
         'and detaches them, and re-raises the error; the failure is recorded (best '
         'effort) in dml_utils_data.migration_error first. A boundary already claimed '
-        'by another coordinator (P0C01) is treated as benign. A run cancelled with '
-        'dml_utils.cancel_migration_run stops launching, cancels the in-flight '
+        'by another coordinator (P0C01) is treated as benign. A run that is '
+        'already cancelled when the call starts is rejected with '
+        'object_not_in_prerequisite_state (55000): cancellation is terminal, so '
+        'archive the run and create a new one instead of treating the call as a '
+        'successful no-op. A run cancelled with dml_utils.cancel_migration_run '
+        'while this call is running stops launching, cancels the in-flight '
         'workers, marks the run and its remaining boundaries cancelled and '
-        'returns; a cancelled run is terminal. With i_partition_wise the parent is '
+        'returns. Requires READ COMMITTED '
+        '(assert_read_committed raises 0A000 otherwise), because the coordinator '
+        'observes workers'' autonomous commits and polls the run row. A run paused with '
+        'dml_utils.pause_migration_run stops launching, waits for the in-flight '
+        'workers to commit their current chunk, leaves the remaining boundaries '
+        'pending and returns; re-calling it while paused is a no-op until '
+        'dml_utils.resume_migration_run clears the flag. Completion wins if every '
+        'chunk already finished. A transient chunk failure with SQLSTATE 40001 '
+        '(serialization), 40P01 (deadlock) or 55P03 (lock not available) is retried '
+        'up to the run''s stored max_retries after a cancellation- and pause-aware '
+        'retry_backoff_ms; the failure is recorded only after the budget is '
+        'exhausted. With i_partition_wise the parent is '
         'declarative partitioned: prepare_partition_wise_execution first finishes '
         'one-leaf-per-transaction boundary calculation, finalizes, then processes '
         'each chunk against its boundary''s leaf via next_migration_chunk. The live '
