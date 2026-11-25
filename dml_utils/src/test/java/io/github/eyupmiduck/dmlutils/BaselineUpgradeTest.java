@@ -201,7 +201,7 @@ class BaselineUpgradeTest extends UpgradeContract {
                             "SELECT o_boundary_no, o_chunk_table_name, o_start_values::text,"
                                     + " o_end_values::text, o_is_final"
                                     + " FROM dml_utils_lib.next_migration_chunk("
-                                    + runId + ", true, ARRAY['bigint'], ARRAY[]::bigint[], NULL, NULL)")) {
+                                    + runId + ", true, ARRAY['bigint'], ARRAY[]::bigint[], 'public', 'upg_src')")) {
                         assertTrue(next.next(), "the failed chunk is next");
                         assertEquals(1L, next.getLong(1), "the failed chunk");
                         assertEquals("upg_src_a", next.getString(2), "it belongs to the first leaf");

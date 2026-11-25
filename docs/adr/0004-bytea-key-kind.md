@@ -62,8 +62,11 @@ the change is made in new changesets, and `BaselineUpgradeTest` stays enabled:
   grant: a failure there leaves the new routines in place against the new type,
   never a mix. No routine, trigger or table definition reads the widened checks.
 - The routines are edited in place under `runOnChange`. `terminal_leaf_for_run`
-  gains an OUT column, so it is dropped and recreated with its grants
-  re-asserted.
+  gains an OUT column, which `CREATE OR REPLACE` cannot change, so 008 drops the
+  old function (`IF EXISTS`, so a fresh database is untouched) before the
+  function changesets run, and 009 grants the new one to the caller again
+  because 999 does not run again on an upgrade. The routine's own changeset
+  stays a single `createProcedure`, as the changelog layout requires.
 
 ### 4. The first ddl_utils caller, and its precondition
 
