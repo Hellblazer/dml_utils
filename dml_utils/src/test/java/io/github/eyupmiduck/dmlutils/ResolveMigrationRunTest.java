@@ -1,10 +1,12 @@
 package io.github.eyupmiduck.dmlutils;
 
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.enums.ChunkingStrategy;
+import io.github.eyupmiduck.dmlutils.jooq.dml_utils_data.tables.records.MigrationRunRecord;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.Routines;
 import io.github.eyupmiduck.dmlutils.jooq.dml_utils_lib.routines.ResolveMigrationRun;
 import org.jooq.DSLContext;
 import org.jooq.SQLDialect;
+import org.jooq.exception.DataAccessException;
 import org.jooq.impl.DSL;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -243,6 +245,49 @@ class ResolveMigrationRunTest extends PostgresTestBase {
         assertNull(again.getOPartitionWise(), "the completed path leaves partition_wise NULL");
         assertNull(again.getOKeyColumns(), "the completed path leaves the key columns NULL");
         assertNull(again.getOKeyKinds(), "the completed path leaves the key kinds NULL");
+    }
+
+    /**
+     * A cancelled unarchived run is terminal: resolving the label fails closed
+     * with {@code 55000} naming the archive action, the cancelled row keeps the
+     * label, and archiving frees it for a new run.
+     */
+    @Test
+    void rejectsACancelledUnarchivedRunUntilItIsArchived() {
+        seedBigint(1, 2, 3);
+        String label = uniqueLabel("resolve-cancelled");
+        ResolveMigrationRun cancelled = resolve(label, TEMPLATE, "t", 2, 1);
+        assertEquals(cancelled.getORunId(),
+                io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .cancelMigrationRun(dsl.configuration(), label),
+                "the run is cancelled");
+
+        DataAccessException failure = assertThrows(DataAccessException.class,
+                () -> resolve(label, TEMPLATE, "t", 2, 1));
+
+        assertEquals("55000", failure.sqlState());
+        assertTrue(failure.getMessage().contains("cancelled"),
+                () -> "the message should say the run is cancelled: " + failure.getMessage());
+        assertTrue(failure.getMessage().contains("archive_migration_run"),
+                () -> "the message should name the archive action: " + failure.getMessage());
+        assertEquals(1, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "the cancelled row still owns the label");
+        MigrationRunRecord run = dsl.selectFrom(MIGRATION_RUN)
+                .where(MIGRATION_RUN.RUN_ID.eq(cancelled.getORunId()))
+                .fetchOne();
+        assertNotNull(run.getCancelledAt(), "the run stays cancelled");
+        assertNull(run.getCompletedAt(), "a cancelled run is not completed");
+
+        assertEquals(cancelled.getORunId(),
+                io.github.eyupmiduck.dmlutils.jooq.dml_utils.Routines
+                        .archiveMigrationRun(dsl.configuration(), label));
+        ResolveMigrationRun replacement = resolve(label, TEMPLATE, "t", 2, 1);
+
+        assertNotEquals(cancelled.getORunId(), replacement.getORunId(),
+                "archiving frees the label for a new run");
+        assertEquals(Boolean.FALSE, replacement.getOAlreadyCompleted());
+        assertEquals(2, dsl.fetchCount(MIGRATION_RUN, MIGRATION_RUN.LABEL.eq(label)),
+                "the archived and the replacement run both exist");
     }
 
     /**

@@ -279,10 +279,8 @@ class PauseMigrationRunTest extends PostgresTestBase {
                 DSLContext callerDsl = DSL.using(caller, SQLDialect.POSTGRES);
                 assertSqlState("55P03", () -> {
                     switch (routine) {
-                        case "pause_migration_run" ->
-                                Routines.pauseMigrationRun(callerDsl.configuration(), label);
-                        case "resume_migration_run" ->
-                                Routines.resumeMigrationRun(callerDsl.configuration(), label);
+                        case "pause_migration_run" -> Routines.pauseMigrationRun(callerDsl.configuration(), label);
+                        case "resume_migration_run" -> Routines.resumeMigrationRun(callerDsl.configuration(), label);
                         default -> throw new IllegalArgumentException("unknown routine: " + routine);
                     }
                 });

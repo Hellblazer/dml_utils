@@ -257,7 +257,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
         return OffsetDateTime.parse("2026-01-01T00:00:00Z").plusSeconds(second);
     }
 
-            /**
+    /**
      * Returns the default bigint fixture's schema name.
      *
      * @return the schema name
@@ -305,7 +305,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 "bigint position");
     }
 
-                /**
+    /**
      * Grants the test harness its extra setup privileges after the template
      * database is migrated.
      *
@@ -460,7 +460,7 @@ abstract class PostgresTestBase extends io.github.eyupmiduck.changelogvalidator.
                 MIGRATION_BOUNDARY.RUN_ID.eq(runId).and(MIGRATION_BOUNDARY.COMPLETED_AT.isNotNull()));
     }
 
-            /**
+    /**
      * Creates a void function over the composite fixture that appends a value to
      * each processed row's payload, so processing a row twice is observable.
      *

@@ -1250,6 +1250,12 @@ GRANT EXECUTE ON FUNCTION dml_utils_lib.populate_single_relation_boundaries(
     ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.find_active_migration_run(dml_utils_data.non_null_text) FROM public;
 GRANT EXECUTE ON FUNCTION dml_utils_lib.find_active_migration_run(dml_utils_data.non_null_text) TO dml_utils_caller;
+REVOKE EXECUTE ON FUNCTION dml_utils_lib.find_terminal_migration_run(
+    dml_utils_data.non_null_text
+    ) FROM public;
+GRANT EXECUTE ON FUNCTION dml_utils_lib.find_terminal_migration_run(
+    dml_utils_data.non_null_text
+    ) TO dml_utils_caller;
 REVOKE EXECUTE ON FUNCTION dml_utils_lib.resume_migration_run(
     dml_utils_data.migration_run,
     dml_utils_data.non_null_text,
