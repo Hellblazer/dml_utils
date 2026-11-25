@@ -3,6 +3,7 @@ package io.github.eyupmiduck.dmlutils;
 import io.github.eyupmiduck.changelogvalidator.testing.ProjectProfile;
 import io.github.eyupmiduck.changelogvalidator.testing.PublishedRelease;
 import io.github.eyupmiduck.changelogvalidator.testing.UpgradeContract;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**

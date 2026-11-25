@@ -76,7 +76,7 @@ class InstallRoleBootstrapTest extends PostgresTestBase {
         }
     }
 
-            /**
+    /**
      * The loser of the role race succeeds: its {@code NOT EXISTS} passes while the
      * winner's {@code CREATE ROLE} is uncommitted, the insert then hits
      * {@code pg_authid}'s unique index and must be absorbed rather than failing

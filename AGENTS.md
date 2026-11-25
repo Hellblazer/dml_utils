@@ -360,12 +360,12 @@ jOOQ codegen and tests. CI: GitHub Actions (`.github/workflows/maven.yml`) runs
   procedure; do not hand-write SQL for an object jOOQ generates.
 - Do not duplicate database schema definitions in Java.
 - Raw SQL is reserved for what the DSL cannot express clearly:
-  - DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`) and schema or extension setup;
-  - `pg_catalog` and `information_schema` introspection;
-  - session settings, locks and privileges (`SET`, `LOCK`, `GRANT`, `REVOKE`);
-  - deliberately malformed input that exercises an error path, and PostgreSQL
-    features with no clear jOOQ equivalent (for example `generate_series` or
-    interval arithmetic).
+    - DDL (`CREATE`, `ALTER`, `DROP`, `TRUNCATE`) and schema or extension setup;
+    - `pg_catalog` and `information_schema` introspection;
+    - session settings, locks and privileges (`SET`, `LOCK`, `GRANT`, `REVOKE`);
+    - deliberately malformed input that exercises an error path, and PostgreSQL
+      features with no clear jOOQ equivalent (for example `generate_series` or
+      interval arithmetic).
 - For dynamically named test fixtures, use `DSL.table(DSL.name(...))` and
   `DSL.field(...)` where it keeps the statement clear; a raw statement is
   acceptable when the fixture is simpler that way. Keep any raw SQL local to

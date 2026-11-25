@@ -190,8 +190,8 @@ heap rewrites safe; it does not replace a quiescent source.
 
 ## Migration run lifecycle
 
-A label addresses at most one non-archived run
-(`migration_run_label_active_idx`). A run is *active* while it is not archived,
+A label addresses at most one non-archived run (`migration_run_label_active_idx`). A run is *active* while it is not
+archived,
 completed or cancelled; `paused_at` is a flag on an active run, not a separate
 terminal state.
 
@@ -210,16 +210,16 @@ terminal state.
         cancelled (terminal) --------------------------------> archived --> deleted (archive rows only)
 ```
 
-| Transition | Routine | Stored change |
-| --- | --- | --- |
-| create | `resolve_migration_run` -> `create_migration_run` / `populate_migration_boundaries` | inserts the run and its boundaries, sets `started_at` and `boundaries_calculated_at` |
-| process | `run_migration_chunks` | completes boundaries and `completed_at` when every chunk finishes |
-| pause | `pause_migration_run` | sets `paused_at` |
-| resume | `resume_migration_run` | clears `paused_at` (no-op when not paused) |
-| complete | `complete_migration_run` | sets `completed_at`, clears `paused_at` |
-| cancel | `cancel_migration_run` | sets `cancelled_at`, clears `paused_at`, marks unclaimed boundaries cancelled |
-| archive | `archive_migration_run` | cancels an unfinished run, then sets `archived_at`; frees the label |
-| delete | `delete_archived_migration_runs` | deletes archived rows |
+| Transition | Routine                                                                             | Stored change                                                                        |
+|------------|-------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------|
+| create     | `resolve_migration_run` -> `create_migration_run` / `populate_migration_boundaries` | inserts the run and its boundaries, sets `started_at` and `boundaries_calculated_at` |
+| process    | `run_migration_chunks`                                                              | completes boundaries and `completed_at` when every chunk finishes                    |
+| pause      | `pause_migration_run`                                                               | sets `paused_at`                                                                     |
+| resume     | `resume_migration_run`                                                              | clears `paused_at` (no-op when not paused)                                           |
+| complete   | `complete_migration_run`                                                            | sets `completed_at`, clears `paused_at`                                              |
+| cancel     | `cancel_migration_run`                                                              | sets `cancelled_at`, clears `paused_at`, marks unclaimed boundaries cancelled        |
+| archive    | `archive_migration_run`                                                             | cancels an unfinished run, then sets `archived_at`; frees the label                  |
+| delete     | `delete_archived_migration_runs`                                                    | deletes archived rows                                                                |
 
 `completed` and `cancelled` are terminal. Archiving is the transition that frees
 the label; deleting only removes archived history. A completed unarchived run is
@@ -229,16 +229,16 @@ new run, because its non-archived row still owns the label.
 
 The routines intentionally read different subsets of the lifecycle:
 
-| Routine | Row predicate / handling |
-| --- | --- |
-| `find_terminal_migration_run` | `archived_at IS NULL AND (completed_at IS NOT NULL OR cancelled_at IS NOT NULL)` |
-| `find_active_migration_run` | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL` |
-| `resolve_migration_run` | terminal first (`completed_at` -> `o_already_completed`; `cancelled_at` -> `55000`), then active, otherwise create |
-| `pause_migration_run` / `resume_migration_run` / `cancel_migration_run` | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL` |
-| `complete_migration_run` | not completed or cancelled, boundaries calculated, all chunks completed |
-| `archive_migration_run` | `archived_at IS NULL`; cancels an unfinished run first |
-| `delete_archived_migration_runs` | `archived_at IS NOT NULL` |
-| `run_migration_chunks` | completed -> return; cancelled -> `55000`; paused -> drain and return; otherwise process |
+| Routine                                                                 | Row predicate / handling                                                                                           |
+|-------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| `find_terminal_migration_run`                                           | `archived_at IS NULL AND (completed_at IS NOT NULL OR cancelled_at IS NOT NULL)`                                   |
+| `find_active_migration_run`                                             | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`                                            |
+| `resolve_migration_run`                                                 | terminal first (`completed_at` -> `o_already_completed`; `cancelled_at` -> `55000`), then active, otherwise create |
+| `pause_migration_run` / `resume_migration_run` / `cancel_migration_run` | `archived_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL`                                            |
+| `complete_migration_run`                                                | not completed or cancelled, boundaries calculated, all chunks completed                                            |
+| `archive_migration_run`                                                 | `archived_at IS NULL`; cancels an unfinished run first                                                             |
+| `delete_archived_migration_runs`                                        | `archived_at IS NOT NULL`                                                                                          |
+| `run_migration_chunks`                                                  | completed -> return; cancelled -> `55000`; paused -> drain and return; otherwise process                           |
 
 ## `dml_utils`
 
